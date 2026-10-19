@@ -39,6 +39,7 @@ enum Role: string
                 Permission::PalletsPalletize,
                 Permission::PalletsLabel,
                 Permission::PalletsReprint,
+                Permission::ScansReprocess,
                 Permission::ReceiptsRequest,
                 Permission::ReceiptsReconcile,
                 Permission::DiscrepanciesResolve,

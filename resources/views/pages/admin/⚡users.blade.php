@@ -40,7 +40,7 @@ new #[Title('Usuarios')] class extends Component {
     public ?int $editingId = null;
 
     /** @var array{name: string, email: string, role: string} */
-    public array $form = ['name' => '', 'email' => '', 'role' => 'member'];
+    public array $form = ['name' => '', 'email' => '', 'role' => 'viewer'];
 
     public function updated(string $property): void
     {
@@ -60,7 +60,7 @@ new #[Title('Usuarios')] class extends Component {
     {
         $user = User::with('roles')->findOrFail($userId);
         $this->editingId = $user->id;
-        $this->form = ['name' => $user->name, 'email' => $user->email, 'role' => $user->roles->first()->name ?? Role::Member->value];
+        $this->form = ['name' => $user->name, 'email' => $user->email, 'role' => $user->roles->first()->name ?? Role::Viewer->value];
         $this->resetValidation();
         Flux::modal('user-form')->show();
     }
