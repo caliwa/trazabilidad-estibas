@@ -8,6 +8,19 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Pallet held by a SAP document request, with the quantities sent for it.
+ *
+ * @property int $id
+ * @property int $pallet_id
+ * @property PalletHold $hold_status
+ * @property int $boxes
+ * @property int $box_conversion_factor_id
+ * @property string $units_per_box
+ * @property string $sap_quantity
+ * @property string $item_code
+ * @property string $lot_code
+ * @property int|null $sap_line_num
+ * @property int $inventory_transfer_id
+ * @property int $pallet_audit_id
  */
 class InventoryTransferPallet extends Model
 {

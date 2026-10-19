@@ -113,4 +113,12 @@ class UserAdministrationTest extends TestCase
         $this->page()->call('toggleActive', $worker->id);
         $this->assertTrue($worker->fresh()->isActive());
     }
+
+    public function test_new_users_and_users_without_a_role_default_to_the_least_privileged_one(): void
+    {
+        $this->page()->call('create')->assertSet('form.role', Role::Viewer->value);
+
+        $roleless = User::factory()->create();
+        $this->page()->call('edit', $roleless->id)->assertSet('form.role', Role::Viewer->value);
+    }
 }

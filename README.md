@@ -11,7 +11,7 @@ Trazabilidad individual de estibas desde el primer escaneo de cajas en planta ha
 | 0 | Diagnóstico, arquitectura, decisiones pendientes | Hecha ([docs/fase-0-diagnostico.md](docs/fase-0-diagnostico.md)) |
 | 1 | Persistencia, estados, restricciones, bitácora, roles, contrato SAP y simulador | Hecha ([docs/fase-1-persistencia.md](docs/fase-1-persistencia.md)) |
 | 2 | Motor de estibado (sensores, idempotencia, concurrencia) | Hecha, apagada hasta DP-01 ([docs/fase-2-motor-estibado.md](docs/fase-2-motor-estibado.md)) |
-| 3 | Pantalla de producción, paletizado, etiquetas, tablero | Pendiente |
+| 3 | Pantalla de producción, paletizado, etiquetas, tablero | Hecha; etiqueta aplicada espera DP-03 ([docs/fase-3-produccion.md](docs/fase-3-produccion.md)) |
 | 4 | Recibos de producción en SAP | Pendiente |
 | 5 | Conteo ciego y discrepancias | Pendiente |
 | 6 | Traslados 04 → 05 | Pendiente |
@@ -45,4 +45,5 @@ Las pruebas corren contra PostgreSQL real, no SQLite: las restricciones, índice
 - [Fase 0: diagnóstico y decisiones pendientes](docs/fase-0-diagnostico.md)
 - [Fase 1: persistencia e invariantes](docs/fase-1-persistencia.md)
 - [Fase 2: motor de estibado](docs/fase-2-motor-estibado.md)
+- [Fase 3: producción, etiquetas y tablero](docs/fase-3-produccion.md)
 - [Despliegue](docs/despliegue.md) (base heredada, se reescribe en la Fase 7)

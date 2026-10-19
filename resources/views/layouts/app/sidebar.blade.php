@@ -18,6 +18,18 @@
                     <livewire:notifications.bell />
                 </flux:sidebar.group>
 
+                @canany(['pallets.operate', 'pallets.view'])
+                    <flux:sidebar.group heading="Producción" class="grid">
+                        @can('pallets.operate')
+                            <flux:sidebar.item icon="cog-6-tooth" :href="route('production.station')" :current="request()->routeIs('production.station')" wire:navigate>Estación de producción</flux:sidebar.item>
+                        @endcan
+                        @can('pallets.view')
+                            <flux:sidebar.item icon="squares-2x2" :href="route('pallets.index')" :current="request()->routeIs('pallets.index', 'pallets.show')" wire:navigate>Estibas</flux:sidebar.item>
+                            <flux:sidebar.item icon="exclamation-triangle" :href="route('pallets.rejected')" :current="request()->routeIs('pallets.rejected')" wire:navigate>Lecturas rechazadas</flux:sidebar.item>
+                        @endcan
+                    </flux:sidebar.group>
+                @endcanany
+
                 @canany(['users.manage', 'audit.view'])
                     <flux:sidebar.group heading="Administración" class="grid">
                         @can('users.manage')

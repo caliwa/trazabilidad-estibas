@@ -12,7 +12,6 @@ use App\Models\PalletStandard;
 use App\Models\ProductionOrder;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
-use Illuminate\Support\Str;
 
 /**
  * A new pallet always starts in EN_ESTIBADO (the insert trigger enforces
@@ -30,7 +29,7 @@ class PalletFactory extends Factory
     {
         return [
             'pallet_code' => 'EST-'.fake()->unique()->numerify('########'),
-            'qr_token' => Str::lower(Str::random(32)),
+            'qr_token' => bin2hex(random_bytes(16)),
             'production_order_id' => ProductionOrder::factory(),
             'item_id' => fn (array $attributes) => ProductionOrder::query()->whereKey($attributes['production_order_id'])->value('item_id'),
             'production_order_ref' => fn (array $attributes) => ProductionOrder::query()->whereKey($attributes['production_order_id'])->value('ref'),

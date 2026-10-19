@@ -8,6 +8,12 @@ return [
         'digits' => (int) env('PALLET_CODE_DIGITS', 8),
     ],
 
+    // Printable label size. Final design, printer and protocol are DP-07.
+    'label' => [
+        'width_mm' => (int) env('LABEL_WIDTH_MM', 100),
+        'height_mm' => (int) env('LABEL_HEIGHT_MM', 150),
+    ],
+
     // Scan events accepted per device per minute before answering 429.
     'scan_rate_per_minute' => (int) env('TRACE_SCAN_RATE_PER_MINUTE', 300),
 

@@ -16,6 +16,8 @@ enum Permission: string
     /** Print the label and confirm it was applied. */
     case PalletsLabel = 'pallets.label';
     case PalletsReprint = 'pallets.reprint';
+    /** Evaluate a rejected scan event again after fixing a master. */
+    case ScansReprocess = 'scans.reprocess';
     case ReceiptsRequest = 'receipts.request';
     case ReceiptsReconcile = 'receipts.reconcile';
     /** Blind count at the warehouse. Never grants seeing expected quantities. */
