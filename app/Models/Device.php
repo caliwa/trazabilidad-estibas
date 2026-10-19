@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonImmutable;
 use Database\Factories\DeviceFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -10,6 +11,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * Sensor or reader that posts scan events. Authenticates with a token whose
  * sha256 is the only thing stored.
+ *
+ * @property int $id
+ * @property string $code
+ * @property string $name
+ * @property string $kind
+ * @property string $token_hash
+ * @property bool $active
+ * @property CarbonImmutable|null $last_seen_at
  */
 class Device extends Model
 {

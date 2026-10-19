@@ -7,12 +7,12 @@ use App\Domain\Pallets\Enums\CloseType;
 use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Transfers\Enums\TransferStatus;
+use Carbon\CarbonImmutable;
 use Database\Factories\PalletFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Carbon;
 
 /**
  * One physical pallet: exactly one production order, item and lot.
@@ -41,12 +41,12 @@ use Illuminate\Support\Carbon;
  * @property ReceiptStatus $receipt_status
  * @property AuditStatus $audit_status
  * @property TransferStatus $transfer_status
- * @property Carbon $started_at
- * @property Carbon|null $finished_at
+ * @property CarbonImmutable $started_at
+ * @property CarbonImmutable|null $finished_at
  * @property int|null $closed_by
- * @property Carbon|null $palletized_at
+ * @property CarbonImmutable|null $palletized_at
  * @property int|null $palletized_by
- * @property Carbon|null $labeled_at
+ * @property CarbonImmutable|null $labeled_at
  * @property int|null $labeled_by
  * @property int $label_print_count
  */
