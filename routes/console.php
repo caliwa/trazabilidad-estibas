@@ -10,3 +10,6 @@ Artisan::command('inspire', function () {
 
 // Safety net for SAP documents (lost jobs, dead workers, pending reconciliations).
 Schedule::command('sap:sweep')->everyMinute()->withoutOverlapping();
+
+// Blind counts nobody finished.
+Schedule::command('audits:expire-counts')->everyFiveMinutes()->withoutOverlapping();

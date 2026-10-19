@@ -6,6 +6,9 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::livewire('production', 'pages::production.station')->middleware('can:pallets.operate')->name('production.station');
 
+    Route::livewire('cedi/count', 'pages::cedi.count')->middleware('can:audits.count')->name('cedi.count');
+    Route::livewire('discrepancies', 'pages::cedi.discrepancies')->middleware('can:discrepancies.resolve')->name('discrepancies.index');
+
     Route::livewire('receipts', 'pages::receipts.index')->middleware('can:receipts.request')->name('receipts.index');
 
     Route::prefix('pallets')->name('pallets.')->group(function () {

@@ -13,7 +13,7 @@ Trazabilidad individual de estibas desde el primer escaneo de cajas en planta ha
 | 2 | Motor de estibado (sensores, idempotencia, concurrencia) | Hecha, apagada hasta DP-01 ([docs/fase-2-motor-estibado.md](docs/fase-2-motor-estibado.md)) |
 | 3 | Pantalla de producción, paletizado, etiquetas, tablero | Hecha; etiqueta aplicada espera DP-03 ([docs/fase-3-produccion.md](docs/fase-3-produccion.md)) |
 | 4 | Recibos de producción en SAP | Hecha contra el simulador; SAP real espera DP-09 ([docs/fase-4-recibos.md](docs/fase-4-recibos.md)) |
-| 5 | Conteo ciego y discrepancias | Pendiente |
+| 5 | Conteo ciego y discrepancias | Hecha; resolución espera DP-04 ([docs/fase-5-auditoria.md](docs/fase-5-auditoria.md)) |
 | 6 | Traslados 04 → 05 | Pendiente |
 | 7 | Calidad y despliegue | Pendiente |
 
@@ -30,7 +30,7 @@ npm install && npm run build
 composer dev
 ```
 
-El scheduler (`php artisan schedule:run` cada minuto) corre `sap:sweep`, la red de seguridad de los documentos SAP. Los envíos a SAP van en la cola `sap`: el worker debe escucharla (`php artisan queue:work --queue=sap,default`).
+El scheduler (`php artisan schedule:run` cada minuto) corre `sap:sweep`, la red de seguridad de los documentos SAP, y `audits:expire-counts`, que libera los conteos ciegos abandonados. Los envíos a SAP van en la cola `sap`: el worker debe escucharla (`php artisan queue:work --queue=sap,default`).
 
 En producción el primer administrador se crea con `php artisan app:create-admin`. Los sensores se registran con `php artisan devices:register <código> "<nombre>"`, que muestra el token una sola vez.
 
@@ -49,4 +49,5 @@ Las pruebas corren contra PostgreSQL real, no SQLite: las restricciones, índice
 - [Fase 2: motor de estibado](docs/fase-2-motor-estibado.md)
 - [Fase 3: producción, etiquetas y tablero](docs/fase-3-produccion.md)
 - [Fase 4: recibos de producción](docs/fase-4-recibos.md)
+- [Fase 5: conteo ciego y discrepancias](docs/fase-5-auditoria.md)
 - [Despliegue](docs/despliegue.md) (base heredada, se reescribe en la Fase 7)

@@ -30,6 +30,17 @@
                     </flux:sidebar.group>
                 @endcanany
 
+                @canany(['audits.count', 'discrepancies.resolve'])
+                    <flux:sidebar.group heading="CEDI" class="grid">
+                        @can('audits.count')
+                            <flux:sidebar.item icon="qr-code" :href="route('cedi.count')" :current="request()->routeIs('cedi.count')" wire:navigate>Conteo ciego</flux:sidebar.item>
+                        @endcan
+                        @can('discrepancies.resolve')
+                            <flux:sidebar.item icon="exclamation-triangle" :href="route('discrepancies.index')" :current="request()->routeIs('discrepancies.*')" wire:navigate>Discrepancias</flux:sidebar.item>
+                        @endcan
+                    </flux:sidebar.group>
+                @endcanany
+
                 @can('receipts.request')
                     <flux:sidebar.group heading="SAP" class="grid">
                         <flux:sidebar.item icon="inbox-arrow-down" :href="route('receipts.index')" :current="request()->routeIs('receipts.*')" wire:navigate>Recibos de producción</flux:sidebar.item>

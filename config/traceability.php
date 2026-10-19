@@ -14,6 +14,9 @@ return [
         'height_mm' => (int) env('LABEL_HEIGHT_MM', 150),
     ],
 
+    // A blind count left open longer than this is cancelled so the pallet can be counted again.
+    'count_timeout_minutes' => (int) env('TRACE_COUNT_TIMEOUT_MINUTES', 60),
+
     // Scan events accepted per device per minute before answering 429.
     'scan_rate_per_minute' => (int) env('TRACE_SCAN_RATE_PER_MINUTE', 300),
 
@@ -29,6 +32,12 @@ return [
         // DP-03: how the label is confirmed as applied. null = not decided.
         // Expected values once approved: "print", "button" or "scan".
         'label_confirmation' => env('TRACE_LABEL_CONFIRMATION'),
+
+        // DP-04: how discrepancies are resolved. Both off until the policy is approved.
+        // A reaudit is a second blind count by someone who has not counted that pallet.
+        'discrepancy_reaudit_enabled' => (bool) env('TRACE_DISCREPANCY_REAUDIT_ENABLED', false),
+        // Actions an administrator may close a case with, e.g. "AJUSTE_SAP_REGISTRADO,RECHAZO_FISICO".
+        'discrepancy_close_actions' => array_values(array_filter(array_map('trim', explode(',', (string) env('TRACE_DISCREPANCY_CLOSE_ACTIONS', ''))))),
 
         // DP-05: several pallets in one transfer document.
         'grouped_transfers_enabled' => (bool) env('TRACE_GROUPED_TRANSFERS_ENABLED', false),

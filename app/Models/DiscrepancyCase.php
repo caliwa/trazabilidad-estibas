@@ -3,11 +3,24 @@
 namespace App\Models;
 
 use App\Domain\Audits\Enums\DiscrepancyStatus;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Case opened when a blind count differs from the system quantity.
+ *
+ * @property int $id
+ * @property int $pallet_id
+ * @property int $pallet_audit_id
+ * @property DiscrepancyStatus $status
+ * @property CarbonImmutable $opened_at
+ * @property string|null $resolution_action
+ * @property string|null $resolution_notes
+ * @property array<string, mixed>|null $evidence
+ * @property int|null $resolved_by
+ * @property CarbonImmutable|null $resolved_at
+ * @property int|null $reaudit_id
  */
 class DiscrepancyCase extends Model
 {

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Domain\Audits\Enums\CountStatus;
+use Carbon\CarbonImmutable;
 use Database\Factories\PalletAuditFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,6 +12,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * One blind count attempt. expected_boxes is server-side evidence and must
  * never be serialized to the counting operator.
+ *
+ * @property int $id
+ * @property int $pallet_id
+ * @property int $attempt
+ * @property int $operator_id
+ * @property CountStatus $status
+ * @property int|null $counted_boxes
+ * @property int|null $expected_boxes
+ * @property CarbonImmutable $started_at
+ * @property CarbonImmutable|null $completed_at
+ * @property int|null $reaudit_of_id
  */
 class PalletAudit extends Model
 {
