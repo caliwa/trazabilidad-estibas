@@ -35,7 +35,14 @@ class FakeSapGateway implements SapGateway
 
     private int $failingLookups = 0;
 
-    private int $nextDocEntry = 1000;
+    private int $nextDocEntry;
+
+    public function __construct()
+    {
+        // Like SAP, DocEntry never repeats, also across processes running at once
+        // (the concurrency tests): each process numbers in its own block.
+        $this->nextDocEntry = (getmypid() % 20_000) * 100_000 + 1;
+    }
 
     public function queueReceiptScenarios(FakeScenario ...$scenarios): self
     {
@@ -59,6 +66,21 @@ class FakeSapGateway implements SapGateway
         $this->failingLookups += $count;
 
         return $this;
+    }
+
+    /**
+     * Replaces a stored receipt, to simulate a document in SAP that does not
+     * match what was requested (edited by someone, or a different request).
+     *
+     * @param  callable(SapDocument): SapDocument  $change
+     */
+    public function alterReceipt(string $correlation, callable $change): void
+    {
+        foreach ($this->documents[self::RECEIPTS] as $i => $document) {
+            if ($document->correlationId === $correlation) {
+                $this->documents[self::RECEIPTS][$i] = $change($document);
+            }
+        }
     }
 
     public function receiptWriteCalls(): int
@@ -126,7 +148,7 @@ class FakeSapGateway implements SapGateway
         $docEntry = $this->nextDocEntry++;
         $document = new SapDocument(
             docEntry: $docEntry,
-            docNum: $docEntry + 50_000,
+            docNum: $docEntry,
             correlationId: $correlation,
             lines: array_map(
                 fn (DocumentLine $line, int $i) => new SapDocumentLine($i, $line->itemCode, $line->lotCode, $line->quantity, $line->warehouse),

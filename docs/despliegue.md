@@ -153,11 +153,11 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ## 7. Worker de colas (Supervisor)
 
-Las notificaciones se envían en cola. `/etc/supervisor/conf.d/trazabilidad-worker.conf`:
+Las notificaciones y los envíos a SAP (cola `sap`, que va primero) se procesan en cola. `/etc/supervisor/conf.d/trazabilidad-worker.conf`:
 
 ```ini
 [program:trazabilidad-worker]
-command=php /var/www/trazabilidad/artisan queue:work --sleep=3 --tries=3 --max-time=3600
+command=php /var/www/trazabilidad/artisan queue:work --queue=sap,default --sleep=3 --tries=3 --max-time=3600
 user=www-data
 numprocs=1
 autostart=true

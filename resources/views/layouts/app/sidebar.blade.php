@@ -30,6 +30,12 @@
                     </flux:sidebar.group>
                 @endcanany
 
+                @can('receipts.request')
+                    <flux:sidebar.group heading="SAP" class="grid">
+                        <flux:sidebar.item icon="inbox-arrow-down" :href="route('receipts.index')" :current="request()->routeIs('receipts.*')" wire:navigate>Recibos de producción</flux:sidebar.item>
+                    </flux:sidebar.group>
+                @endcan
+
                 @canany(['users.manage', 'audit.view'])
                     <flux:sidebar.group heading="Administración" class="grid">
                         @can('users.manage')
