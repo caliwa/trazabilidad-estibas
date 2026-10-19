@@ -1,0 +1,19 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - vendor/nesbot/carbon/extension.neon
+
+parameters:
+    paths:
+        - app/
+        - bootstrap/app.php
+        - config/
+        - database/
+        - routes/
+
+    level: 7
+
+    ignoreErrors:
+        # Used only by the Livewire single-file profile page (resources/views), which PHPStan does not analyse.
+        -
+            identifier: trait.unused
+            path: app/Concerns/ProfileValidationRules.php

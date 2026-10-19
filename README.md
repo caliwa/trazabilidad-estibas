@@ -1,0 +1,47 @@
+# Trazabilidad de estibas
+
+Trazabilidad individual de estibas desde el primer escaneo de cajas en planta hasta la recepción en el almacén 04 y el traslado al 05, confirmados por SAP Business One.
+
+**Stack:** Laravel 13 · Livewire 4 · PHP 8.3 · PostgreSQL 16 · Tailwind CSS 4 · Flux UI · spatie/laravel-permission.
+
+## Estado
+
+| Fase | Contenido | Estado |
+|---|---|---|
+| 0 | Diagnóstico, arquitectura, decisiones pendientes | Hecha ([docs/fase-0-diagnostico.md](docs/fase-0-diagnostico.md)) |
+| 1 | Persistencia, estados, restricciones, bitácora, roles, contrato SAP y simulador | Hecha ([docs/fase-1-persistencia.md](docs/fase-1-persistencia.md)) |
+| 2 | Motor de estibado (sensores, idempotencia, concurrencia) | Pendiente |
+| 3 | Pantalla de producción, paletizado, etiquetas, tablero | Pendiente |
+| 4 | Recibos de producción en SAP | Pendiente |
+| 5 | Conteo ciego y discrepancias | Pendiente |
+| 6 | Traslados 04 → 05 | Pendiente |
+| 7 | Calidad y despliegue | Pendiente |
+
+Nada está validado contra SAP real: solo existe el simulador (`SAP_DRIVER=fake`), que se rechaza en producción.
+
+## Puesta en marcha local
+
+```bash
+composer install
+cp .env.example .env            # ajustar DB_PASSWORD
+php artisan key:generate
+php artisan migrate --seed      # roles y admin@example.com / password (solo fuera de producción)
+npm install && npm run build
+composer dev
+```
+
+En producción el primer administrador se crea con `php artisan app:create-admin`.
+
+## Pruebas
+
+```bash
+composer test    # Pint + PHPStan (nivel 7) + PHPUnit contra PostgreSQL (base trazabilidad_testing)
+```
+
+Las pruebas corren contra PostgreSQL real, no SQLite: las restricciones, índices parciales y triggers son parte de las reglas del negocio.
+
+## Documentación
+
+- [Fase 0: diagnóstico y decisiones pendientes](docs/fase-0-diagnostico.md)
+- [Fase 1: persistencia e invariantes](docs/fase-1-persistencia.md)
+- [Despliegue](docs/despliegue.md) (base heredada, se reescribe en la Fase 7)
