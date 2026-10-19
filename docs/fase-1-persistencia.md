@@ -36,7 +36,7 @@ Dejar la base del sistema: tablas, estados por dimensión, reglas que la base de
 - **Cantidades exactas.** `numeric(18,6)` en la base, `Quantity` en PHP con aritmética de enteros escalados (no hace falta `bcmath`). La base exige `sap_quantity = boxes × units_per_box` exacto. Si SAP necesita redondeo por unidad de medida, se revisa con DP-02.
 - **Unicidad del evento por dispositivo.** Hasta cerrar DP-01, `external_event_id` es único por dispositivo.
 - **Un evento rechazado se puede aceptar después, una sola vez.** Así se reprocesa tras corregir un maestro sin contar dos veces. El trigger impide cambiar lo que envió el sensor.
-- **Outbox.** Con la cola `database` en la misma conexión de PostgreSQL, encolar un job dentro de la transacción ya es atómico. Se documenta como invariante; la prueba va en la Fase 2 con el primer job real.
+- **Outbox.** Con la cola `database` en la misma conexión de PostgreSQL, encolar un job dentro de la transacción ya es atómico. Se documenta como invariante; la prueba va con el primer job real (envío a SAP, Fase 4).
 - **`trace_events` separada de `audit_logs`.** `audit_logs` queda para usuarios y roles. `trace_events` es la bitácora operativa, con trigger contra UPDATE, DELETE y TRUNCATE. Es inmutabilidad a nivel de aplicación: un superusuario de PostgreSQL la puede saltar, para eso están respaldos y control de acceso.
 - **Morph map forzado.** `subject_type` guarda alias cortos (`pallet`, `production_receipt`...) y no nombres de clase.
 - **Contrato SAP sin detalles de Service Layer.** `SapGateway` define solo lo que el sistema necesita. Dos reglas del contrato: un timeout se devuelve como `UNCERTAIN`, nunca como rechazo; y una consulta devuelve `null` solo si SAP demostró que no existe, si no se pudo preguntar lanza `SapLookupFailed`.
@@ -86,6 +86,8 @@ pint --test                       → pasa
 ```
 
 Limitaciones del entorno de esta sesión (no del CI): `phpstan/phpstan` solo se descarga como zip desde un host bloqueado, así que se clonó con git en la versión del lock; `npm run build` no corre porque `fonts.bunny.net` está bloqueado, así que las pruebas usaron un manifest de Vite mínimo. En el CI de GitHub nada de esto aplica.
+
+> **Corrección posterior (Fase 2).** Las columnas `timestamptz` se crearon con precisión de segundos y las fechas se enviaban sin zona horaria, lo que las corría 5 horas. Se corrigió en la Fase 2; ver `docs/fase-2-motor-estibado.md`, sección 5.
 
 ## 7. Riesgos y pendientes
 

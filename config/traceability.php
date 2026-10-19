@@ -8,6 +8,9 @@ return [
         'digits' => (int) env('PALLET_CODE_DIGITS', 8),
     ],
 
+    // Scan events accepted per device per minute before answering 429.
+    'scan_rate_per_minute' => (int) env('TRACE_SCAN_RATE_PER_MINUTE', 300),
+
     /*
     | Switches for behavior that depends on a pending business decision.
     | They stay off until the decision is approved; the code paths that need
