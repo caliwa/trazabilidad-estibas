@@ -14,6 +14,8 @@ use App\Domain\Pallets\Actions\ProcessScanEvent;
 use App\Domain\Pallets\Data\ScanEventData;
 use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Domain\Pallets\Exceptions\PalletRuleViolation;
+use App\Domain\Receipts\Actions\RequestProductionReceipts;
+use App\Domain\Receipts\Exceptions\ReceiptRuleViolation;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Models\Device;
@@ -28,7 +30,7 @@ require __DIR__.'/../../vendor/autoload.php';
 $app = require __DIR__.'/../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
-/** @var array{mode: string, go: string, device_id?: int, user_id?: int, order: string, item: string, lot: string, events?: list<string>, rounds?: int} $job */
+/** @var array{mode: string, go: string, device_id?: int, user_id?: int, order?: string, item?: string, lot?: string, events?: list<string>, rounds?: int, pallet_ids?: list<int>} $job */
 $job = json_decode($argv[1], true, flags: JSON_THROW_ON_ERROR);
 
 config(['traceability.decisions.scan_ingestion_enabled' => true]);
@@ -55,6 +57,17 @@ if ($job['mode'] === 'scan') {
         } catch (Throwable $e) {
             $summary['errors'][] = get_class($e).': '.Str::limit($e->getMessage(), 300);
         }
+    }
+} elseif ($job['mode'] === 'receipt') {
+    $user = User::query()->findOrFail($job['user_id']);
+
+    try {
+        $app->make(RequestProductionReceipts::class)->handle($user, $job['pallet_ids'] ?? [], false, TraceContext::forUser($user, Origin::Job, (string) Str::uuid()));
+        $summary['accepted']++;
+    } catch (ReceiptRuleViolation) {
+        $summary['rejected']++;
+    } catch (Throwable $e) {
+        $summary['errors'][] = get_class($e).': '.Str::limit($e->getMessage(), 300);
     }
 } else {
     $user = User::query()->findOrFail($job['user_id']);
