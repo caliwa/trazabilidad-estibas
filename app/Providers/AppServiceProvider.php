@@ -24,6 +24,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Schema\Builder as SchemaBuilder;
+use Illuminate\Foundation\DevCommands;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -67,6 +68,9 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+
+        // `composer dev`: the SAP jobs live on their own queue.
+        DevCommands::artisan('queue:listen --queue=sap,default --tries=1 --timeout=0', 'queue');
 
         // Per device: a line reads a box every few seconds; this leaves room for bursts and retries.
         RateLimiter::for('scan-events', function (Request $request): Limit {
