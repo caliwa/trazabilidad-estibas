@@ -27,6 +27,8 @@ enum Permission: string
     case TransfersReconcile = 'transfers.reconcile';
     /** Register sensors and readers and rotate their tokens. */
     case DevicesManage = 'devices.manage';
+    /** Operational alerts: queues, workers, SAP errors, pending reconciliations. */
+    case OpsAlerts = 'ops.alerts';
     /** Traceability log (trace_events). */
     case TraceView = 'trace.view';
     /** Administration audit (users and roles). */

@@ -45,6 +45,7 @@ enum Role: string
                 Permission::DiscrepanciesResolve,
                 Permission::TransfersRequest,
                 Permission::TransfersReconcile,
+                Permission::OpsAlerts,
                 Permission::TraceView,
             ],
             self::ProductionOperator => [
