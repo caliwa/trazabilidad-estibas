@@ -2,6 +2,7 @@
 
 namespace App\Domain\Pallets\Actions;
 
+use App\Domain\Operations\EventCounter;
 use App\Domain\Pallets\Data\ResolvedMasters;
 use App\Domain\Pallets\Data\ScanEventData;
 use App\Domain\Pallets\Data\ScanOutcome;
@@ -209,6 +210,7 @@ class ProcessScanEvent
     private function duplicate(PalletScanEvent $existing, ScanEventData $data, TraceContext $ctx): ScanResult
     {
         $mismatch = $existing->payload_hash !== $data->payloadHash;
+        EventCounter::hit('scan_duplicates');
 
         if ($mismatch) {
             // Same id, different content: not counted, but someone has to look at it.

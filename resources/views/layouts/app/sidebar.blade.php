@@ -52,8 +52,11 @@
                     </flux:sidebar.group>
                 @endcanany
 
-                @canany(['users.manage', 'audit.view'])
+                @canany(['users.manage', 'audit.view', 'ops.alerts'])
                     <flux:sidebar.group heading="Administración" class="grid">
+                        @can('ops.alerts')
+                            <flux:sidebar.item icon="bell-alert" :href="route('operations.index')" :current="request()->routeIs('operations.*')" wire:navigate>Estado operativo</flux:sidebar.item>
+                        @endcan
                         @can('users.manage')
                             <flux:sidebar.item icon="users" :href="route('admin.users')" :current="request()->routeIs('admin.users')" wire:navigate>Usuarios</flux:sidebar.item>
                         @endcan

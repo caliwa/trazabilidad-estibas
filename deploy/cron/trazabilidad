@@ -1,0 +1,6 @@
+# /etc/cron.d/trazabilidad
+# Scheduler de Laravel: sap:sweep, audits:expire-counts, latido y ops:check.
+* * * * * trazabilidad cd /var/www/trazabilidad/current && /usr/bin/php artisan schedule:run >> /dev/null 2>&1
+
+# Respaldo diario de PostgreSQL a las 02:15.
+15 2 * * * postgres /var/www/trazabilidad/current/deploy/scripts/backup.sh >> /var/log/trazabilidad-backup.log 2>&1
