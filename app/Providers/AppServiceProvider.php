@@ -6,6 +6,7 @@ use App\Http\Middleware\AuthenticateDevice;
 use App\Integrations\Sap\Contracts\SapGateway;
 use App\Integrations\Sap\Fake\FakeSapGateway;
 use App\Models\BoxConversionFactor;
+use App\Models\BoxLabelBatch;
 use App\Models\Device;
 use App\Models\DiscrepancyCase;
 use App\Models\InventoryTransfer;
@@ -94,6 +95,7 @@ class AppServiceProvider extends ServiceProvider
             'discrepancy_case' => DiscrepancyCase::class,
             'production_receipt' => ProductionReceipt::class,
             'inventory_transfer' => InventoryTransfer::class,
+            'box_label_batch' => BoxLabelBatch::class,
         ]);
     }
 

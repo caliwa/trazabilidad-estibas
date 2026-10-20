@@ -39,6 +39,7 @@ enum Role: string
                 Permission::PalletsPalletize,
                 Permission::PalletsLabel,
                 Permission::PalletsReprint,
+                Permission::BoxLabelsPrint,
                 Permission::ScansReprocess,
                 Permission::ReceiptsRequest,
                 Permission::ReceiptsReconcile,
@@ -52,6 +53,7 @@ enum Role: string
                 Permission::PalletsPalletize,
                 Permission::PalletsLabel,
                 Permission::PalletsReprint,
+                Permission::BoxLabelsPrint,
             ],
             // No pallets.view: the board shows box counts, which would break the blind count.
             self::LogisticsOperator => [

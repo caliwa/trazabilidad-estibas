@@ -8,6 +8,7 @@ use App\Integrations\Sap\Dto\InventoryTransferRequest;
 use App\Integrations\Sap\Dto\ProductionReceiptRequest;
 use App\Integrations\Sap\Dto\SapDocument;
 use App\Integrations\Sap\Dto\SapDocumentLine;
+use App\Integrations\Sap\Dto\SapProductionOrder;
 use App\Integrations\Sap\Dto\SapWriteResult;
 use App\Integrations\Sap\Exceptions\SapLookupFailed;
 
@@ -35,6 +36,9 @@ class FakeSapGateway implements SapGateway
 
     private int $failingLookups = 0;
 
+    /** @var array<string, SapProductionOrder> */
+    private array $productionOrders;
+
     private int $nextDocEntry;
 
     public function __construct()
@@ -42,6 +46,7 @@ class FakeSapGateway implements SapGateway
         // Like SAP, DocEntry never repeats, also across processes running at once
         // (the concurrency tests): each process numbers in its own block.
         $this->nextDocEntry = (getmypid() % 20_000) * 100_000 + 1;
+        $this->productionOrders = FakeSapCatalog::productionOrders();
     }
 
     public function queueReceiptScenarios(FakeScenario ...$scenarios): self
@@ -97,6 +102,14 @@ class FakeSapGateway implements SapGateway
         }
     }
 
+    /**
+     * Adds or replaces a production order, for tests.
+     */
+    public function putProductionOrder(SapProductionOrder $order): void
+    {
+        $this->productionOrders[$order->docNum] = $order;
+    }
+
     public function receiptWriteCalls(): int
     {
         return $this->writeCalls[self::RECEIPTS];
@@ -141,6 +154,17 @@ class FakeSapGateway implements SapGateway
     public function findInventoryTransferByCorrelation(string $requestUuid): ?SapDocument
     {
         return $this->find(self::TRANSFERS, $requestUuid);
+    }
+
+    public function findProductionOrder(string $docNum): ?SapProductionOrder
+    {
+        if ($this->failingLookups > 0) {
+            $this->failingLookups--;
+
+            throw new SapLookupFailed('Consulta a SAP sin respuesta (simulador).');
+        }
+
+        return $this->productionOrders[trim($docNum)] ?? null;
     }
 
     /**

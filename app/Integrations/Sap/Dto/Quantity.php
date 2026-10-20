@@ -48,6 +48,28 @@ final readonly class Quantity
         return new self($fraction === '' ? (string) $whole : "{$whole}.{$fraction}");
     }
 
+    /**
+     * The quantity in millionths, exact.
+     */
+    public function micro(): int
+    {
+        [$int, $dec] = array_pad(explode('.', $this->value), 2, '');
+
+        return (int) $int * 1_000_000 + (int) str_pad($dec, 6, '0');
+    }
+
+    /**
+     * Without padding zeros: "12.000000" reads "12", "2.500000" reads "2.5".
+     */
+    public function display(): string
+    {
+        [$int, $dec] = array_pad(explode('.', $this->value), 2, '');
+        $int = ltrim($int, '0') === '' ? '0' : ltrim($int, '0');
+        $dec = rtrim($dec, '0');
+
+        return $dec === '' ? $int : "{$int}.{$dec}";
+    }
+
     public function equals(self $other): bool
     {
         return self::normalize($this->value) === self::normalize($other->value);

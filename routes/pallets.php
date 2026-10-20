@@ -1,10 +1,17 @@
 <?php
 
+use App\Http\Controllers\BoxLabelController;
 use App\Http\Controllers\PalletLabelController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::livewire('production', 'pages::production.station')->middleware('can:pallets.operate')->name('production.station');
+
+    Route::livewire('box-labels', 'pages::box-labels.index')->middleware('can:box_labels.print')->name('box-labels.index');
+    Route::get('box-labels/batches/{batch}/zpl', [BoxLabelController::class, 'zpl'])
+        ->middleware('can:box_labels.print')
+        ->whereNumber('batch')
+        ->name('box-labels.zpl');
 
     Route::livewire('cedi/count', 'pages::cedi.count')->middleware('can:audits.count')->name('cedi.count');
     Route::livewire('discrepancies', 'pages::cedi.discrepancies')->middleware('can:discrepancies.resolve')->name('discrepancies.index');

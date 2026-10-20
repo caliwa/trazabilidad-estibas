@@ -24,6 +24,11 @@ class ProductionOrder extends Model
         return [
             'is_open' => 'boolean',
             'synced_at' => 'datetime',
+            'order_date' => 'immutable_date',
+            'start_date' => 'immutable_date',
+            'due_date' => 'immutable_date',
+            'sap_header' => 'array',
+            'consulted_at' => 'datetime',
         ];
     }
 
@@ -33,6 +38,14 @@ class ProductionOrder extends Model
     public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class);
+    }
+
+    /**
+     * @return HasMany<BoxLabelBatch, $this>
+     */
+    public function boxLabelBatches(): HasMany
+    {
+        return $this->hasMany(BoxLabelBatch::class);
     }
 
     /**

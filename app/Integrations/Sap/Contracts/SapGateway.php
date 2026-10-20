@@ -5,6 +5,7 @@ namespace App\Integrations\Sap\Contracts;
 use App\Integrations\Sap\Dto\InventoryTransferRequest;
 use App\Integrations\Sap\Dto\ProductionReceiptRequest;
 use App\Integrations\Sap\Dto\SapDocument;
+use App\Integrations\Sap\Dto\SapProductionOrder;
 use App\Integrations\Sap\Dto\SapWriteResult;
 use App\Integrations\Sap\Exceptions\SapLookupFailed;
 
@@ -21,6 +22,8 @@ use App\Integrations\Sap\Exceptions\SapLookupFailed;
  *  - find*ByCorrelation() returns null only when SAP proved there is no
  *    document with that correlation. When it cannot tell, it throws
  *    SapLookupFailed. "Not found" and "could not ask" are never the same.
+ *  - findProductionOrder() follows the same rule: null means SAP has no
+ *    order with that number.
  */
 interface SapGateway
 {
@@ -37,4 +40,11 @@ interface SapGateway
      * @throws SapLookupFailed
      */
     public function findInventoryTransferByCorrelation(string $requestUuid): ?SapDocument;
+
+    /**
+     * Header of the production order with this document number (the "Nº" of the form).
+     *
+     * @throws SapLookupFailed
+     */
+    public function findProductionOrder(string $docNum): ?SapProductionOrder;
 }

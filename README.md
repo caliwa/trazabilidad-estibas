@@ -16,6 +16,7 @@ Trazabilidad individual de estibas desde el primer escaneo de cajas en planta ha
 | 5 | Conteo ciego y discrepancias | Hecha; resolución espera DP-04 ([docs/fase-5-auditoria.md](docs/fase-5-auditoria.md)) |
 | 6 | Transferencia 04 → 05 | Hecha contra el simulador. Desde el cambio de proceso la hace el conteo ciego aprobado ([docs/fase-6-traslados.md](docs/fase-6-traslados.md)) |
 | 7 | Calidad, alertas, seguridad y despliegue | Hecha; despliegue sin probar en un servidor ([docs/fase-7-calidad-despliegue.md](docs/fase-7-calidad-despliegue.md)) |
+| + | Etiquetas de caja: consulta de OF en SAP, QR y ZPL 10 × 8 cm | Hecha contra el simulador; sin probar en una Zebra ([docs/etiquetas-de-caja.md](docs/etiquetas-de-caja.md)) |
 
 Nada está validado contra SAP real: solo existe el simulador (`SAP_DRIVER=fake`), que se rechaza en producción.
 
@@ -58,3 +59,4 @@ Las pruebas corren contra PostgreSQL real, no SQLite: las restricciones, índice
 - [Despliegue](docs/despliegue.md)
 - [Operación y soporte](docs/operacion.md)
 - [Datos de demostración](docs/demo.md)
+- [Etiquetas de caja](docs/etiquetas-de-caja.md)
