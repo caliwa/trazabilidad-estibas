@@ -56,7 +56,7 @@ Un documento queda en **PENDIENTE_CONCILIACION** cuando no se sabe si SAP lo cre
 
 ### 3.2 Cuando llega al límite de envíos
 
-`reconciliation.last_result = no_existe_limite_de_envios`. SAP rechazó o perdió tres envíos. Revisar `integration_attempts` para entender por qué. Cuando esté claro que el documento no existe, en `/receipts` o `/transfers` usar **Marcar fallido** con el motivo. Solo se acepta si SAP confirma en ese momento que no existe. La estiba queda libre para pedirse otra vez.
+`reconciliation.last_result = no_existe_limite_de_envios`. SAP rechazó o perdió tres envíos. Revisar `integration_attempts` para entender por qué. Cuando esté claro que el documento no existe, usar **Marcar fallido** con el motivo: para recibos en `/receipts`, para transferencias en el detalle de la estiba (`/pallets/{id}`). Solo se acepta si SAP confirma en ese momento que no existe. La estiba queda libre para pedirse otra vez.
 
 ### 3.3 Documento que no coincide
 
@@ -71,6 +71,18 @@ Alguien editó el documento en SAP, o otra solicitud usó la misma correlación.
 - No cambiar estados con `UPDATE` en la base. Los triggers lo rechazan, y aunque se pudiera, se perdería la evidencia.
 - No reintentar a mano un job de la cola `sap` desde `failed_jobs` sin revisar primero el estado del documento.
 - No crear en SAP a mano un documento que la aplicación tiene pendiente: la conciliación no lo reconocería sin la correlación.
+
+### 3.5 Transferencias 04 → 05
+
+No hay pantalla de traslados: la transferencia se pide sola cuando el conteo ciego sale bien, en la misma transacción. Cuando una necesita a una persona, se maneja desde el detalle de la estiba, con el permiso `transfers.reconcile`:
+
+| Situación | En el detalle de la estiba |
+|---|---|
+| SAP la rechazó (FALLIDO) | **Solicitar transferencia** la pide otra vez. Revisar antes el motivo en `integration_attempts` |
+| Pendiente de conciliación | **Conciliar** la consulta ya; **Marcar fallida** solo si SAP confirma que no existe |
+| Auditada sin transferencia (estibas contadas antes de este cambio) | **Solicitar transferencia** |
+
+Para encontrarlas: alerta "Pendientes de conciliación" en `/operations`, o el tablero filtrado por estado de traslado.
 
 ## 4. Discrepancias
 

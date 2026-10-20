@@ -50,7 +50,7 @@ class HealthAndPreflightTest extends TestCase
         $this->assertStringContainsString('APP_DEBUG=false', $output);
         $this->assertStringContainsString('FALLA', $output);
         $this->assertStringContainsString('No activar', $output);
-        $this->assertStringContainsString('DP-05 traslado agrupado', $output);
+        $this->assertStringContainsString('DP-04 reauditoría', $output);
     }
 
     public function test_preflight_passes_a_safe_configuration(): void

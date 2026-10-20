@@ -35,7 +35,7 @@ class DiscrepanciesPageTest extends TestCase
         Notification::fake();
         $this->admin = $this->userWithRole(Role::TraceabilityAdmin);
         $operator = $this->userWithRole(Role::LogisticsOperator);
-        $this->pallet = Pallet::factory()->received()->create();
+        $this->pallet = Pallet::factory()->receivedInSap()->create();
         $ctx = TraceContext::forUser($operator, Origin::Web, (string) Str::uuid());
         $view = app(StartBlindCount::class)->handle($operator, PalletQr::payload($this->pallet), $ctx);
         app(SubmitBlindCount::class)->handle($operator, $view->auditId, 3, $ctx);

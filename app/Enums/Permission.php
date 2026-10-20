@@ -23,7 +23,7 @@ enum Permission: string
     /** Blind count at the warehouse. Never grants seeing expected quantities. */
     case AuditsCount = 'audits.count';
     case DiscrepanciesResolve = 'discrepancies.resolve';
-    case TransfersRequest = 'transfers.request';
+    /** Stock transfers 04 → 05 are requested by the approved blind count; this retries, reconciles or closes them. */
     case TransfersReconcile = 'transfers.reconcile';
     /** Register sensors and readers and rotate their tokens. */
     case DevicesManage = 'devices.manage';

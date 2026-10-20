@@ -19,7 +19,6 @@ use App\Domain\Receipts\Exceptions\ReceiptRuleViolation;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Transfers\Actions\RequestInventoryTransfers;
-use App\Domain\Transfers\Enums\TransferMode;
 use App\Domain\Transfers\Exceptions\TransferRuleViolation;
 use App\Models\Device;
 use App\Models\Pallet;
@@ -33,7 +32,7 @@ require __DIR__.'/../../vendor/autoload.php';
 $app = require __DIR__.'/../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
-/** @var array{mode: string, go: string, device_id?: int, user_id?: int, order?: string, item?: string, lot?: string, events?: list<string>, rounds?: int, pallet_ids?: list<int>, transfer_mode?: string} $job */
+/** @var array{mode: string, go: string, device_id?: int, user_id?: int, order?: string, item?: string, lot?: string, events?: list<string>, rounds?: int, pallet_ids?: list<int>} $job */
 $job = json_decode($argv[1], true, flags: JSON_THROW_ON_ERROR);
 
 config(['traceability.decisions.scan_ingestion_enabled' => true]);
@@ -74,10 +73,9 @@ if ($job['mode'] === 'scan') {
     }
 } elseif ($job['mode'] === 'transfer') {
     $user = User::query()->findOrFail($job['user_id']);
-    config(['traceability.decisions.grouped_transfers_enabled' => true]);
 
     try {
-        $app->make(RequestInventoryTransfers::class)->handle($user, $job['pallet_ids'] ?? [], TransferMode::from($job['transfer_mode'] ?? TransferMode::Individual->value), true, TraceContext::forUser($user, Origin::Job, (string) Str::uuid()));
+        $app->make(RequestInventoryTransfers::class)->handle($user, $job['pallet_ids'] ?? [], TraceContext::forUser($user, Origin::Job, (string) Str::uuid()));
         $summary['accepted']++;
     } catch (TransferRuleViolation) {
         $summary['rejected']++;

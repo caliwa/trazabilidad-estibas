@@ -10,8 +10,8 @@ El prompt pide distinguir cuatro niveles. Este es el estado real:
 
 | Nivel | Estado |
 |---|---|
-| **Terminado funcionalmente** | Sí, para todo lo que no depende de una decisión pendiente. Lo que depende de DP-01, DP-03, DP-04 y DP-05 está implementado y **apagado**. DP-08 no está implementado |
-| **Probado en entorno simulado** | Sí. 289 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
+| **Terminado funcionalmente** | Sí, para todo lo que no depende de una decisión pendiente. Lo que depende de DP-01, DP-03 y DP-04 está implementado y **apagado**. DP-08 no está implementado |
+| **Probado en entorno simulado** | Sí. 291 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
 | **Probado en integración** | No. No existe el conector real de Service Layer ni un SAP de pruebas (DP-09). Tampoco se probó con sensores, lectores ni impresoras reales |
 | **Validado en SAP real** | No |
 
@@ -35,11 +35,11 @@ El prompt pide distinguir cuatro niveles. Este es el estado real:
 | RF-12 | Conciliar recibos inciertos | `ProductionReceiptFlowTest::test_a_lost_answer_is_reconciled_to_the_existing_document_without_a_second_create` |
 | RF-13 | Escanear QR en CEDI | `BlindCountTest::test_only_received_and_not_transferred_pallets_are_counted` |
 | RF-14 | Validar identidad y estado en el servidor | ídem, más `BlindCountSecrecyTest::test_the_count_in_progress_cannot_be_swapped_from_the_browser` |
-| RF-15 | Conteo ciego | `BlindCountTest::test_a_matching_count_approves_the_audit_and_readies_the_transfer` |
-| RF-16 | Discrepancia bloquea el traslado | `BlindCountTest::test_a_different_count_opens_a_case_blocks_the_transfer_and_notifies_the_admins_not_the_counter`, `InventoryTransferFlowTest::test_a_discrepancy_never_starts_a_transfer` |
+| RF-15 | Conteo ciego | `BlindCountTest::test_a_matching_count_approves_the_audit_and_transfers_the_pallet_to_05` |
+| RF-16 | Discrepancia bloquea el traslado | `BlindCountTest::test_a_different_count_opens_a_case_blocks_the_transfer_and_notifies_the_admins_not_the_counter`, `InventoryTransferFlowTest::test_a_count_that_does_not_match_moves_nothing` |
 | RF-17 | Novedades para revisión | `DiscrepanciesPageTest::test_admins_see_counted_and_system_quantities_and_the_pending_policy` |
-| RF-18 | Traslado 04 → 05 | `InventoryTransferFlowTest::test_an_audited_pallet_moves_from_04_to_05_with_sap_references_and_links_its_audit` |
-| RF-19 | Individual y agrupado (agrupado: DP-05, apagado) | `InventoryTransferFlowTest::test_grouping_needs_dp05_and_an_explicit_confirmation`, `InventoryTransferFlowTest::test_a_grouped_transfer_keeps_each_pallet_linked_to_its_line` |
+| RF-18 | Transferencia 04 → 05 al aprobar el conteo ciego | `InventoryTransferFlowTest::test_an_approved_count_transfers_the_pallet_from_04_to_05_with_sap_references`, `InventoryTransferFlowTest::test_the_transfer_request_and_the_count_commit_together_or_not_at_all` |
+| RF-19 | Un documento por estiba (el agrupado se eliminó por decisión del negocio) | `InventoryTransferFlowTest::test_an_approved_count_transfers_the_pallet_from_04_to_05_with_sap_references`, `PalletTransferActionsTest::test_the_transfers_screen_no_longer_exists` |
 | RF-20 | Conciliar traslados inciertos | `InventoryTransferFlowTest::test_a_lost_answer_is_reconciled_without_a_second_create` |
 | RF-21 | Trazabilidad estiba → auditoría → documento → línea | `InventoryTransferFlowTest::test_the_full_chain_is_traceable_from_the_pallet` |
 
@@ -55,10 +55,10 @@ El prompt pide distinguir cuatro niveles. Este es el estado real:
 | RN-06 | Consecutivo único, sin huecos | `PalletInvariantsTest::test_pallet_codes_are_unique`, `ProcessScanEventTest::test_a_rolled_back_pallet_gives_its_number_back`, `ScanConcurrencyTest::test_parallel_combinations_never_mix_and_share_one_gapless_sequence` |
 | RN-07 | Nada confirmado sin verificar en SAP | `SapDocumentInvariantsTest::test_confirmation_requires_doc_entry_and_doc_num`, `ProductionReceiptFlowTest::test_a_document_that_does_not_match_the_request_is_never_confirmed_nor_resent` |
 | RN-08 | No recibir dos veces | `SapDocumentInvariantsTest::test_a_pallet_cannot_be_held_by_two_receipts`, `ReceiptConcurrencyTest::test_parallel_receipt_requests_for_the_same_pallets_hold_each_pallet_once` |
-| RN-09 | No trasladar dos veces | `SapDocumentInvariantsTest::test_a_pallet_cannot_be_held_by_two_transfers_and_warehouses_must_differ`, `TransferConcurrencyTest::test_parallel_transfer_requests_for_the_same_pallets_hold_each_pallet_once` |
+| RN-09 | No trasladar dos veces | `SapDocumentInvariantsTest::test_a_pallet_cannot_be_held_by_two_transfers_and_warehouses_must_differ`, `TransferConcurrencyTest::test_parallel_retries_for_the_same_pallets_hold_each_pallet_once` |
 | RN-10 | Dimensiones de estado independientes | `PalletInvariantsTest::test_each_dimension_needs_the_previous_process` |
 | RN-11 | SAP es la fuente del inventario | No hay ajustes locales. `BlindCountTest::test_closing_a_case_needs_an_approved_action_a_different_person_and_never_adjusts_anything` |
-| RN-12 | Concurrencia protegida | `ScanConcurrencyTest::test_parallel_scans_of_one_combination_fill_pallets_exactly`, `ScanConcurrencyTest::test_manual_closes_racing_scans_never_lose_or_overcount_boxes`, `ReceiptConcurrencyTest::test_parallel_receipt_requests_for_the_same_pallets_hold_each_pallet_once`, `TransferConcurrencyTest::test_parallel_transfer_requests_for_the_same_pallets_hold_each_pallet_once` |
+| RN-12 | Concurrencia protegida | `ScanConcurrencyTest::test_parallel_scans_of_one_combination_fill_pallets_exactly`, `ScanConcurrencyTest::test_manual_closes_racing_scans_never_lose_or_overcount_boxes`, `ReceiptConcurrencyTest::test_parallel_receipt_requests_for_the_same_pallets_hold_each_pallet_once`, `TransferConcurrencyTest::test_parallel_retries_for_the_same_pallets_hold_each_pallet_once` |
 | RN-13 | Operaciones críticas auditadas | `TraceEventsTest::test_the_logger_records_actor_subject_states_and_correlation`, `TraceEventsTest::test_traces_cannot_be_updated_deleted_or_truncated` |
 | RN-14 | Discrepancias sin ajuste automático | `BlindCountTest::test_closing_a_case_needs_an_approved_action_a_different_person_and_never_adjusts_anything` |
 | RN-15 | No retroceder estados confirmados | `PalletInvariantsTest::test_confirmed_states_cannot_go_back`, `StateTransitionsMatchDatabaseTest::test_enum_and_database_agree_on_every_pair` |
@@ -88,8 +88,8 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | CA-14 | Solo se audita con recibo confirmado y sin trasladar | `BlindCountTest::test_only_received_and_not_transferred_pallets_are_counted` | Pasa |
 | CA-15 | El operario no obtiene la cantidad por ninguna vía | `BlindCountSecrecyTest::test_the_page_state_and_responses_never_carry_the_expected_quantity`, `BlindCountSecrecyTest::test_the_full_http_page_does_not_carry_it_either`, `BlindCountSecrecyTest::test_no_other_screen_or_endpoint_shows_quantities_to_the_operator`, `BlindCountSecrecyTest::test_the_operator_never_receives_the_discrepancy_notification` | Pasa |
 | CA-16 | Conteo distinto: discrepancia, bloqueo, novedad, aviso | `BlindCountTest::test_a_different_count_opens_a_case_blocks_the_transfer_and_notifies_the_admins_not_the_counter` | Pasa |
-| CA-17 | Traslado solo de aprobadas, sin duplicados, con relación estiba-documento-línea | `InventoryTransferFlowTest::test_only_audited_and_free_pallets_can_be_transferred`, `InventoryTransferFlowTest::test_a_grouped_transfer_keeps_each_pallet_linked_to_its_line`, `TransferConcurrencyTest::test_parallel_transfer_requests_for_the_same_pallets_hold_each_pallet_once` | Pasa (simulador) |
-| CA-18 | Solo una confirmación verificada marca CONFIRMADO_05 | `InventoryTransferFlowTest::test_a_document_that_does_not_match_is_never_confirmed_nor_resent`, `InventoryTransferFlowTest::test_a_rejected_transfer_fails_releases_the_pallet_and_it_can_be_requested_again`, `InventoryTransferFlowTest::test_when_sap_cannot_be_asked_nothing_changes` | Pasa (simulador) |
+| CA-17 | Transferencia solo de aprobadas, sin duplicados, con relación estiba-documento-línea | `InventoryTransferFlowTest::test_a_count_that_does_not_match_moves_nothing`, `InventoryTransferFlowTest::test_an_approved_count_transfers_the_pallet_from_04_to_05_with_sap_references`, `TransferConcurrencyTest::test_parallel_retries_for_the_same_pallets_hold_each_pallet_once` | Pasa (simulador) |
+| CA-18 | Solo una confirmación verificada marca CONFIRMADO_05 | `InventoryTransferFlowTest::test_a_document_that_does_not_match_is_never_confirmed_nor_resent`, `InventoryTransferFlowTest::test_a_rejected_transfer_releases_the_pallet_and_can_be_retried`, `InventoryTransferFlowTest::test_when_sap_cannot_be_asked_nothing_changes` | Pasa (simulador) |
 
 ## 5. Escenarios mínimos de la sección 15
 
@@ -141,19 +141,19 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | No se audita una estiba trasladada | ídem |
 | El operario no recibe la cantidad | `BlindCountSecrecyTest::test_the_page_state_and_responses_never_carry_the_expected_quantity` |
 | Conteo diferente genera discrepancia | `BlindCountTest::test_a_different_count_opens_a_case_blocks_the_transfer_and_notifies_the_admins_not_the_counter` |
-| La discrepancia bloquea el traslado | ídem, más `InventoryTransferFlowTest::test_a_discrepancy_never_starts_a_transfer` |
-| Conteo correcto habilita el traslado | `BlindCountTest::test_a_matching_count_approves_the_audit_and_readies_the_transfer` |
+| La discrepancia bloquea el traslado | ídem, más `InventoryTransferFlowTest::test_a_count_that_does_not_match_moves_nothing` |
+| Conteo correcto transfiere a 05 | `BlindCountTest::test_a_matching_count_approves_the_audit_and_transfers_the_pallet_to_05` |
 | Permisos bloquean la resolución | `BlindCountTest::test_people_without_the_permissions_are_refused_on_the_server` |
 
 ### Traslados SAP
 
 | Escenario | Prueba |
 |---|---|
-| Traslado 04 → 05 | `InventoryTransferFlowTest::test_an_audited_pallet_moves_from_04_to_05_with_sap_references_and_links_its_audit` |
-| No se trasladan no auditadas | `InventoryTransferFlowTest::test_only_audited_and_free_pallets_can_be_transferred` |
-| No se duplican traslados | `InventoryTransferFlowTest::test_a_pallet_held_by_a_pending_transfer_cannot_be_requested_again`, `InventoryTransferFlowTest::test_running_the_send_twice_sends_once` |
-| El agrupado conserva estiba-documento-línea | `InventoryTransferFlowTest::test_a_grouped_transfer_keeps_each_pallet_linked_to_its_line` |
-| Errores y timeouts mantienen el estado real | `InventoryTransferFlowTest::test_a_rejected_transfer_fails_releases_the_pallet_and_it_can_be_requested_again`, `InventoryTransferFlowTest::test_when_sap_cannot_be_asked_nothing_changes` |
+| Transferencia 04 → 05 al aprobar el conteo | `InventoryTransferFlowTest::test_an_approved_count_transfers_the_pallet_from_04_to_05_with_sap_references` |
+| No se trasladan no auditadas | `InventoryTransferFlowTest::test_a_count_that_does_not_match_moves_nothing` |
+| No se duplican traslados | `InventoryTransferFlowTest::test_a_pallet_with_an_active_transfer_cannot_be_requested_again`, `InventoryTransferFlowTest::test_running_the_send_twice_sends_once` |
+| Cada estiba conserva su relación estiba-documento-línea | `InventoryTransferFlowTest::test_the_full_chain_is_traceable_from_the_pallet` (el agrupado ya no existe) |
+| Errores y timeouts mantienen el estado real | `InventoryTransferFlowTest::test_a_rejected_transfer_releases_the_pallet_and_can_be_retried`, `InventoryTransferFlowTest::test_when_sap_cannot_be_asked_nothing_changes` |
 | La conciliación evita duplicados | `InventoryTransferFlowTest::test_a_lost_answer_is_reconciled_without_a_second_create` |
 | Solo la confirmación verificada marca trasladada | `InventoryTransferFlowTest::test_a_document_that_does_not_match_is_never_confirmed_nor_resent` |
 
@@ -161,14 +161,14 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 
 | Escenario | Prueba |
 |---|---|
-| Acceso no autorizado a acciones críticas | `CloseManuallyTest::test_people_without_the_permission_are_refused_on_the_server`, `PalletizeAndLabelTest::test_operators_without_permission_are_refused_on_the_server`, `InventoryTransferFlowTest::test_only_people_with_the_permission_request_transfers`, `ProductionReceiptFlowTest::test_only_people_with_the_permission_request_receipts` |
+| Acceso no autorizado a acciones críticas | `CloseManuallyTest::test_people_without_the_permission_are_refused_on_the_server`, `PalletizeAndLabelTest::test_operators_without_permission_are_refused_on_the_server`, `InventoryTransferFlowTest::test_only_people_with_the_permission_retry_a_transfer`, `ProductionReceiptFlowTest::test_only_people_with_the_permission_request_receipts` |
 | Manipulación de propiedades Livewire | `ProductionStationTest::test_the_pallet_being_closed_cannot_be_swapped_from_the_browser`, `BlindCountSecrecyTest::test_the_count_in_progress_cannot_be_swapped_from_the_browser` |
 | Acceso cruzado a estibas de otros procesos o usuarios | `BlindCountTest::test_a_count_belongs_to_whoever_started_it`, `PalletDetailAndLabelTest::test_a_print_that_does_not_exist_or_belongs_to_another_pallet_is_404_and_access_needs_permission`, `NotificationBellTest::test_people_only_open_their_own_notifications` |
 | Consultar cantidades durante el conteo ciego | `BlindCountSecrecyTest::test_no_other_screen_or_endpoint_shows_quantities_to_the_operator` |
-| Repetición de solicitudes HTTP | `ScanEventApiTest::test_a_resend_answers_200_and_changes_nothing`, `InventoryTransferFlowTest::test_a_pallet_held_by_a_pending_transfer_cannot_be_requested_again`, `ProductionReceiptFlowTest::test_running_the_send_twice_sends_once` |
+| Repetición de solicitudes HTTP | `ScanEventApiTest::test_a_resend_answers_200_and_changes_nothing`, `InventoryTransferFlowTest::test_a_pallet_with_an_active_transfer_cannot_be_requested_again`, `ProductionReceiptFlowTest::test_running_the_send_twice_sends_once` |
 | Manipulación de QR | `PalletizeAndLabelTest::test_with_scan_mode_only_this_pallets_qr_confirms_it` |
 | Credenciales en logs | `TraceEventsTest::test_context_and_log_lines_never_carry_secrets`, `HardeningTest::test_log_lines_are_json_with_the_correlation_id_and_no_secrets` |
-| Recibir o trasladar la misma estiba a la vez | `ReceiptConcurrencyTest::test_parallel_receipt_requests_for_the_same_pallets_hold_each_pallet_once`, `TransferConcurrencyTest::test_parallel_transfer_requests_for_the_same_pallets_hold_each_pallet_once` |
+| Recibir o trasladar la misma estiba a la vez | `ReceiptConcurrencyTest::test_parallel_receipt_requests_for_the_same_pallets_hold_each_pallet_once`, `TransferConcurrencyTest::test_parallel_retries_for_the_same_pallets_hold_each_pallet_once` |
 
 ## 6. Seguridad (sección 12)
 
@@ -236,7 +236,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 | DP-02 | Fuente de órdenes, lotes y factores | Tablas y validación; sin sincronización con SAP | Sí |
 | DP-03 | Confirmación de etiqueta aplicada | Tres modos implementados, ninguno activo | Sí: sin esto no hay recibos |
 | DP-04 | Resolución de discrepancias | Reauditoría y cierre implementados, apagados | No para arrancar, pero las estibas con discrepancia quedan retenidas |
-| DP-05 | Traslado agrupado | Implementado, apagado | No: el individual funciona |
+| DP-05 | Traslado agrupado | **Cerrada.** El negocio eliminó el paso de traslado: el conteo aprobado transfiere cada estiba por separado | No |
 | DP-06 | Cierre de órdenes en SAP con recibos parciales | Se revisa la copia local | Depende de cómo opere SAP |
 | DP-07 | Etiqueta física | Etiqueta HTML 100 × 150 mm | Depende de la impresora |
 | DP-08 | Reversión de documentos y estibas devueltas | No implementado | Sí, para operar devoluciones |
@@ -246,7 +246,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 
 | Punto | Estado |
 |---|---|
-| Requisitos aprobados implementados | Sí, salvo DP-08 y lo que espera DP-01 a DP-05 (implementado y apagado) |
+| Requisitos aprobados implementados | Sí, salvo DP-08 y lo que espera DP-01 a DP-04 (implementado y apagado) |
 | CA-01 a CA-18 con pruebas satisfactorias | Sí, en simulador. CA-11 a CA-13, CA-17 y CA-18 falta repetirlos contra SAP |
 | Reglas transversales con pruebas | Sí (sección 3) |
 | Operaciones concurrentes seguras | Sí, con procesos paralelos reales contra PostgreSQL; además se comprobó que las pruebas fallan al quitar los bloqueos |
@@ -265,7 +265,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 PHP 8.3.6 y PostgreSQL 16.15, en la sesión de la Fase 7:
 
 ```
-php artisan test             → 289 pruebas, 289 pasan (dos corridas seguidas)
+php artisan test             → 291 pruebas, 291 pasan (dos corridas seguidas, después del cambio de proceso de la transferencia)
 phpstan analyse (nivel 7)    → 0 errores
 pint --test                  → pasa
 composer audit               → sin avisos

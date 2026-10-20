@@ -37,7 +37,7 @@ class BlindCountSecrecyTest extends TestCase
 
         $this->seedRoles();
         $this->operator = $this->userWithRole(Role::LogisticsOperator);
-        $this->pallet = Pallet::factory()->received()->create(['standard_boxes_snapshot' => self::SECRET]);
+        $this->pallet = Pallet::factory()->receivedInSap()->create(['standard_boxes_snapshot' => self::SECRET]);
         $this->assertSame(self::SECRET, $this->pallet->refresh()->boxes_count);
     }
 

@@ -52,7 +52,8 @@ class DemoFlowTest extends TestCase
         ], $states);
 
         $this->assertSame(3, ProductionReceipt::query()->where('status', SapDocumentStatus::Confirmed)->count());
-        $this->assertSame(2, InventoryTransfer::query()->where('status', SapDocumentStatus::Confirmed)->count());
+        $this->assertSame(3, InventoryTransfer::query()->where('status', SapDocumentStatus::Confirmed)->count());
+        $this->assertSame(1, InventoryTransfer::query()->where('status', SapDocumentStatus::PendingReconciliation)->count());
         $this->assertSame(1, DiscrepancyCase::query()->count());
         $this->assertStringContainsString('TRZ1:', $output);
     }
@@ -64,7 +65,6 @@ class DemoFlowTest extends TestCase
 
         $this->assertFalse(config('traceability.decisions.scan_ingestion_enabled'));
         $this->assertEmpty(config('traceability.decisions.label_confirmation'));
-        $this->assertFalse(config('traceability.decisions.grouped_transfers_enabled'));
         $this->assertSame('database', config('queue.default'));
     }
 

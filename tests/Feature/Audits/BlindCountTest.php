@@ -20,6 +20,7 @@ use App\Domain\Shared\TraceContext;
 use App\Domain\Transfers\Enums\TransferStatus;
 use App\Enums\Role;
 use App\Models\DiscrepancyCase;
+use App\Models\InventoryTransfer;
 use App\Models\Pallet;
 use App\Models\PalletAudit;
 use App\Models\User;
@@ -101,7 +102,7 @@ class BlindCountTest extends TestCase
 
     public function test_what_the_operator_gets_has_no_quantity_at_all(): void
     {
-        $pallet = Pallet::factory()->received()->create(['standard_boxes_snapshot' => 8861]);
+        $pallet = Pallet::factory()->receivedInSap()->create(['standard_boxes_snapshot' => 8861]);
 
         $view = $this->start($pallet);
 
@@ -111,16 +112,17 @@ class BlindCountTest extends TestCase
         $this->assertStringNotContainsString('8861', (string) json_encode((array) $view));
     }
 
-    public function test_a_matching_count_approves_the_audit_and_readies_the_transfer(): void
+    public function test_a_matching_count_approves_the_audit_and_transfers_the_pallet_to_05(): void
     {
-        $pallet = Pallet::factory()->received()->create();
+        $pallet = Pallet::factory()->receivedInSap()->create();
 
         $outcome = $this->submit($this->start($pallet), $pallet->boxes_count);
 
         $this->assertSame(BlindCountOutcome::Approved, $outcome);
         $pallet->refresh();
         $this->assertSame(AuditStatus::Approved, $pallet->audit_status);
-        $this->assertSame(TransferStatus::Ready, $pallet->transfer_status);
+        $this->assertSame(TransferStatus::Confirmed, $pallet->transfer_status);
+        $this->assertSame(1, InventoryTransfer::count());
         $audit = PalletAudit::sole();
         $this->assertSame([CountStatus::Approved, $pallet->boxes_count, $this->operator->id], [$audit->status, $audit->counted_boxes, $audit->operator_id]);
         $this->assertSame(0, DiscrepancyCase::count());
@@ -130,7 +132,7 @@ class BlindCountTest extends TestCase
     {
         Notification::fake();
         $resolverWhoAlsoCounts = $this->userWithRole(Role::Admin);
-        $pallet = Pallet::factory()->received()->create();
+        $pallet = Pallet::factory()->receivedInSap()->create();
 
         $outcome = $this->submit($this->start($pallet), $pallet->boxes_count - 2);
 
@@ -149,7 +151,7 @@ class BlindCountTest extends TestCase
 
     public function test_a_count_belongs_to_whoever_started_it(): void
     {
-        $pallet = Pallet::factory()->received()->create();
+        $pallet = Pallet::factory()->receivedInSap()->create();
         $view = $this->start($pallet);
         $colleague = $this->userWithRole(Role::LogisticsOperator);
 
@@ -163,7 +165,7 @@ class BlindCountTest extends TestCase
 
     public function test_cancelling_or_expiring_a_count_frees_the_pallet(): void
     {
-        $pallet = Pallet::factory()->received()->create();
+        $pallet = Pallet::factory()->receivedInSap()->create();
         app(CancelBlindCount::class)->handle($this->operator, $this->start($pallet)->auditId, 'Me llamaron', $this->ctx($this->operator));
         $this->assertSame(AuditStatus::Pending, $pallet->refresh()->audit_status);
 
@@ -177,7 +179,7 @@ class BlindCountTest extends TestCase
 
     public function test_a_discrepancy_blocks_new_counts_until_dp04_allows_a_reaudit(): void
     {
-        $pallet = Pallet::factory()->received()->create();
+        $pallet = Pallet::factory()->receivedInSap()->create();
         $this->submit($this->start($pallet), 1);
         $other = $this->userWithRole(Role::LogisticsOperator);
 
@@ -189,7 +191,7 @@ class BlindCountTest extends TestCase
     {
         config(['traceability.decisions.discrepancy_reaudit_enabled' => true]);
         Notification::fake();
-        $pallet = Pallet::factory()->received()->create();
+        $pallet = Pallet::factory()->receivedInSap()->create();
         $this->submit($this->start($pallet), 1);
         $case = app(AuthorizeReaudit::class)->handle($this->admin, DiscrepancyCase::sole()->id, 'Recontar con otra persona', $this->ctx($this->admin));
         $this->assertSame(DiscrepancyStatus::InReview, $case->status);
@@ -203,14 +205,14 @@ class BlindCountTest extends TestCase
 
         $case->refresh();
         $this->assertSame([DiscrepancyStatus::Resolved, 'REAUDITORIA_COINCIDE', $this->admin->id], [$case->status, $case->resolution_action, $case->resolved_by]);
-        $this->assertSame(TransferStatus::Ready, $pallet->refresh()->transfer_status);
+        $this->assertSame(TransferStatus::Confirmed, $pallet->refresh()->transfer_status);
     }
 
     public function test_a_reaudit_that_differs_again_opens_a_new_case(): void
     {
         config(['traceability.decisions.discrepancy_reaudit_enabled' => true]);
         Notification::fake();
-        $pallet = Pallet::factory()->received()->create();
+        $pallet = Pallet::factory()->receivedInSap()->create();
         $this->submit($this->start($pallet), 1);
         app(AuthorizeReaudit::class)->handle($this->admin, DiscrepancyCase::sole()->id, 'Recontar', $this->ctx($this->admin));
 
@@ -226,7 +228,7 @@ class BlindCountTest extends TestCase
 
     public function test_closing_a_case_needs_an_approved_action_a_different_person_and_never_adjusts_anything(): void
     {
-        $pallet = Pallet::factory()->received()->create();
+        $pallet = Pallet::factory()->receivedInSap()->create();
         $boxes = $pallet->boxes_count;
         $counter = $this->userWithRole(Role::Admin);
         $this->submit($this->start($pallet, $counter), 1, $counter);
@@ -251,7 +253,7 @@ class BlindCountTest extends TestCase
 
     public function test_people_without_the_permissions_are_refused_on_the_server(): void
     {
-        $pallet = Pallet::factory()->received()->create();
+        $pallet = Pallet::factory()->receivedInSap()->create();
 
         foreach ([Role::Viewer, Role::ProductionOperator, Role::TraceabilityAdmin] as $role) {
             try {

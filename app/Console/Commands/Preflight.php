@@ -44,8 +44,6 @@ class Preflight extends Command
         $this->decision('DP-03 confirmación de etiqueta aplicada', filled($decisions['label_confirmation'] ?? null));
         $this->decision('DP-04 reauditoría', $decisions['discrepancy_reaudit_enabled'] ?? false);
         $this->decision('DP-04 acciones de cierre de discrepancias', ($decisions['discrepancy_close_actions'] ?? []) !== []);
-        $this->decision('DP-05 traslado agrupado', $decisions['grouped_transfers_enabled'] ?? false);
-        $this->decision('Traslado automático después del conteo', $decisions['auto_transfer_after_audit'] ?? false);
 
         if ($this->failures > 0) {
             $this->components->error("{$this->failures} verificaciones fallaron. No activar esta versión.");

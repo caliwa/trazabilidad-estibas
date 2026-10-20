@@ -17,8 +17,6 @@ use App\Domain\Pallets\PalletQr;
 use App\Domain\Receipts\Actions\RequestProductionReceipts;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
-use App\Domain\Transfers\Actions\RequestInventoryTransfers;
-use App\Domain\Transfers\Enums\TransferMode;
 use App\Enums\Role;
 use App\Integrations\Sap\Contracts\SapGateway;
 use App\Integrations\Sap\Fake\FakeSapGateway;
@@ -42,7 +40,7 @@ use Illuminate\Support\Str;
  * Demo data for looking at the screens: runs the real use cases, from the
  * sensor reads to the transfer 04 → 05, against the SAP simulator.
  *
- * Pending decisions (DP-01, DP-03, DP-05) are switched on only inside this
+ * Pending decisions (DP-01, DP-03) are switched on only inside this
  * process, never in the configuration. Refused in production and with a
  * real SAP connector.
  */
@@ -79,8 +77,6 @@ class DemoFlow extends Command
         config([
             'traceability.decisions.scan_ingestion_enabled' => true,
             'traceability.decisions.label_confirmation' => 'scan',
-            'traceability.decisions.grouped_transfers_enabled' => true,
-            'traceability.decisions.auto_transfer_after_audit' => false,
             // SAP jobs and notifications run here and now, so the result is visible at once.
             'queue.default' => 'sync',
         ]);
@@ -153,24 +149,16 @@ class DemoFlow extends Command
         $this->line('   L-A1 agrupado, L-A2 y L-B1 confirmados; L-A3 queda pendiente de conciliación (respuesta perdida).');
 
         $this->at('13:00');
-        $this->components->info('4. Conteo ciego en el CEDI (lectura del QR)');
+        $this->components->info('4. Conteo ciego en el CEDI (lectura del QR) y transferencia de 04 a 05');
         [$p1, $p2, $p3, $manual] = $a1->values()->all();
         $this->count($people['cedi'], $p1, $p1->boxes_count);
         $this->count($people['cedi'], $p2, $p2->boxes_count);
         $this->count($people['cedi'], $manual, $manual->boxes_count);
         $this->count($people['cedi2'], $p3, $p3->boxes_count - 1);
-        $this->count($people['cedi2'], $b1->first(), $b1->first()->boxes_count);
-        $this->line("   4 aprobadas, 1 discrepancia en {$p3->pallet_code} (se contó una caja menos).");
-
-        $this->at('15:00');
-        $this->components->info('5. Traslados de 04 a 05');
-        $transfers = app(RequestInventoryTransfers::class);
-        $transfers->handle($people['supervisor'], [$p1->id], TransferMode::Individual, false, $this->web($people['supervisor']));
-        $transfers->handle($people['supervisor'], [$p2->id, $manual->id], TransferMode::Grouped, true, $this->web($people['supervisor']));
-        $this->tick(300);
         $sap->queueTransferScenarios(FakeScenario::TimeoutWithoutCreating);
-        $transfers->handle($people['supervisor'], [$b1->first()->id], TransferMode::Individual, false, $this->web($people['supervisor']));
-        $this->line('   Uno individual y uno agrupado confirmados; el de L-B1 queda pendiente (timeout sin crear).');
+        $this->count($people['cedi2'], $b1->first(), $b1->first()->boxes_count);
+        $this->line("   4 aprobadas: cada una pidió su transferencia a 05 al aprobarse. 3 confirmadas en SAP; la de {$b1->first()->pallet_code} queda pendiente (timeout sin crear).");
+        $this->line("   1 discrepancia en {$p3->pallet_code} (se contó una caja menos): no se mueve.");
 
         $ready = $a2->first();
 
@@ -183,7 +171,7 @@ class DemoFlow extends Command
             ['Recibos (con uno pendiente)', '/receipts', 'supervisor@example.com'],
             ['Conteo ciego', '/cedi/count', 'cedi@example.com'],
             ['Discrepancias', '/discrepancies', 'supervisor@example.com'],
-            ['Traslados (con uno pendiente)', '/transfers', 'supervisor@example.com'],
+            ['Transferencia pendiente (reintentar o conciliar)', '/pallets/'.$b1->first()->id, 'supervisor@example.com'],
             ['Estado operativo', '/operations', 'supervisor@example.com'],
         ]);
         $this->line('Contraseña de todos: '.self::PASSWORD.'. El administrador sigue siendo admin@example.com.');
@@ -191,6 +179,7 @@ class DemoFlow extends Command
         $this->line("Para probar el conteo ciego a mano, {$ready->pallet_code} está recibida y sin contar.");
         $this->line('Entrar como cedi@example.com en /cedi/count y pegar lo que leería el escáner:');
         $this->line('   '.PalletQr::payload($ready));
+        $this->line('Con 10 cajas el conteo se aprueba y la transferencia de 04 a 05 sale para SAP (necesita un worker: composer dev).');
         $this->warn('El simulador de SAP vive en memoria: al conciliar desde la pantalla los pendientes no aparecen en SAP y, pasado el tiempo de gracia, se reenvían.');
     }
 
