@@ -39,6 +39,9 @@ return [
         // Actions an administrator may close a case with, e.g. "AJUSTE_SAP_REGISTRADO,RECHAZO_FISICO".
         'discrepancy_close_actions' => array_values(array_filter(array_map('trim', explode(',', (string) env('TRACE_DISCREPANCY_CLOSE_ACTIONS', ''))))),
 
+        // Operating flow: request the individual transfer as soon as a blind count is approved.
+        'auto_transfer_after_audit' => (bool) env('TRACE_AUTO_TRANSFER_AFTER_AUDIT', false),
+
         // DP-05: several pallets in one transfer document.
         'grouped_transfers_enabled' => (bool) env('TRACE_GROUPED_TRANSFERS_ENABLED', false),
     ],
