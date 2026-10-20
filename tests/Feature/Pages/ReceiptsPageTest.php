@@ -59,12 +59,26 @@ class ReceiptsPageTest extends TestCase
         Livewire::actingAs($this->admin)->test('pages::receipts.index')
             ->set('orderId', $pallets[0]->production_order_id)
             ->call('selectAll')
-            ->set('onePerPallet', true)
+            ->set('documents', 'per_pallet')
             ->call('request')
             ->assertSee('Solicitado');
 
         $this->assertSame(2, ProductionReceipt::where('status', SapDocumentStatus::Requested)->count());
         $this->assertSame(0, $this->sap()->receiptWriteCalls());
+    }
+
+    public function test_by_default_the_page_requests_one_receipt_with_every_pallet(): void
+    {
+        Queue::fake();
+        $pallets = $this->labeledPallets(['L-1', 'L-2']);
+
+        Livewire::actingAs($this->admin)->test('pages::receipts.index')
+            ->assertSet('documents', 'grouped')
+            ->set('orderId', $pallets[0]->production_order_id)
+            ->call('selectAll')
+            ->call('request');
+
+        $this->assertSame(1, ProductionReceipt::count());
     }
 
     public function test_pending_receipts_offer_reconciliation_only_with_its_permission(): void

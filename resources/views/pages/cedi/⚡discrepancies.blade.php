@@ -150,7 +150,7 @@ new #[Title('Discrepancias')] class extends Component {
             </div>
 
             <table class="mt-3 w-full text-sm">
-                <thead class="text-left text-xs text-zinc-500"><tr><th class="py-1">Intento</th><th>Operario</th><th>Fecha</th><th class="text-end">Contado</th><th class="text-end">Sistema</th><th>Resultado</th></tr></thead>
+                <thead class="text-left text-xs text-zinc-500"><tr><th class="py-1">Intento</th><th>Operario</th><th>Fecha</th><th class="text-end">Contado</th><th class="text-end">Sistema</th><th class="ps-6">Resultado</th></tr></thead>
                 <tbody>
                     @foreach ($this->attempts($case->pallet_id) as $a)
                         <tr wire:key="a-{{ $a->id }}" class="border-t border-zinc-100 dark:border-zinc-800">
@@ -159,7 +159,7 @@ new #[Title('Discrepancias')] class extends Component {
                             <td class="tabular-nums">{{ $a->started_at->timezone(config('app.timezone'))->format('d/m/Y H:i') }}</td>
                             <td class="text-end tabular-nums">{{ $a->counted_boxes ?? '—' }}</td>
                             <td class="text-end tabular-nums">{{ $a->expected_boxes ?? '—' }}</td>
-                            <td>{{ $a->status->value }}</td>
+                            <td class="ps-6">{{ $a->status->value }}</td>
                         </tr>
                     @endforeach
                 </tbody>
