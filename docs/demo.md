@@ -11,24 +11,38 @@ Se niega a correr en producción, con un conector SAP real o si los datos ya exi
 
 ## Qué deja
 
-El turno es del último día terminado: lecturas desde las 06:00, paletizado a las 07:10, recibos a las 09:30, conteos a las 13:00 y traslados a las 15:00.
+El turno es del último día terminado (`D`): lecturas desde las 06:00, paletizado a las 07:10, recibos a las 09:30 y conteos con su transferencia a las 13:00.
+
+**Productos y órdenes.** El demo carga los 40 PT reales del catálogo de SAP (`PT1350002` a `PT1350041`) y consulta en el simulador tres órdenes liberadas, igual que la pantalla de etiquetas de caja:
+
+| OF | Producto | Para qué |
+|---|---|---|
+| 33128 | PT1350023 · GELATINA OLIMPICA SIN SABOR 30 GR | Estándar de 10 cajas por estiba, 24 unidades por caja |
+| 33131 | PT1350019 · GELATINA ALKOSTO SIN SABOR 30 GR | Estándar de 8 cajas, 24 unidades por caja |
+| 33132 | PT1350002 · GELATINA AZUCARADA BOOM LIMON 1000 GR | Sin estándar de estiba, a propósito: sus lecturas se rechazan |
+
+Los lotes siguen la regla de las etiquetas de caja: OF + día juliano. `33128DDD` es el lote del día `D`, y los lotes de 33128 de los dos días anteriores van como A2 y A3. Los códigos EAN son del simulador (prefijo 200, uso interno) y la vida útil de 730 días es un valor de demo.
 
 | Estiba | Lote | Dónde queda |
 |---|---|---|
-| EST-00000001 | L-A1 | Contada bien y transferida a 05 |
-| EST-00000002 | L-A1 | Contada bien y transferida a 05 |
-| EST-00000003 | L-A1 | Discrepancia: se contaron 9 de 10. Retenida |
-| EST-00000004 | L-A1 | Cierre manual con 5 cajas, contada bien y transferida a 05 |
-| EST-00000005 | L-A2 | Recibida en 04 y **sin contar**: para probar el conteo ciego a mano |
-| EST-00000006 | L-A3 | Recibo pendiente de conciliación (SAP creó el documento pero la respuesta se perdió) |
-| EST-00000007 | L-B1 | Contada bien; la transferencia quedó pendiente de conciliación (timeout sin crear). Se maneja desde su detalle |
-| EST-00000008 | L-B1 | Paletizada, sin etiqueta |
-| EST-00000009 | L-B1 | En estibado, 3 de 8 cajas |
+| EST-00000001 | 33128 del día D | Contada bien y transferida a 05 |
+| EST-00000002 | 33128 del día D | Contada bien y transferida a 05 |
+| EST-00000003 | 33128 del día D | Discrepancia: se contaron 9 de 10. Retenida |
+| EST-00000004 | 33128 del día D | Cierre manual con 5 cajas, contada bien y transferida a 05 |
+| EST-00000005 | 33128 del día D−1 | Recibida en 04 y **sin contar**: para probar el conteo ciego a mano |
+| EST-00000006 | 33128 del día D−2 | Recibo pendiente de conciliación (SAP creó el documento pero la respuesta se perdió) |
+| EST-00000007 | 33131 del día D | Contada bien; la transferencia quedó pendiente de conciliación (timeout sin crear). Se maneja desde su detalle |
+| EST-00000008 | 33131 del día D | Paletizada, sin etiqueta |
+| EST-00000009 | 33131 del día D | En estibado, 3 de 8 cajas |
 
 Además:
 
-- **Lecturas.** 3 lecturas rechazadas: 2 por producto sin estándar y 1 por orden desconocida. También 3 reenvíos duplicados, que no suman.
+- **Lecturas.** 3 lecturas rechazadas: 2 por producto sin estándar (OF 33132) y 1 por orden desconocida (99999). También 3 reenvíos duplicados, que no suman.
 - **Alertas.** Las alertas de `/operations` muestran los pendientes, la discrepancia y la orden sin estándar.
+
+## Etiquetas de caja
+
+Entrar como `produccion@example.com` en `/box-labels` y consultar la OF 33128. Se ve el encabezado guardado y se pueden generar etiquetas (máximo 34: 800 unidades a 24 por caja). Para ver los rechazos: 33129 (planificada), 33130 (cerrada), 33133 (cancelada) o un número que no exista. Ver `docs/etiquetas-de-caja.md`.
 
 ## Usuarios
 

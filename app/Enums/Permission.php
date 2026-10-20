@@ -16,6 +16,8 @@ enum Permission: string
     /** Print the label and confirm it was applied. */
     case PalletsLabel = 'pallets.label';
     case PalletsReprint = 'pallets.reprint';
+    /** Look up a production order in SAP and generate the QR labels for its boxes. */
+    case BoxLabelsPrint = 'box_labels.print';
     /** Evaluate a rejected scan event again after fixing a master. */
     case ScansReprocess = 'scans.reprocess';
     case ReceiptsRequest = 'receipts.request';

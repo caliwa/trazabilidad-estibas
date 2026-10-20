@@ -4,6 +4,8 @@ namespace App\Console\Commands;
 
 use App\Domain\Audits\Actions\StartBlindCount;
 use App\Domain\Audits\Actions\SubmitBlindCount;
+use App\Domain\BoxLabels\Actions\ConsultProductionOrder;
+use App\Domain\BoxLabels\BoxLot;
 use App\Domain\Devices\ManageDevices;
 use App\Domain\Integration\Enums\MasterStatus;
 use App\Domain\Pallets\Actions\CloseManually;
@@ -19,6 +21,7 @@ use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Enums\Role;
 use App\Integrations\Sap\Contracts\SapGateway;
+use App\Integrations\Sap\Fake\FakeSapCatalog;
 use App\Integrations\Sap\Fake\FakeSapGateway;
 use App\Integrations\Sap\Fake\FakeScenario;
 use App\Models\BoxConversionFactor;
@@ -64,7 +67,7 @@ class DemoFlow extends Command
             return self::FAILURE;
         }
 
-        if (Item::query()->where('code', 'PT-DEMO-01')->exists()) {
+        if (Device::query()->where('code', 'SEN-DEMO-L1')->exists()) {
             $this->error('Los datos de demostración ya existen. Para empezar de cero: php artisan migrate:fresh --seed && php artisan demo:flow');
 
             return self::FAILURE;
@@ -98,23 +101,28 @@ class DemoFlow extends Command
     {
         $this->at('05:45');
         $people = $this->people();
-        [$oats, $choco, $noStandard] = $this->masters();
+        [$oats, $choco, $noStandard] = $this->masters($people['produccion']);
+        $lotA1 = BoxLot::code($oats->ref, $this->day);
+        $lotA2 = BoxLot::code($oats->ref, $this->day->subDay());
+        $lotA3 = BoxLot::code($oats->ref, $this->day->subDays(2));
+        $lotB1 = BoxLot::code($choco->ref, $this->day);
+        $lotC1 = BoxLot::code($noStandard->ref, $this->day);
         $this->sensor = app(ManageDevices::class)->register('SEN-DEMO-L1', 'Sensor demo línea 1', 'SENSOR', $this->console())[0];
 
         $this->at('06:00');
         $this->components->info('1. Lecturas del sensor');
-        $this->reads($oats, 'L-A1', 35);
-        $this->reads($oats, 'L-A2', 10);
-        $this->reads($oats, 'L-A3', 10);
-        $this->reads($choco, 'L-B1', 19);
-        $repeated = $this->reads($choco, 'L-B1', 0, reuse: 3);
-        $this->reads($noStandard, 'L-C1', 2);
+        $this->reads($oats, $lotA1, 35);
+        $this->reads($oats, $lotA2, 10);
+        $this->reads($oats, $lotA3, 10);
+        $this->reads($choco, $lotB1, 19);
+        $repeated = $this->reads($choco, $lotB1, 0, reuse: 3);
+        $this->reads($noStandard, $lotC1, 2);
         $this->unknownOrder();
         $this->line("   74 cajas leídas, {$repeated} reenvíos duplicados (no suman), 3 lecturas rechazadas.");
 
         $this->at('07:10');
         $this->components->info('2. Cierre manual, paletizado y etiqueta (lectura del QR pegado)');
-        $partial = $this->open($oats, 'L-A1');
+        $partial = $this->open($oats, $lotA1);
         app(CloseManually::class)->handle($people['produccion'], $partial->id, 'Fin de turno', $this->web($people['produccion']));
 
         $finished = Pallet::query()->where('physical_status', PhysicalStatus::Finished)->orderBy('id')->get();
@@ -135,10 +143,10 @@ class DemoFlow extends Command
 
         $this->at('09:30');
         $this->components->info('3. Recibos de producción en 04');
-        $a1 = $this->pallets($oats, 'L-A1');
-        $a2 = $this->pallets($oats, 'L-A2');
-        $a3 = $this->pallets($oats, 'L-A3');
-        $b1 = $this->pallets($choco, 'L-B1')->where('physical_status', PhysicalStatus::Labeled);
+        $a1 = $this->pallets($oats, $lotA1);
+        $a2 = $this->pallets($oats, $lotA2);
+        $a3 = $this->pallets($oats, $lotA3);
+        $b1 = $this->pallets($choco, $lotB1)->where('physical_status', PhysicalStatus::Labeled);
         $receipts = app(RequestProductionReceipts::class);
         $receipts->handle($people['supervisor'], $this->ids($a1), false, $this->web($people['supervisor']));
         $receipts->handle($people['supervisor'], $this->ids($b1), false, $this->web($people['supervisor']));
@@ -146,7 +154,7 @@ class DemoFlow extends Command
         $this->tick(600);
         $sap->queueReceiptScenarios(FakeScenario::CreateThenTimeout);
         $receipts->handle($people['supervisor'], $this->ids($a3), false, $this->web($people['supervisor']));
-        $this->line('   L-A1 agrupado, L-A2 y L-B1 confirmados; L-A3 queda pendiente de conciliación (respuesta perdida).');
+        $this->line("   Lote {$lotA1} agrupado, {$lotA2} y {$lotB1} confirmados; {$lotA3} queda pendiente de conciliación (respuesta perdida).");
 
         $this->at('13:00');
         $this->components->info('4. Conteo ciego en el CEDI (lectura del QR) y transferencia de 04 a 05');
@@ -166,6 +174,7 @@ class DemoFlow extends Command
         $this->components->info('Listo. Para mirar:');
         $this->table(['Pantalla', 'Ruta', 'Usuario'], [
             ['Tablero e historia de cada estiba', '/pallets', 'supervisor@example.com'],
+            ['Etiquetas de caja (consultar OF 33128)', '/box-labels', 'produccion@example.com'],
             ['Estación de producción', '/production', 'produccion@example.com'],
             ['Lecturas rechazadas', '/pallets/rejected-scans', 'supervisor@example.com'],
             ['Recibos (con uno pendiente)', '/receipts', 'supervisor@example.com'],
@@ -205,32 +214,39 @@ class DemoFlow extends Command
     }
 
     /**
+     * The 40 finished products of the SAP catalog, and three released
+     * orders looked up in SAP the same way the box labels screen does it.
+     *
      * @return array{ProductionOrder, ProductionOrder, ProductionOrder}
      */
-    private function masters(): array
+    private function masters(User $consultant): array
     {
-        $order = function (string $code, string $description, string $ref, ?int $boxes, ?string $units): ProductionOrder {
-            $item = (new Item)->forceFill(['code' => $code, 'description' => $description, 'inventory_uom' => 'UND', 'active' => true, 'synced_at' => now()]);
-            $item->save();
+        foreach (FakeSapCatalog::ITEMS as $code => $description) {
+            $item = Item::query()->where('code', $code)->first() ?? (new Item)->forceFill(['code' => $code]);
+            // Shelf life is a demo value: the real one per product is still to be defined.
+            $item->forceFill(['description' => $description, 'inventory_uom' => 'UNIDAD', 'barcode' => FakeSapCatalog::barcode($code), 'shelf_life_days' => 730, 'active' => true, 'synced_at' => now()])->save();
+        }
+
+        $consult = app(ConsultProductionOrder::class);
+        $order = function (string $docNum, ?int $boxes, string $units) use ($consult, $consultant): ProductionOrder {
+            $order = $consult->handle($consultant, $docNum, $this->web($consultant));
 
             if ($boxes !== null) {
-                (new PalletStandard)->forceFill(['item_id' => $item->id, 'version' => 1, 'boxes_per_pallet' => $boxes, 'sap_source_key' => 'DEMO', 'status' => MasterStatus::Current, 'synced_at' => now()])->save();
+                (new PalletStandard)->forceFill(['item_id' => $order->item_id, 'version' => 1, 'boxes_per_pallet' => $boxes, 'sap_source_key' => 'DEMO', 'status' => MasterStatus::Current, 'synced_at' => now()])->save();
             }
 
-            if ($units !== null) {
-                (new BoxConversionFactor)->forceFill(['item_id' => $item->id, 'version' => 1, 'units_per_box' => $units, 'sap_uom_code' => 'UND', 'sap_source_key' => 'DEMO', 'status' => MasterStatus::Current, 'synced_at' => now()])->save();
-            }
-
-            $order = (new ProductionOrder)->forceFill(['ref' => $ref, 'item_id' => $item->id, 'is_open' => true, 'synced_at' => now()]);
-            $order->save();
+            (new BoxConversionFactor)->forceFill(['item_id' => $order->item_id, 'version' => 1, 'units_per_box' => $units, 'sap_uom_code' => 'UNIDAD', 'sap_source_key' => 'DEMO', 'status' => MasterStatus::Current, 'synced_at' => now()])->save();
 
             return $order;
         };
 
         return [
-            $order('PT-DEMO-01', 'Galleta de avena caja x12', 'OP-DEMO-1001', 10, '12'),
-            $order('PT-DEMO-02', 'Galleta de chocolate caja x24', 'OP-DEMO-1002', 8, '24'),
-            $order('PT-DEMO-03', 'Galleta sin estándar cargado', 'OP-DEMO-1003', null, null),
+            // GELATINA OLIMPICA SIN SABOR 30 GR
+            $order('33128', 10, '24'),
+            // GELATINA ALKOSTO SIN SABOR 30 GR
+            $order('33131', 8, '24'),
+            // GELATINA AZUCARADA BOOM LIMON 1000 GR, without a pallet standard on purpose
+            $order('33132', null, '12'),
         ];
     }
 
@@ -260,7 +276,7 @@ class DemoFlow extends Command
     {
         $this->tick(45);
         $this->event++;
-        app(ProcessScanEvent::class)->handle($this->sensor, $this->read('OP-NO-EXISTE', 'PT-DEMO-01', 'L-X', $this->event), TraceContext::forDevice($this->sensor, (string) Str::uuid()));
+        app(ProcessScanEvent::class)->handle($this->sensor, $this->read('99999', 'PT1350023', '99999293', $this->event), TraceContext::forDevice($this->sensor, (string) Str::uuid()));
     }
 
     private function read(string $order, string $item, string $lot, int $n): ScanEventData

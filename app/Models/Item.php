@@ -23,6 +23,7 @@ class Item extends Model
         return [
             'active' => 'boolean',
             'synced_at' => 'datetime',
+            'shelf_life_days' => 'integer',
         ];
     }
 

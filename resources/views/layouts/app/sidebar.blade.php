@@ -18,8 +18,11 @@
                     <livewire:notifications.bell />
                 </flux:sidebar.group>
 
-                @canany(['pallets.operate', 'pallets.view'])
+                @canany(['pallets.operate', 'pallets.view', 'box_labels.print'])
                     <flux:sidebar.group heading="Producción" class="grid">
+                        @can('box_labels.print')
+                            <flux:sidebar.item icon="qr-code" :href="route('box-labels.index')" :current="request()->routeIs('box-labels.*')" wire:navigate>Etiquetas de caja</flux:sidebar.item>
+                        @endcan
                         @can('pallets.operate')
                             <flux:sidebar.item icon="cog-6-tooth" :href="route('production.station')" :current="request()->routeIs('production.station')" wire:navigate>Estación de producción</flux:sidebar.item>
                         @endcan

@@ -39,6 +39,10 @@ enum TraceEventType: string
 
     case MastersSynced = 'masters.synced';
 
+    case ProductionOrderConsulted = 'production_order.consulted';
+    case BoxLabelsGenerated = 'box_labels.generated';
+    case BoxLabelsDownloaded = 'box_labels.downloaded';
+
     public function label(): string
     {
         return match ($this) {
@@ -68,6 +72,9 @@ enum TraceEventType: string
             self::TransferFailed => 'Traslado fallido',
             self::TransferPendingReconciliation => 'Traslado pendiente de conciliación',
             self::MastersSynced => 'Maestros sincronizados',
+            self::ProductionOrderConsulted => 'Orden de fabricación consultada en SAP',
+            self::BoxLabelsGenerated => 'Etiquetas de caja generadas',
+            self::BoxLabelsDownloaded => 'Etiquetas de caja descargadas',
         };
     }
 }

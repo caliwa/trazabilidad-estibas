@@ -11,7 +11,7 @@ El prompt pide distinguir cuatro niveles. Este es el estado real:
 | Nivel | Estado |
 |---|---|
 | **Terminado funcionalmente** | Sí, para todo lo que no depende de una decisión pendiente. Lo que depende de DP-01, DP-03 y DP-04 está implementado y **apagado**. DP-08 no está implementado |
-| **Probado en entorno simulado** | Sí. 291 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
+| **Probado en entorno simulado** | Sí. 308 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
 | **Probado en integración** | No. No existe el conector real de Service Layer ni un SAP de pruebas (DP-09). Tampoco se probó con sensores, lectores ni impresoras reales |
 | **Validado en SAP real** | No |
 
@@ -170,6 +170,20 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | Credenciales en logs | `TraceEventsTest::test_context_and_log_lines_never_carry_secrets`, `HardeningTest::test_log_lines_are_json_with_the_correlation_id_and_no_secrets` |
 | Recibir o trasladar la misma estiba a la vez | `ReceiptConcurrencyTest::test_parallel_receipt_requests_for_the_same_pallets_hold_each_pallet_once`, `TransferConcurrencyTest::test_parallel_retries_for_the_same_pallets_hold_each_pallet_once` |
 
+### Etiquetas de caja (requisito agregado después de la Fase 7)
+
+| Escenario | Prueba |
+|---|---|
+| Una OF liberada se consulta en SAP y su encabezado queda guardado | `BoxLabelsTest::test_a_released_order_is_consulted_in_sap_and_its_header_is_stored` |
+| OF inexistente, planificada, cerrada o cancelada se rechaza sin guardar; SAP sin respuesta no es "no existe" | `BoxLabelsTest::test_orders_that_do_not_exist_or_are_not_released_are_refused_and_nothing_is_stored` |
+| Lote = OF + día juliano | `BoxLabelsTest::test_the_lot_is_the_order_number_and_the_julian_day` |
+| El QR lleva OF, producto, unidades por caja, lote, EAN y vencimiento | `BoxLabelsTest::test_a_batch_carries_order_product_units_lot_ean_and_expiration_in_the_qr` |
+| ZPL de 10 × 8 cm con la cantidad pedida | `BoxLabelsTest::test_the_zpl_is_a_10_by_8_cm_label_printed_as_many_times_as_asked` |
+| Texto de SAP no inyecta comandos ZPL | `BoxLabelsTest::test_text_from_sap_can_never_inject_zpl_commands` |
+| Una OF no recibe más etiquetas que las que llena su cantidad planificada, tampoco en paralelo | `BoxLabelsTest::test_an_order_never_gets_more_labels_than_its_planned_quantity_fills`, `BoxLabelConcurrencyTest::test_parallel_batches_never_pass_the_planned_quantity` |
+| Lo impreso queda como evidencia inmutable | `BoxLabelsTest::test_a_generated_batch_is_evidence_and_never_changes` |
+| Permisos en el servidor | `BoxLabelsTest::test_only_people_with_box_labels_print_consult_and_generate`, `BoxLabelsTest::test_the_page_and_the_download_need_the_permission` |
+
 ## 6. Seguridad (sección 12)
 
 | Control | Cómo | Evidencia |
@@ -265,7 +279,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 PHP 8.3.6 y PostgreSQL 16.15, en la sesión de la Fase 7:
 
 ```
-php artisan test             → 291 pruebas, 291 pasan (dos corridas seguidas, después del cambio de proceso de la transferencia)
+php artisan test             → 308 pruebas, 308 pasan (dos corridas seguidas, con el módulo de etiquetas de caja)
 phpstan analyse (nivel 7)    → 0 errores
 pint --test                  → pasa
 composer audit               → sin avisos

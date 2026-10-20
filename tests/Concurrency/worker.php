@@ -9,6 +9,8 @@
  * Usage: php tests/Concurrency/worker.php '<json job>'
  */
 
+use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
+use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
 use App\Domain\Pallets\Actions\CloseManually;
 use App\Domain\Pallets\Actions\ProcessScanEvent;
 use App\Domain\Pallets\Data\ScanEventData;
@@ -32,7 +34,7 @@ require __DIR__.'/../../vendor/autoload.php';
 $app = require __DIR__.'/../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
-/** @var array{mode: string, go: string, device_id?: int, user_id?: int, order?: string, item?: string, lot?: string, events?: list<string>, rounds?: int, pallet_ids?: list<int>} $job */
+/** @var array{mode: string, go: string, device_id?: int, user_id?: int, order?: string, item?: string, lot?: string, events?: list<string>, rounds?: int, pallet_ids?: list<int>, order_id?: int, labels?: int} $job */
 $job = json_decode($argv[1], true, flags: JSON_THROW_ON_ERROR);
 
 config(['traceability.decisions.scan_ingestion_enabled' => true]);
@@ -67,6 +69,17 @@ if ($job['mode'] === 'scan') {
         $app->make(RequestProductionReceipts::class)->handle($user, $job['pallet_ids'] ?? [], false, TraceContext::forUser($user, Origin::Job, (string) Str::uuid()));
         $summary['accepted']++;
     } catch (ReceiptRuleViolation) {
+        $summary['rejected']++;
+    } catch (Throwable $e) {
+        $summary['errors'][] = get_class($e).': '.Str::limit($e->getMessage(), 300);
+    }
+} elseif ($job['mode'] === 'box_labels') {
+    $user = User::query()->findOrFail($job['user_id']);
+
+    try {
+        $app->make(GenerateBoxLabels::class)->handle($user, $job['order_id'] ?? 0, $job['labels'] ?? 0, CarbonImmutable::today(), CarbonImmutable::today()->addYear(), TraceContext::forUser($user, Origin::Job, (string) Str::uuid()));
+        $summary['accepted']++;
+    } catch (BoxLabelRuleViolation) {
         $summary['rejected']++;
     } catch (Throwable $e) {
         $summary['errors'][] = get_class($e).': '.Str::limit($e->getMessage(), 300);
