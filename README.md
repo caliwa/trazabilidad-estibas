@@ -30,6 +30,8 @@ npm install && npm run build
 composer dev
 ```
 
+Para ver el flujo completo con datos: `php artisan demo:flow` (ver [docs/demo.md](docs/demo.md)).
+
 El scheduler (`php artisan schedule:run` cada minuto) corre `sap:sweep`, la red de seguridad de los documentos SAP, `audits:expire-counts`, que libera los conteos ciegos abandonados, y `ops:check`, que revisa colas, workers, SAP y discrepancias y avisa a quienes tienen `ops.alerts`. Los envíos a SAP van en la cola `sap`: el worker debe escucharla (`php artisan queue:work --queue=sap,default`).
 
 En producción el primer administrador se crea con `php artisan app:create-admin`. Los sensores se registran con `php artisan devices:register <código> "<nombre>"`, que muestra el token una sola vez.
@@ -55,3 +57,4 @@ Las pruebas corren contra PostgreSQL real, no SQLite: las restricciones, índice
 - [Informe de cumplimiento](docs/informe-cumplimiento.md)
 - [Despliegue](docs/despliegue.md)
 - [Operación y soporte](docs/operacion.md)
+- [Datos de demostración](docs/demo.md)

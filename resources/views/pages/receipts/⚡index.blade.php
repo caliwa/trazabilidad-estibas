@@ -41,7 +41,8 @@ new #[Title('Recibos de producción')] class extends Component {
     /** @var list<int> */
     public array $selected = [];
 
-    public bool $onePerPallet = false;
+    /** "grouped": one receipt with every pallet; "per_pallet": one receipt each. */
+    public string $documents = 'grouped';
 
     #[Locked]
     public ?int $failingId = null;
@@ -132,7 +133,7 @@ new #[Title('Recibos de producción')] class extends Component {
     public function request(RequestProductionReceipts $request): void
     {
         try {
-            $created = $request->handle(Auth::user(), $this->selected, $this->onePerPallet, $this->context());
+            $created = $request->handle(Auth::user(), $this->selected, $this->documents === 'per_pallet', $this->context());
         } catch (ReceiptRuleViolation $e) {
             Flux::toast(variant: 'danger', text: $e->getMessage());
 
@@ -230,9 +231,9 @@ new #[Title('Recibos de producción')] class extends Component {
                 <flux:text>Selecciona estibas para ver las líneas que irán a SAP.</flux:text>
             @endforelse
 
-            <flux:radio.group wire:model="onePerPallet" label="Documentos">
-                <flux:radio :value="false" label="Un recibo con todas las estibas" />
-                <flux:radio :value="true" label="Un recibo por estiba" />
+            <flux:radio.group wire:model="documents" label="Documentos">
+                <flux:radio value="grouped" label="Un recibo con todas las estibas" />
+                <flux:radio value="per_pallet" label="Un recibo por estiba" />
             </flux:radio.group>
 
             <flux:button variant="primary" icon="paper-airplane" wire:click="request" wire:loading.attr="disabled" wire:target="request"
