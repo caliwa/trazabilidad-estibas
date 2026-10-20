@@ -10,9 +10,9 @@ use App\Domain\Audits\Exceptions\AuditRuleViolation;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
 use App\Domain\Shared\TraceResult;
+use App\Domain\Transfers\Actions\RequestInventoryTransfers;
 use App\Domain\Transfers\Enums\TransferStatus;
 use App\Enums\Permission;
-use App\Jobs\StartTransferAfterAudit;
 use App\Models\DiscrepancyCase;
 use App\Models\Pallet;
 use App\Models\PalletAudit;
@@ -26,16 +26,17 @@ use Illuminate\Support\Facades\Notification;
 /**
  * Compares the counted boxes with the system quantity, on the server.
  *
- * Match: audit approved, pallet ready to transfer. Difference: the count
- * is kept as evidence, a discrepancy case opens, the transfer stays
- * blocked and the people who resolve discrepancies are notified. Nothing
- * is adjusted. The caller gets only the outcome, never a number.
+ * Match: audit approved and, in the same transaction, the stock transfer
+ * 04 → 05 is requested; it is sent to SAP after the commit. Difference: the
+ * count is kept as evidence, a discrepancy case opens, nothing moves and
+ * the people who resolve discrepancies are notified. Nothing is adjusted.
+ * The caller gets only the outcome, never a number.
  */
 class SubmitBlindCount
 {
     public const MAX_BOXES = 99_999;
 
-    public function __construct(private readonly TraceLogger $trace) {}
+    public function __construct(private readonly TraceLogger $trace, private readonly RequestInventoryTransfers $transfers) {}
 
     public function handle(User $user, int $auditId, int $counted, TraceContext $ctx): BlindCountOutcome
     {
@@ -89,16 +90,16 @@ class SubmitBlindCount
                 result: $matches ? TraceResult::Ok : TraceResult::Rejected,
                 context: ['audit_id' => $audit->id, 'attempt' => $audit->attempt, 'counted_boxes' => $counted, 'expected_boxes' => $expected]);
 
+            if ($matches) {
+                // Same transaction: if the transfer request cannot be stored, the count is not approved either.
+                $this->transfers->handle($user, [$pallet->id], $ctx, automatic: true);
+            }
+
             return [$matches ? BlindCountOutcome::Approved : BlindCountOutcome::Discrepancy, $case];
         });
 
         if ($case instanceof DiscrepancyCase) {
             $this->notify($case, $user);
-        }
-
-        if ($outcome === BlindCountOutcome::Approved && config()->boolean('traceability.decisions.auto_transfer_after_audit')) {
-            $palletId = (int) PalletAudit::query()->whereKey($auditId)->value('pallet_id');
-            StartTransferAfterAudit::dispatch($palletId, $user->id, $ctx->correlationId)->afterCommit();
         }
 
         return $outcome;

@@ -27,11 +27,14 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 /**
- * Creates transfer requests 04 → 05 for audited pallets.
+ * Creates the stock transfer 04 → 05 of audited pallets, one document per
+ * pallet.
  *
- * Individual (one document per pallet) is the default. Grouped puts several
- * pallets in one document: only with DP-05 enabled, an explicit
- * confirmation, and pallets of the same item and lot.
+ * The normal path is automatic: SubmitBlindCount calls this inside the
+ * same transaction that approves the count, so an approved count without
+ * its transfer request cannot exist. The manual path is only a retry, for
+ * a pallet whose transfer SAP rejected or that was counted before this
+ * became automatic.
  *
  * What is transferred is exactly what SAP received: each line takes the
  * quantity and conversion factor of the pallet's confirmed receipt line,
@@ -43,13 +46,13 @@ class RequestInventoryTransfers
 
     /**
      * @param  list<int>  $palletIds
-     * @param  bool  $automatic  started by the system right after an approved count (traceability.decisions.auto_transfer_after_audit)
+     * @param  bool  $automatic  part of an approved blind count; a manual retry needs transfers.reconcile
      * @return list<InventoryTransfer>
      */
-    public function handle(User $user, array $palletIds, TransferMode $mode, bool $groupingConfirmed, TraceContext $ctx, bool $automatic = false): array
+    public function handle(User $user, array $palletIds, TraceContext $ctx, bool $automatic = false): array
     {
         if (! $automatic) {
-            Gate::forUser($user)->authorize(Permission::TransfersRequest->value);
+            Gate::forUser($user)->authorize(Permission::TransfersReconcile->value);
         }
 
         $palletIds = array_values(array_unique(array_map('intval', $palletIds)));
@@ -58,17 +61,7 @@ class RequestInventoryTransfers
             throw TransferRuleViolation::noPallets();
         }
 
-        if ($mode === TransferMode::Grouped) {
-            if (! config()->boolean('traceability.decisions.grouped_transfers_enabled')) {
-                throw TransferRuleViolation::groupingUndecided();
-            }
-
-            if (! $groupingConfirmed) {
-                throw TransferRuleViolation::groupingNotConfirmed();
-            }
-        }
-
-        $transfers = DB::transaction(function () use ($user, $palletIds, $mode, $ctx): array {
+        $transfers = DB::transaction(function () use ($user, $palletIds, $ctx): array {
             // Fixed order so overlapping requests never deadlock.
             $pallets = Pallet::query()->whereKey($palletIds)->orderBy('id')->lockForUpdate()->get();
 
@@ -96,15 +89,10 @@ class RequestInventoryTransfers
                 $sources[$pallet->id] = [$receiptLine, $audit];
             }
 
-            if ($mode === TransferMode::Grouped && $pallets->map(fn (Pallet $p) => "{$p->item_code}|{$p->lot_code}")->unique()->count() !== 1) {
-                throw TransferRuleViolation::incompatibleForGrouping();
-            }
-
-            $groups = $mode === TransferMode::Individual ? $pallets->map(fn (Pallet $p) => [$p])->all() : [array_values($pallets->all())];
-
-            return array_values(array_map(fn (array $group) => $this->create($user, $group, $sources, $mode, $ctx), $groups));
+            return array_values($pallets->map(fn (Pallet $p) => $this->create($user, $p, $sources[$p->id], $ctx))->all());
         });
 
+        // After the outermost commit: when called from the blind count, that is the count's.
         foreach ($transfers as $transfer) {
             SendInventoryTransfer::dispatch($transfer->id)->afterCommit();
         }
@@ -113,39 +101,32 @@ class RequestInventoryTransfers
     }
 
     /**
-     * @param  list<Pallet>  $pallets
-     * @param  array<int, array{ProductionReceiptPallet, PalletAudit}>  $sources
+     * @param  array{ProductionReceiptPallet, PalletAudit}  $source
      */
-    private function create(User $user, array $pallets, array $sources, TransferMode $mode, TraceContext $ctx): InventoryTransfer
+    private function create(User $user, Pallet $pallet, array $source, TraceContext $ctx): InventoryTransfer
     {
+        [$receiptLine, $audit] = $source;
         $uuid = (string) Str::uuid();
         $from = config()->string('sap.warehouses.transfer_from');
         $to = config()->string('sap.warehouses.transfer_to');
-
-        // One SAP line per item + lot; quantities add up exactly from the received ones.
-        $sapLines = [];
-        foreach ($pallets as $pallet) {
-            $key = "{$pallet->item_code}|{$pallet->lot_code}";
-            $boxes = ($sapLines[$key]['boxes'] ?? 0) + $pallet->boxes_count;
-            $sapLines[$key] = ['item_code' => $pallet->item_code, 'lot_code' => $pallet->lot_code, 'boxes' => $boxes, 'factor' => $sources[$pallet->id][0]->units_per_box];
-        }
+        $quantity = Quantity::ofBoxes($pallet->boxes_count, $receiptLine->units_per_box)->value;
 
         $payload = [
             'request_uuid' => $uuid,
             'from_warehouse' => $from,
             'to_warehouse' => $to,
-            'lines' => array_values(array_map(fn (array $l) => [
-                'item_code' => $l['item_code'],
-                'lot_code' => $l['lot_code'],
-                'quantity' => Quantity::ofBoxes($l['boxes'], $l['factor'])->value,
+            'lines' => [[
+                'item_code' => $pallet->item_code,
+                'lot_code' => $pallet->lot_code,
+                'quantity' => $quantity,
                 'warehouse' => $to,
-            ], $sapLines)),
+            ]],
         ];
 
         $transfer = new InventoryTransfer;
         $transfer->forceFill([
             'request_uuid' => $uuid,
-            'mode' => $mode,
+            'mode' => TransferMode::Individual,
             'from_warehouse' => $from,
             'to_warehouse' => $to,
             'status' => SapDocumentStatus::Requested,
@@ -155,30 +136,26 @@ class RequestInventoryTransfers
             'requested_at' => now(),
         ])->save();
 
-        foreach ($pallets as $pallet) {
-            [$receiptLine, $audit] = $sources[$pallet->id];
+        (new InventoryTransferPallet)->forceFill([
+            'inventory_transfer_id' => $transfer->id,
+            'pallet_id' => $pallet->id,
+            'pallet_audit_id' => $audit->id,
+            'hold_status' => PalletHold::Active,
+            'boxes' => $pallet->boxes_count,
+            'box_conversion_factor_id' => $receiptLine->box_conversion_factor_id,
+            'units_per_box' => $receiptLine->units_per_box,
+            'sap_quantity' => $quantity,
+            'item_code' => $pallet->item_code,
+            'lot_code' => $pallet->lot_code,
+        ])->save();
 
-            (new InventoryTransferPallet)->forceFill([
-                'inventory_transfer_id' => $transfer->id,
-                'pallet_id' => $pallet->id,
-                'pallet_audit_id' => $audit->id,
-                'hold_status' => PalletHold::Active,
-                'boxes' => $pallet->boxes_count,
-                'box_conversion_factor_id' => $receiptLine->box_conversion_factor_id,
-                'units_per_box' => $receiptLine->units_per_box,
-                'sap_quantity' => Quantity::ofBoxes($pallet->boxes_count, $receiptLine->units_per_box)->value,
-                'item_code' => $pallet->item_code,
-                'lot_code' => $pallet->lot_code,
-            ])->save();
+        $fromStatus = $pallet->transfer_status;
+        $pallet->forceFill(['transfer_status' => TransferStatus::Requested])->save();
 
-            $fromStatus = $pallet->transfer_status;
-            $pallet->forceFill(['transfer_status' => TransferStatus::Requested])->save();
-
-            $this->trace->record($ctx, TraceEventType::TransferRequested, $pallet,
-                from: ['transfer_status' => $fromStatus->value],
-                to: ['transfer_status' => TransferStatus::Requested->value],
-                context: ['request_uuid' => $uuid, 'mode' => $mode->value, 'pallet_audit_id' => $audit->id]);
-        }
+        $this->trace->record($ctx, TraceEventType::TransferRequested, $pallet,
+            from: ['transfer_status' => $fromStatus->value],
+            to: ['transfer_status' => TransferStatus::Requested->value],
+            context: ['request_uuid' => $uuid, 'pallet_audit_id' => $audit->id]);
 
         return $transfer;
     }

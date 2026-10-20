@@ -1,10 +1,18 @@
 <?php
 
+use App\Domain\Integration\Enums\PalletHold;
+use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Pallets\Actions\PrintLabel;
 use App\Domain\Pallets\Exceptions\PalletRuleViolation;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
+use App\Domain\Transfers\Actions\RequestInventoryTransfers;
+use App\Domain\Transfers\Enums\TransferStatus;
+use App\Domain\Transfers\Exceptions\TransferRuleViolation;
+use App\Domain\Transfers\InventoryTransferLifecycle;
 use App\Enums\Permission;
+use App\Jobs\ReconcileInventoryTransfer;
+use App\Models\InventoryTransfer;
 use App\Models\Pallet;
 use App\Models\PalletLabelPrint;
 use App\Queries\PalletTimeline;
@@ -20,12 +28,18 @@ use Livewire\Component;
 /**
  * One pallet: identity, the four status dimensions, its box reads, the
  * label prints, the SAP documents that hold it and its full history.
+ *
+ * The stock transfer 04 → 05 is requested by the approved blind count.
+ * Here, with transfers.reconcile, it can be retried after a failure,
+ * reconciled or closed as failed.
  */
 new #[Title('Detalle de estiba')] class extends Component {
     #[Locked]
     public int $palletId;
 
     public string $reprintReason = '';
+
+    public string $failReason = '';
 
     public function boot(): void
     {
@@ -50,6 +64,72 @@ new #[Title('Detalle de estiba')] class extends Component {
     public function prints(): Collection
     {
         return PalletLabelPrint::query()->with('printer:id,name')->where('pallet_id', $this->palletId)->orderBy('print_number')->get();
+    }
+
+    /**
+     * The transfer still waiting to know whether it exists in SAP, if any.
+     */
+    #[Computed]
+    public function pendingTransfer(): ?InventoryTransfer
+    {
+        return InventoryTransfer::query()
+            ->where('status', SapDocumentStatus::PendingReconciliation)
+            ->whereHas('lines', fn ($q) => $q->where('pallet_id', $this->palletId)->where('hold_status', PalletHold::Active))
+            ->latest('id')
+            ->first();
+    }
+
+    private function context(): TraceContext
+    {
+        return TraceContext::forUser(Auth::user(), Origin::Web, app(CorrelationId::class)->get(), request()->ip());
+    }
+
+    public function retryTransfer(RequestInventoryTransfers $request): void
+    {
+        abort_unless(Auth::user()?->can(Permission::TransfersReconcile->value), 403);
+
+        try {
+            $request->handle(Auth::user(), [$this->palletId], $this->context());
+        } catch (TransferRuleViolation $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+
+        Flux::toast(variant: 'success', text: 'Transferencia solicitada. Se envía a SAP en segundo plano.');
+        unset($this->pallet, $this->pendingTransfer);
+    }
+
+    public function reconcileTransfer(): void
+    {
+        abort_unless(Auth::user()?->can(Permission::TransfersReconcile->value), 403);
+
+        if ($this->pendingTransfer !== null) {
+            ReconcileInventoryTransfer::dispatch($this->pendingTransfer->id);
+            Flux::toast(text: 'Conciliación en cola.');
+        }
+    }
+
+    public function failTransfer(InventoryTransferLifecycle $lifecycle): void
+    {
+        abort_unless(Auth::user()?->can(Permission::TransfersReconcile->value), 403);
+        $this->validate(['failReason' => ['required', 'string', 'max:300']], attributes: ['failReason' => 'motivo']);
+
+        if ($this->pendingTransfer === null) {
+            return;
+        }
+
+        try {
+            $lifecycle->failAfterProof($this->pendingTransfer->id, $this->context(), $this->failReason);
+        } catch (TransferRuleViolation $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+
+        $this->reset('failReason');
+        Flux::toast(variant: 'success', text: 'Transferencia marcada como fallida. Se puede solicitar otra vez.');
+        unset($this->pallet, $this->pendingTransfer);
     }
 
     public function reprint(PrintLabel $print): void
@@ -142,6 +222,28 @@ new #[Title('Detalle de estiba')] class extends Component {
                 @empty
                     <flux:text>Ningún documento todavía.</flux:text>
                 @endforelse
+
+                @can('transfers.reconcile')
+                    @if (in_array($pallet->transfer_status, [TransferStatus::Ready, TransferStatus::Failed], true))
+                        <div class="mt-3 rounded-lg border border-amber-300 p-3 text-sm dark:border-amber-800">
+                            <div class="mb-2">{{ $pallet->transfer_status === TransferStatus::Failed ? 'La transferencia 04 → 05 falló en SAP.' : 'La estiba está auditada y sin transferencia 04 → 05.' }}</div>
+                            <flux:button size="sm" variant="primary" icon="arrow-path" wire:click="retryTransfer" wire:loading.attr="disabled" wire:target="retryTransfer"
+                                wire:confirm="¿Solicitar en SAP la transferencia de 04 a 05 de esta estiba?">Solicitar transferencia</flux:button>
+                        </div>
+                    @elseif ($this->pendingTransfer !== null)
+                        <div class="mt-3 flex flex-col gap-3 rounded-lg border border-amber-300 p-3 text-sm dark:border-amber-800">
+                            <div>La transferencia está pendiente de conciliación: no se sabe todavía si existe en SAP.</div>
+                            @if (($this->pendingTransfer->reconciliation['mismatch'] ?? false) === true)
+                                <div class="font-medium text-red-600">El documento en SAP no coincide con lo pedido: revisar a mano.</div>
+                            @endif
+                            <div><flux:button size="sm" icon="arrow-path" wire:click="reconcileTransfer">Conciliar</flux:button></div>
+                            <form wire:submit="failTransfer" class="flex items-end gap-2">
+                                <flux:input wire:model="failReason" label="Motivo para marcar fallida (solo si SAP confirma que no existe)" maxlength="300" class="flex-1" />
+                                <flux:button type="submit" size="sm" variant="danger" wire:loading.attr="disabled" wire:target="failTransfer">Marcar fallida</flux:button>
+                            </form>
+                        </div>
+                    @endif
+                @endcan
             </div>
         </div>
     </div>

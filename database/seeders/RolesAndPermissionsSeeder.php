@@ -23,6 +23,9 @@ class RolesAndPermissionsSeeder extends Seeder
             PermissionModel::findOrCreate($permission->value, 'web');
         }
 
+        // Permissions that no longer exist (transfers.request went away when the transfer became part of the count).
+        PermissionModel::query()->where('guard_name', 'web')->whereNotIn('name', array_map(fn (Permission $p) => $p->value, Permission::cases()))->delete();
+
         // The registrar keeps the permission list in memory; reload it so the new rows are visible.
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 

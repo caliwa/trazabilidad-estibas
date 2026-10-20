@@ -5,6 +5,7 @@ namespace Tests\Feature\Security;
 use App\Enums\Permission;
 use App\Enums\Role;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Permission\Models\Permission as PermissionModel;
 use Tests\Concerns\CreatesUsers;
 use Tests\TestCase;
 
@@ -35,7 +36,7 @@ class RolesTest extends TestCase
         foreach ([Role::ProductionOperator, Role::LogisticsOperator, Role::Viewer] as $role) {
             $user = $this->userWithRole($role);
 
-            foreach ([Permission::ReceiptsRequest, Permission::ReceiptsReconcile, Permission::TransfersRequest, Permission::TransfersReconcile] as $permission) {
+            foreach ([Permission::ReceiptsRequest, Permission::ReceiptsReconcile, Permission::TransfersReconcile] as $permission) {
                 $this->assertFalse($user->can($permission->value), "{$role->value} no debe tener {$permission->value}");
             }
         }
@@ -58,5 +59,17 @@ class RolesTest extends TestCase
         $this->assertDatabaseCount('permissions', count(Permission::cases()));
         $this->assertDatabaseCount('roles', count(Role::cases()));
         $this->assertTrue($this->userWithRole(Role::Admin)->can(Permission::DevicesManage->value));
+    }
+
+    public function test_the_seeder_removes_permissions_that_no_longer_exist(): void
+    {
+        $this->seedRoles();
+        $user = $this->userWithRole(Role::Viewer);
+        $user->givePermissionTo(PermissionModel::findOrCreate('transfers.request', 'web'));
+
+        $this->seedRoles();
+
+        $this->assertDatabaseMissing('permissions', ['name' => 'transfers.request']);
+        $this->assertFalse($user->fresh()?->getAllPermissions()->contains('name', 'transfers.request'));
     }
 }

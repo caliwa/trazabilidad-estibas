@@ -43,7 +43,6 @@ enum Role: string
                 Permission::ReceiptsRequest,
                 Permission::ReceiptsReconcile,
                 Permission::DiscrepanciesResolve,
-                Permission::TransfersRequest,
                 Permission::TransfersReconcile,
                 Permission::OpsAlerts,
                 Permission::TraceView,

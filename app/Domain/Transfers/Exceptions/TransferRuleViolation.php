@@ -34,21 +34,6 @@ class TransferRuleViolation extends DomainException
         return new self("La estiba {$code} no tiene un recibo confirmado en SAP del cual partir.");
     }
 
-    public static function groupingUndecided(): self
-    {
-        return new self('El traslado agrupado no está habilitado (DP-05). Se trasladan de a una estiba.');
-    }
-
-    public static function groupingNotConfirmed(): self
-    {
-        return new self('Para agrupar estibas en un solo traslado hay que confirmarlo explícitamente.');
-    }
-
-    public static function incompatibleForGrouping(): self
-    {
-        return new self('Un traslado agrupado solo puede tener estibas del mismo producto y lote.');
-    }
-
     public static function notPending(): self
     {
         return new self('El traslado no está pendiente de conciliación.');
