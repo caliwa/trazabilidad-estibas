@@ -9,6 +9,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::livewire('cedi/count', 'pages::cedi.count')->middleware('can:audits.count')->name('cedi.count');
     Route::livewire('discrepancies', 'pages::cedi.discrepancies')->middleware('can:discrepancies.resolve')->name('discrepancies.index');
 
+    Route::livewire('transfers', 'pages::transfers.index')->middleware('can:transfers.request')->name('transfers.index');
     Route::livewire('receipts', 'pages::receipts.index')->middleware('can:receipts.request')->name('receipts.index');
 
     Route::prefix('pallets')->name('pallets.')->group(function () {

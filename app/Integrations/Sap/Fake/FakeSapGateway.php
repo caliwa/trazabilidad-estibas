@@ -83,6 +83,20 @@ class FakeSapGateway implements SapGateway
         }
     }
 
+    /**
+     * Same as alterReceipt(), for transfers.
+     *
+     * @param  callable(SapDocument): SapDocument  $change
+     */
+    public function alterTransfer(string $correlation, callable $change): void
+    {
+        foreach ($this->documents[self::TRANSFERS] as $i => $document) {
+            if ($document->correlationId === $correlation) {
+                $this->documents[self::TRANSFERS][$i] = $change($document);
+            }
+        }
+    }
+
     public function receiptWriteCalls(): int
     {
         return $this->writeCalls[self::RECEIPTS];

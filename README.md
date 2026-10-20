@@ -14,7 +14,7 @@ Trazabilidad individual de estibas desde el primer escaneo de cajas en planta ha
 | 3 | Pantalla de producción, paletizado, etiquetas, tablero | Hecha; etiqueta aplicada espera DP-03 ([docs/fase-3-produccion.md](docs/fase-3-produccion.md)) |
 | 4 | Recibos de producción en SAP | Hecha contra el simulador; SAP real espera DP-09 ([docs/fase-4-recibos.md](docs/fase-4-recibos.md)) |
 | 5 | Conteo ciego y discrepancias | Hecha; resolución espera DP-04 ([docs/fase-5-auditoria.md](docs/fase-5-auditoria.md)) |
-| 6 | Traslados 04 → 05 | Pendiente |
+| 6 | Traslados 04 → 05 | Hecha contra el simulador; agrupado espera DP-05 ([docs/fase-6-traslados.md](docs/fase-6-traslados.md)) |
 | 7 | Calidad y despliegue | Pendiente |
 
 Nada está validado contra SAP real: solo existe el simulador (`SAP_DRIVER=fake`), que se rechaza en producción.
@@ -50,4 +50,5 @@ Las pruebas corren contra PostgreSQL real, no SQLite: las restricciones, índice
 - [Fase 3: producción, etiquetas y tablero](docs/fase-3-produccion.md)
 - [Fase 4: recibos de producción](docs/fase-4-recibos.md)
 - [Fase 5: conteo ciego y discrepancias](docs/fase-5-auditoria.md)
+- [Fase 6: traslados 04 → 05](docs/fase-6-traslados.md)
 - [Despliegue](docs/despliegue.md) (base heredada, se reescribe en la Fase 7)

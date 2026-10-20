@@ -12,6 +12,7 @@ use App\Domain\Shared\TraceEventType;
 use App\Domain\Shared\TraceResult;
 use App\Domain\Transfers\Enums\TransferStatus;
 use App\Enums\Permission;
+use App\Jobs\StartTransferAfterAudit;
 use App\Models\DiscrepancyCase;
 use App\Models\Pallet;
 use App\Models\PalletAudit;
@@ -93,6 +94,11 @@ class SubmitBlindCount
 
         if ($case instanceof DiscrepancyCase) {
             $this->notify($case, $user);
+        }
+
+        if ($outcome === BlindCountOutcome::Approved && config()->boolean('traceability.decisions.auto_transfer_after_audit')) {
+            $palletId = (int) PalletAudit::query()->whereKey($auditId)->value('pallet_id');
+            StartTransferAfterAudit::dispatch($palletId, $user->id, $ctx->correlationId)->afterCommit();
         }
 
         return $outcome;

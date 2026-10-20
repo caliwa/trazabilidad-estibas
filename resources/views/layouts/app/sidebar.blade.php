@@ -41,11 +41,16 @@
                     </flux:sidebar.group>
                 @endcanany
 
-                @can('receipts.request')
+                @canany(['receipts.request', 'transfers.request'])
                     <flux:sidebar.group heading="SAP" class="grid">
-                        <flux:sidebar.item icon="inbox-arrow-down" :href="route('receipts.index')" :current="request()->routeIs('receipts.*')" wire:navigate>Recibos de producción</flux:sidebar.item>
+                        @can('receipts.request')
+                            <flux:sidebar.item icon="inbox-arrow-down" :href="route('receipts.index')" :current="request()->routeIs('receipts.*')" wire:navigate>Recibos de producción</flux:sidebar.item>
+                        @endcan
+                        @can('transfers.request')
+                            <flux:sidebar.item icon="truck" :href="route('transfers.index')" :current="request()->routeIs('transfers.*')" wire:navigate>Traslados 04 → 05</flux:sidebar.item>
+                        @endcan
                     </flux:sidebar.group>
-                @endcan
+                @endcanany
 
                 @canany(['users.manage', 'audit.view'])
                     <flux:sidebar.group heading="Administración" class="grid">
