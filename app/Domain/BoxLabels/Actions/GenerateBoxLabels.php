@@ -6,6 +6,7 @@ use App\Domain\BoxLabels\BoxLabelPayload;
 use App\Domain\BoxLabels\BoxLabelZpl;
 use App\Domain\BoxLabels\BoxLot;
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
+use App\Domain\BoxLabels\Itf14;
 use App\Domain\Integration\Enums\MasterStatus;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
@@ -61,6 +62,10 @@ class GenerateBoxLabels
                 throw BoxLabelRuleViolation::noBarcode($item->code);
             }
 
+            if (! Itf14::isValid((string) $item->barcode)) {
+                throw BoxLabelRuleViolation::invalidBarcode($item->code, (string) $item->barcode);
+            }
+
             $factor = BoxConversionFactor::query()->where('item_id', $item->id)->where('status', MasterStatus::Current)->first();
 
             if ($factor === null) {
@@ -84,6 +89,7 @@ class GenerateBoxLabels
             $payload = new BoxLabelPayload(
                 orderRef: $order->ref,
                 itemCode: $item->code,
+                itemDescription: $item->description,
                 unitsPerBox: (new Quantity((string) $factor->units_per_box))->display(),
                 uomName: $order->uom_name ?? $item->inventory_uom,
                 lotCode: BoxLot::code($order->ref, $productionDate),
@@ -107,7 +113,7 @@ class GenerateBoxLabels
                 'barcode' => $payload->barcode,
                 'labels' => $labels,
                 'qr_payload' => $payload->encode(),
-                'zpl' => BoxLabelZpl::render($payload, $item->description, $productionDate, $labels),
+                'zpl' => BoxLabelZpl::render($payload, $productionDate, $labels),
                 'generated_by' => $user->id,
                 'generated_at' => now(),
             ])->save();

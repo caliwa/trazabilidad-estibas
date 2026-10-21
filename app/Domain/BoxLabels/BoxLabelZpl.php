@@ -2,12 +2,29 @@
 
 namespace App\Domain\BoxLabels;
 
+use BaconQrCode\Common\ErrorCorrectionLevel;
+use BaconQrCode\Encoder\Encoder;
 use Carbon\CarbonImmutable;
 
 /**
  * ZPL II for a 100 × 80 mm box label on a 203 dpi Zebra (8 dots per mm,
  * 800 × 640 dots). All the copies of a batch are identical, so the label is
  * sent once with ^PQ and the printer repeats it.
+ *
+ *   ┌────────────────────────────────────────┐
+ *   │ OF 33128                     ┌──────┐  │
+ *   │ PT1350023                    │  QR  │  │
+ *   │ GELATINA OLIMPICA ...        │      │  │
+ *   │ Lote / Vence / Contenido     └──────┘  │
+ *   │────────────────────────────────────────│
+ *   │        ┃║│║│║ ITF-14 ║│║│║┃          │
+ *   │         1 20 00013 50023 6             │
+ *   └────────────────────────────────────────┘
+ *
+ * Text on the left in the same order as the QR, the QR on the right sized
+ * to its content so it never leaves the label, and the EAN-14 (GTIN-14) as
+ * ITF-14 across the bottom, apart from the QR so a scanner never confuses
+ * them.
  */
 final class BoxLabelZpl
 {
@@ -15,14 +32,20 @@ final class BoxLabelZpl
 
     public const HEIGHT_DOTS = 640;
 
-    public static function render(
-        BoxLabelPayload $payload,
-        string $itemDescription,
-        CarbonImmutable $productionDate,
-        int $copies,
-    ): string {
+    /** Room for the QR on the right, in dots. */
+    private const QR_BOX = 250;
+
+    /** ITF-14 narrow bar: 4 dots = 0.5 mm, the GS1 minimum is 0.495 mm. */
+    private const ITF_NARROW = 4;
+
+    private const ITF_HEIGHT = 140;
+
+    public static function render(BoxLabelPayload $payload, CarbonImmutable $productionDate, int $copies): string
+    {
         $f = fn (string $text) => self::field($text);
-        $units = trim($payload->unitsPerBox.' '.($payload->uomName ?? ''));
+        [$order, $item, $description, $lot, $expires, $content] = $payload->lines();
+        $qrX = self::WIDTH_DOTS - 30 - self::QR_BOX;
+        $textWidth = $qrX - 50;
 
         $lines = [
             '^XA',
@@ -30,29 +53,47 @@ final class BoxLabelZpl
             '^PW'.self::WIDTH_DOTS,
             '^LL'.self::HEIGHT_DOTS,
             '^LH0,0',
-            // Left column: what a person reads.
-            '^FO30,30^A0N,46,46^FDOF '.$f($payload->orderRef).'^FS',
-            '^FO30,90^A0N,34,34^FD'.$f($payload->itemCode).'^FS',
-            '^FO30,135^FB480,3,4,L^A0N,30,30^FD'.$f($itemDescription).'^FS',
-            '^FO30,250^A0N,30,30^FDLote: '.$f($payload->lotCode).'^FS',
-            '^FO30,290^A0N,30,30^FDProducción: '.$productionDate->format('d/m/Y').'^FS',
-            '^FO30,330^A0N,30,30^FDVence: '.$payload->expirationDate->format('d/m/Y').'^FS',
-            '^FO30,370^A0N,30,30^FDContenido: '.$f($units).' por caja^FS',
-            // Right column: the QR (model 2, error correction M, 6 dots per module).
-            '^FO540,30^BQN,2,6^FDMA,'.$f($payload->encode()).'^FS',
+            // Left: what a person reads, in the order of the QR.
+            '^FO30,28^A0N,58,58^FD'.$f($order).'^FS',
+            '^FO30,96^A0N,40,40^FD'.$f($item).'^FS',
+            '^FO30,146^FB'.$textWidth.',2,4,L^A0N,30,30^FD'.$f($description).'^FS',
+            '^FO30,222^A0N,34,34^FD'.$f($lot).'^FS',
+            '^FO30,266^A0N,34,34^FD'.$f($expires).'^FS',
+            '^FO30,310^FB'.$textWidth.',2,4,L^A0N,30,30^FD'.$f($content).'^FS',
+            // Right: the QR. Line breaks travel as hex (^FH) so each field is one line on the reader.
+            '^FO'.$qrX.',28^BQN,2,'.self::qrMagnification($payload->encode()).'^FH_^FDMA,'.self::hexField($payload->encode()).'^FS',
+            // Separator, then the ITF-14 centred with its bearer bars and digits.
+            '^FO30,388^GB740,3,3^FS',
         ];
 
-        // EAN-13 as a barcode too, for whoever scans the box with a retail reader.
-        if (preg_match('/^\d{13}$/', $payload->barcode) === 1) {
-            $lines[] = '^FO30,440^BY3^BEN,110,Y,N^FD'.substr($payload->barcode, 0, 12).'^FS';
-        } else {
-            $lines[] = '^FO30,460^A0N,30,30^FDEAN: '.$f($payload->barcode).'^FS';
+        if (Itf14::isValid($payload->barcode)) {
+            $narrow = self::ITF_NARROW;
+            // 14 digits of 2 wide + 3 narrow, start (4 narrow) and stop (1 wide + 2 narrow).
+            $symbol = (int) round((14 * (2 * Itf14::RATIO + 3) + 4 + Itf14::RATIO + 2) * $narrow);
+            $bearer = 2 * $narrow;
+            $x = intdiv(self::WIDTH_DOTS - $symbol, 2);
+            $quiet = 10 * $narrow;
+            $lines[] = '^FO'.($x - $quiet - $bearer).',404^GB'.($symbol + 2 * ($quiet + $bearer)).','.(self::ITF_HEIGHT + 2 * $bearer).','.$bearer.'^FS';
+            // Check digit already in the data (last N): the printer must not add another.
+            $lines[] = '^FO'.$x.','.(404 + $bearer).'^BY'.$narrow.','.Itf14::RATIO.'^B2N,'.self::ITF_HEIGHT.',N,N,N^FD'.$payload->barcode.'^FS';
+            $lines[] = '^FO0,'.(404 + self::ITF_HEIGHT + 2 * $bearer + 8).'^FB'.self::WIDTH_DOTS.',1,0,C^A0N,30,30^FD'.Itf14::readable($payload->barcode).'^FS';
         }
 
+        $lines[] = '^FO30,'.(self::HEIGHT_DOTS - 26).'^A0N,20,20^FDProd. '.$productionDate->format('d/m/Y').'^FS';
         $lines[] = '^PQ'.$copies.',0,1,Y';
         $lines[] = '^XZ';
 
         return implode("\n", $lines)."\n";
+    }
+
+    /**
+     * Dots per module so the QR (with its version for this text) fits its box.
+     */
+    public static function qrMagnification(string $content): int
+    {
+        $modules = Encoder::encode($content, ErrorCorrectionLevel::M(), 'UTF-8')->getVersion()->getDimensionForVersion();
+
+        return max(3, min(8, intdiv(self::QR_BOX, $modules)));
     }
 
     /**
@@ -61,5 +102,13 @@ final class BoxLabelZpl
     private static function field(string $text): string
     {
         return trim(str_replace(['^', '~', "\r", "\n"], ' ', $text));
+    }
+
+    /**
+     * Field data for ^FH_: the underscore itself and line breaks as hex.
+     */
+    private static function hexField(string $text): string
+    {
+        return str_replace(['_', "\n"], ['_5F', '_0A'], str_replace(['^', '~', "\r"], ' ', $text));
     }
 }

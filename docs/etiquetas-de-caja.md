@@ -30,47 +30,73 @@ Es un módulo nuevo y aparte: no cambia la estación de producción, las estibas
 
 ## 4. Contenido del QR
 
+Al leer el QR, el lector escribe las mismas líneas que se leen en la etiqueta, una por línea:
+
 ```
-CJ1|<OF>|<producto>|<unidades por caja> <unidad>|<lote>|<EAN>|<vencimiento AAAA-MM-DD>
-CJ1|33128|PT1350023|24 UNIDAD|33128293|2000013500236|2027-10-20
+OF 33128
+PT1350023
+GELATINA OLIMPICA SIN SABOR 30 GR
+Lote: 33128294
+Vence: 20/10/2028
+Contenido: 24 UNIDAD por caja
 ```
 
-`CJ1` identifica el formato y su versión, por si mañana cambia. `BoxLabelPayload::decode()` lo lee de vuelta.
-
-**Todas las cajas de una misma OF, lote y fecha llevan el mismo QR**, como se definió. El QR dice qué hay en la caja, no cuál caja es. Por eso, cuando un sensor lea las cajas en la línea, el identificador único de cada lectura lo sigue poniendo el sensor (DP-01). El QR solo no sirve para distinguir una caja de otra.
+- El EAN-14 **no** va en el QR: va en su propio código de barras.
+- Los saltos de línea viajan como LF. Si un lector los convierte en CR LF, `BoxLabelPayload::decode()` lo lee igual.
+- **Todas las cajas de una misma OF, lote y fecha llevan el mismo QR**, como se definió. El QR dice qué hay en la caja, no cuál caja es. Por eso, cuando un sensor lea las cajas en la línea, el identificador único de cada lectura lo sigue poniendo el sensor (DP-01).
 
 ## 5. Etiqueta e impresión
 
 ZPL II para una Zebra de 203 dpi: 800 × 640 puntos, es decir 100 × 80 mm.
 
-| Zona | Contenido |
-|---|---|
-| Izquierda | OF, código y descripción del producto, lote, fecha de producción, vencimiento, unidades por caja |
-| Derecha | QR (modelo 2, corrección M) |
-| Abajo | Código de barras EAN-13. La Zebra calcula el dígito de control |
+```
+┌────────────────────────────────────────┐
+│ OF 33128                     ┌──────┐  │
+│ PT1350023                    │  QR  │  │
+│ GELATINA OLIMPICA SIN ...    │      │  │
+│ Lote / Vence / Contenido     └──────┘  │
+│────────────────────────────────────────│
+│        ┃║│║│║  ITF-14  ║│║│║┃          │
+│         1 20 00013 50023 3             │
+└────────────────────────────────────────┘
+```
 
-- **Una sola etiqueta con copias:** como todas las copias son iguales, se manda una etiqueta con `^PQ` y la impresora la repite.
+**Por qué esta distribución:**
+
+- **Arriba:** el texto a la izquierda, en el mismo orden que el QR, y el QR a la derecha. El tamaño del QR se calcula según el largo del texto (`qrMagnification`) para que una descripción larga nunca lo saque de la etiqueta.
+- **Abajo:** el EAN-14 a todo el ancho, separado por una línea. Así una pistola no lee el QR cuando apunta al código de barras.
+
+**EAN-14 (GTIN-14) como ITF-14**, la simbología GS1 para cajas corrugadas:
+
+- **Barras:** entrelazado 2 de 5 con relación ancho/angosto de 2.5. La barra angosta mide 4 puntos (0.5 mm), por encima del mínimo GS1 de 0.495 mm. Alto de 17.5 mm.
+- **Alrededor:** barras portadoras como recuadro, con zona de silencio de 10 barras angostas a cada lado.
+- **Validación:** el código tiene que traer 14 dígitos con el dígito de control correcto. Si viene de 13 dígitos o con el dígito de control mal, no se generan etiquetas, porque lo impreso no coincidiría con el código. El dígito de control lo manda el sistema y la Zebra no le agrega otro.
+- **Texto bajo las barras:** `1 20 00013 50023 3`, agrupado como se acostumbra.
+
+**Otros detalles de impresión:**
+
+- **Copias:** como todas son iguales, se manda una etiqueta con `^PQ` y la impresora la repite.
 - **Caracteres:** con `^CI28` salen bien la Ñ y las tildes.
+- **Saltos de línea del QR:** van en hexadecimal (`^FH`).
 - **Texto desde SAP:** cualquier `^` o `~` se quita, para que una descripción no pueda meter comandos en la impresora.
-
-El archivo `.zpl` se descarga desde la pantalla y se manda a la Zebra con la utilidad de Zebra (Zebra Setup Utilities, "enviar archivo") o con el driver en modo de texto sin procesar.
-
-La pantalla muestra una vista previa con el mismo QR. Lo que se imprime es el ZPL.
+- **Envío a la Zebra:** el archivo `.zpl` se descarga desde la pantalla y se manda con la utilidad de Zebra (Zebra Setup Utilities, "enviar archivo") o con el driver en modo de texto sin procesar.
+- **Vista previa:** la pantalla muestra la misma distribución, con el mismo QR y el mismo ITF-14. Lo que se imprime es el ZPL.
 
 ## 6. Pruebas
 
 | Prueba | Qué demuestra |
 |---|---|
-| `BoxLabelsTest` (16) | Consulta y guardado del encabezado; rechazo de OF inexistentes, planificadas, cerradas o canceladas, sin guardar nada; SAP sin respuesta; reconsulta que conserva la vida útil; cambio de producto con estibas; regla del lote; contenido del QR; formato ZPL; texto de SAP que intenta meter comandos; vencimiento; límite acumulado por OF; datos que faltan; tanda inmutable; permisos; pantalla completa con la descarga |
+| `BoxLabelsTest` (17) | Consulta y guardado del encabezado; rechazo de OF inexistentes, planificadas, cerradas o canceladas, sin guardar nada; SAP sin respuesta; reconsulta que conserva la vida útil; cambio de producto con estibas; regla del lote; el QR con las líneas de la etiqueta y el EAN-14 aparte; ZPL con QR e ITF-14; dígito de control y patrón ITF-14 contra el ejemplo de GS1; EAN-13 o dígito de control erróneo rechazados; texto de SAP que intenta meter comandos; vencimiento; límite acumulado por OF; datos que faltan; tanda inmutable; permisos; pantalla completa con la descarga |
 | `BoxLabelConcurrencyTest` | 12 tandas en paralelo sobre la misma OF nunca pasan de 34. Sin el bloqueo de la fila, la prueba falló 4 de 5 veces |
 
-Además decodifiqué con OpenCV el QR de la vista previa en el navegador, y sale el texto esperado.
+Además, desde una captura de la vista previa en el navegador, zxing-cpp leyó el QR (las seis líneas exactas) y el ITF-14 (`12000013500233`). El ZPL no se pudo dibujar con un renderizador externo porque el servicio está bloqueado en esta sesión; las medidas se revisaron a mano.
 
 ## 7. Lo que falta o está supuesto
 
 - **Conector SAP real (DP-09).** La consulta corre contra el simulador. El contrato (`SapGateway::findProductionOrder`) ya define qué datos hacen falta. Qué propiedades de Service Layer los traen se decide al escribir el conector, con acceso a SAP.
-- **Simulador.** Responde con los 40 PT reales y seis órdenes de ejemplo (33128 a 33133) basadas en la 33128 que mandaste. Los EAN del simulador **no son reales**: usan el prefijo 200, que es de uso interno.
+- **Simulador.** Responde con los 40 PT reales y seis órdenes de ejemplo (33128 a 33133) basadas en la 33128 que mandaste. Los EAN-14 del simulador **no son reales**: llevan indicador 1 y prefijo 200, que es de uso interno.
+- **De dónde sale el EAN-14 en SAP.** Supuse que SAP guarda el GTIN-14 de la caja tal cual. Si SAP guarda el EAN-13 de la unidad y el de la caja se arma con un dígito indicador, hay que definir ese dígito y dónde se guarda.
 - **Unidades por caja.** Salen del factor de conversión local (DP-02). Sin factor vigente no se generan etiquetas.
 - **Vida útil.** No viene de SAP. Es un campo local por producto (`items.shelf_life_days`). Si está vacío, el operario escribe el vencimiento. Falta definir quién la carga y de dónde sale.
 - **Cantidad planificada.** Supuse que está en la misma unidad de inventario que usa el factor de conversión, como en los recibos. Si SAP la diera en cajas, el límite cambia.
-- **Impresora sin probar.** Revisé el ZPL a mano y con pruebas automáticas, pero no lo imprimí en una Zebra real. Antes de usarlo en planta hay que imprimir una etiqueta y leerla con el lector de la línea.
+- **Impresora sin probar.** Revisé el ZPL a mano y con pruebas automáticas, pero no lo imprimí en una Zebra real. Antes de usarlo en planta hay que imprimir una etiqueta y leer el QR y el ITF-14 con el lector de la línea. El ITF-14 con barra de 0.5 mm queda al mínimo GS1: si el lector de bodega es de larga distancia, puede convenir una etiqueta más grande.

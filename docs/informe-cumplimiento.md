@@ -11,7 +11,7 @@ El prompt pide distinguir cuatro niveles. Este es el estado real:
 | Nivel | Estado |
 |---|---|
 | **Terminado funcionalmente** | Sí, para todo lo que no depende de una decisión pendiente. Lo que depende de DP-01, DP-03 y DP-04 está implementado y **apagado**. DP-08 no está implementado |
-| **Probado en entorno simulado** | Sí. 308 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
+| **Probado en entorno simulado** | Sí. 309 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
 | **Probado en integración** | No. No existe el conector real de Service Layer ni un SAP de pruebas (DP-09). Tampoco se probó con sensores, lectores ni impresoras reales |
 | **Validado en SAP real** | No |
 
@@ -177,7 +177,7 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | Una OF liberada se consulta en SAP y su encabezado queda guardado | `BoxLabelsTest::test_a_released_order_is_consulted_in_sap_and_its_header_is_stored` |
 | OF inexistente, planificada, cerrada o cancelada se rechaza sin guardar; SAP sin respuesta no es "no existe" | `BoxLabelsTest::test_orders_that_do_not_exist_or_are_not_released_are_refused_and_nothing_is_stored` |
 | Lote = OF + día juliano | `BoxLabelsTest::test_the_lot_is_the_order_number_and_the_julian_day` |
-| El QR lleva OF, producto, unidades por caja, lote, EAN y vencimiento | `BoxLabelsTest::test_a_batch_carries_order_product_units_lot_ean_and_expiration_in_the_qr` |
+| El QR se lee como las líneas de la etiqueta (OF, producto, descripción, lote, vence, contenido); el EAN-14 va aparte como ITF-14 | `BoxLabelsTest::test_the_qr_reads_as_the_lines_of_the_label_and_the_ean14_goes_apart`, `BoxLabelsTest::test_the_ean14_check_digit_and_itf14_pattern_follow_gs1` |
 | ZPL de 10 × 8 cm con la cantidad pedida | `BoxLabelsTest::test_the_zpl_is_a_10_by_8_cm_label_printed_as_many_times_as_asked` |
 | Texto de SAP no inyecta comandos ZPL | `BoxLabelsTest::test_text_from_sap_can_never_inject_zpl_commands` |
 | Una OF no recibe más etiquetas que las que llena su cantidad planificada, tampoco en paralelo | `BoxLabelsTest::test_an_order_never_gets_more_labels_than_its_planned_quantity_fills`, `BoxLabelConcurrencyTest::test_parallel_batches_never_pass_the_planned_quantity` |
@@ -279,7 +279,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 PHP 8.3.6 y PostgreSQL 16.15, en la sesión de la Fase 7:
 
 ```
-php artisan test             → 308 pruebas, 308 pasan (dos corridas seguidas, con el módulo de etiquetas de caja)
+php artisan test             → 309 pruebas, 309 pasan (dos corridas seguidas, con el QR legible y el EAN-14 en las etiquetas de caja)
 phpstan analyse (nivel 7)    → 0 errores
 pint --test                  → pasa
 composer audit               → sin avisos
