@@ -28,7 +28,7 @@ final class ProductionOrderCache
      *
      * @throws BoxLabelRuleViolation when SAP moved the order to another product and it already has pallets
      */
-    public function store(SapProductionOrder $sapOrder, User $user, TraceContext $ctx, TraceEventType $event): ProductionOrder
+    public function store(SapProductionOrder $sapOrder, ?User $user, TraceContext $ctx, TraceEventType $event): ProductionOrder
     {
         $item = Item::query()->where('code', $sapOrder->itemCode)->lockForUpdate()->first() ?? new Item;
         // Shelf life is a local setting; SAP data never overwrites it.
@@ -86,7 +86,8 @@ final class ProductionOrderCache
             'sap_linked_to' => $sapOrder->linkedTo,
             'sap_header' => $header,
             'consulted_at' => now(),
-            'consulted_by' => $user->id,
+            // Null when the console brought it (sap:sync-orders).
+            'consulted_by' => $user?->id,
         ])->save();
 
         $this->trace->record($ctx, $event, $order, context: $header);
