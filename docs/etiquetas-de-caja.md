@@ -26,7 +26,8 @@ Es un módulo nuevo y aparte: no cambia la estación de producción, las estibas
 3. **Generar etiquetas** (`GenerateBoxLabels`). El operario indica la cantidad de etiquetas, la fecha de producción (no puede ser futura) y la de vencimiento. La de vencimiento se propone sola con la vida útil del producto, si está cargada.
 4. **Lote:** número de OF + día juliano de la fecha de producción, con 3 dígitos. Por ejemplo, la OF 33128 producida el 20/10/2026 (día 293) queda con lote `33128293`.
 5. **Límite por OF.** Entre todas las tandas, una OF no recibe más etiquetas que las cajas que llena su cantidad planificada, contando la última caja aunque quede incompleta. Ejemplo: 800 unidades a 24 por caja dan 34 etiquetas. La fila de la OF se bloquea mientras se genera una tanda, así dos operarios a la vez no se pasan del límite.
-6. **Qué se guarda.** Cada tanda queda en `box_label_batches` con el texto exacto del QR y el ZPL exacto. La tabla no admite cambios ni borrados (trigger). Generar y descargar quedan en la bitácora.
+6. **Un vencimiento por lote.** Si ya hay etiquetas de ese lote, una tanda nueva tiene que traer la misma fecha de vencimiento. Ese vencimiento es el que va en el recibo de producción a SAP y en la etiqueta de la estiba.
+7. **Qué se guarda.** Cada tanda queda en `box_label_batches` con el texto exacto del QR y el ZPL exacto. La tabla no admite cambios ni borrados (trigger). Generar y descargar quedan en la bitácora.
 
 ## 4. Contenido del QR
 
@@ -86,12 +87,17 @@ ZPL II para una Zebra de 203 dpi: 800 × 640 puntos, es decir 100 × 80 mm.
 
 | Prueba | Qué demuestra |
 |---|---|
-| `BoxLabelsTest` (17) | Consulta y guardado del encabezado; rechazo de OF inexistentes, planificadas, cerradas o canceladas, sin guardar nada; SAP sin respuesta; reconsulta que conserva la vida útil; cambio de producto con estibas; regla del lote; el QR con las líneas de la etiqueta y el EAN-14 aparte; ZPL con QR e ITF-14; dígito de control y patrón ITF-14 contra el ejemplo de GS1; EAN-13 o dígito de control erróneo rechazados; texto de SAP que intenta meter comandos; vencimiento; límite acumulado por OF; datos que faltan; tanda inmutable; permisos; pantalla completa con la descarga |
+| `BoxLabelsTest` (18) | Consulta y guardado del encabezado; rechazo de OF inexistentes, planificadas, cerradas o canceladas, sin guardar nada; SAP sin respuesta; reconsulta que conserva la vida útil; cambio de producto con estibas; regla del lote; el QR con las líneas de la etiqueta y el EAN-14 aparte; ZPL con QR e ITF-14; dígito de control y patrón ITF-14 contra el ejemplo de GS1; EAN-13 o dígito de control erróneo rechazados; texto de SAP que intenta meter comandos; vencimiento; un solo vencimiento por lote; límite acumulado por OF; datos que faltan; tanda inmutable; permisos; pantalla completa con la descarga |
 | `BoxLabelConcurrencyTest` | 12 tandas en paralelo sobre la misma OF nunca pasan de 34. Sin el bloqueo de la fila, la prueba falló 4 de 5 veces |
 
 Además, desde una captura de la vista previa en el navegador, zxing-cpp leyó el QR (las seis líneas exactas) y el ITF-14 (`12000013500233`). El ZPL no se pudo dibujar con un renderizador externo porque el servicio está bloqueado en esta sesión; las medidas se revisaron a mano.
 
-## 7. Lo que falta o está supuesto
+## 7. Uso en el resto del proceso
+
+- **Recibo de producción.** Cada lote va a SAP con el vencimiento de sus etiquetas de caja y con fecha de fabricación igual a la de admisión. Sin etiquetas de caja del lote no hay recibo. Ver `docs/fase-4-recibos.md`.
+- **Etiqueta de la estiba.** Muestra "Vence" con la fecha del lote. Si el lote todavía no tiene etiquetas de caja, sale una raya.
+
+## 8. Lo que falta o está supuesto
 
 - **Conector SAP real (DP-09).** La consulta corre contra el simulador. El contrato (`SapGateway::findProductionOrder`) ya define qué datos hacen falta. Qué propiedades de Service Layer los traen se decide al escribir el conector, con acceso a SAP.
 - **Simulador.** Responde con los 40 PT reales y seis órdenes de ejemplo (33128 a 33133) basadas en la 33128 que mandaste. Los EAN-14 del simulador **no son reales**: llevan indicador 1 y prefijo 200, que es de uso interno.

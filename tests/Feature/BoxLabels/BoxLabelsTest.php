@@ -236,6 +236,20 @@ class BoxLabelsTest extends TestCase
         $this->assertSame('2027-04-30', $this->generate($order, 1, expiration: '2027-04-30')->expiration_date->toDateString());
     }
 
+    public function test_a_lot_keeps_one_expiration_date_across_batches(): void
+    {
+        $order = $this->ready(shelfLifeDays: null);
+        $this->generate($order, 2, expiration: '2028-10-20');
+
+        // Same order and day means the same lot: a second batch can't print another expiration.
+        $this->expectViolation(fn () => $this->generate($order, 1, expiration: '2028-11-01'), 'ya tiene etiquetas con vencimiento 20/10/2028');
+        $this->generate($order, 1, expiration: '2028-10-20');
+        // Another day is another lot, free to have its own date.
+        $this->generate($order, 1, production: '2026-10-19', expiration: '2028-11-01');
+
+        $this->assertSame(3, BoxLabelBatch::query()->count());
+    }
+
     public function test_an_order_never_gets_more_labels_than_its_planned_quantity_fills(): void
     {
         // 800 units at 24 per box: 33 full boxes and one of 8, so 34 labels.

@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Domain\Audits\Actions\StartBlindCount;
 use App\Domain\Audits\Actions\SubmitBlindCount;
 use App\Domain\BoxLabels\Actions\ConsultProductionOrder;
+use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
 use App\Domain\BoxLabels\BoxLot;
 use App\Domain\Devices\ManageDevices;
 use App\Domain\Integration\Enums\MasterStatus;
@@ -108,6 +109,13 @@ class DemoFlow extends Command
         $lotB1 = BoxLot::code($choco->ref, $this->day);
         $lotC1 = BoxLot::code($noStandard->ref, $this->day);
         $this->sensor = app(ManageDevices::class)->register('SEN-DEMO-L1', 'Sensor demo línea 1', 'SENSOR', $this->console())[0];
+
+        // The box labels go first: the receipt takes each lot's expiration from them.
+        $this->labels($people['produccion'], $oats, 35, $this->day);
+        $this->labels($people['produccion'], $oats, 10, $this->day->subDay());
+        $this->labels($people['produccion'], $oats, 10, $this->day->subDays(2));
+        $this->labels($people['produccion'], $choco, 19, $this->day);
+        $this->labels($people['produccion'], $noStandard, 2, $this->day);
 
         $this->at('06:00');
         $this->components->info('1. Lecturas del sensor');
@@ -241,13 +249,22 @@ class DemoFlow extends Command
         };
 
         return [
-            // GELATINA OLIMPICA SIN SABOR 30 GR
-            $order('33128', 10, '24'),
+            // GELATINA OLIMPICA SIN SABOR 30 GR, 12 per box so its 800 units cover the 55 boxes read
+            $order('33128', 10, '12'),
             // GELATINA ALKOSTO SIN SABOR 30 GR
             $order('33131', 8, '24'),
             // GELATINA AZUCARADA BOOM LIMON 1000 GR, without a pallet standard on purpose
             $order('33132', null, '12'),
         ];
+    }
+
+    /**
+     * Box labels for one lot, with the expiration proposed from the shelf life.
+     */
+    private function labels(User $operator, ProductionOrder $order, int $labels, CarbonImmutable $productionDate): void
+    {
+        $this->tick(30);
+        app(GenerateBoxLabels::class)->handle($operator, $order->id, $labels, $productionDate, null, $this->web($operator));
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\BoxLabels\LotDates;
 use App\Domain\Pallets\PalletQr;
 use App\Models\Pallet;
 use App\Models\PalletLabelPrint;
@@ -23,6 +24,8 @@ class PalletLabelController extends Controller
             'pallet' => $pallet,
             'print' => $record,
             'qrSvg' => PalletQr::svg($pallet),
+            // Same lot, same expiration as its box labels; none yet shows a dash, never a guess.
+            'expiration' => LotDates::expiration($pallet->production_order_id, $pallet->lot_code),
             'widthMm' => config()->integer('traceability.label.width_mm'),
             'heightMm' => config()->integer('traceability.label.height_mm'),
         ]);

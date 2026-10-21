@@ -44,6 +44,11 @@ class ReceiptRuleViolation extends DomainException
         return new self("El producto {$itemCode} no tiene un factor de conversión cajas → unidades vigente (DP-02).");
     }
 
+    public static function lotWithoutLabels(string $lotCode, string $orderRef): self
+    {
+        return new self("El lote {$lotCode} no tiene etiquetas de caja generadas para la orden {$orderRef}. SAP pide el vencimiento del lote y sale de esas etiquetas.");
+    }
+
     public static function notPending(): self
     {
         return new self('El recibo no está pendiente de conciliación.');

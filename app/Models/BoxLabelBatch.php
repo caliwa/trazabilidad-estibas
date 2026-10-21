@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Carbon\CarbonImmutable;
+use Database\Factories\BoxLabelBatchFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -31,6 +33,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class BoxLabelBatch extends Model
 {
+    /** @use HasFactory<BoxLabelBatchFactory> */
+    use HasFactory;
+
     public $timestamps = false;
 
     /**

@@ -11,7 +11,7 @@ El prompt pide distinguir cuatro niveles. Este es el estado real:
 | Nivel | Estado |
 |---|---|
 | **Terminado funcionalmente** | Sí, para todo lo que no depende de una decisión pendiente. Lo que depende de DP-01, DP-03 y DP-04 está implementado y **apagado**. DP-08 no está implementado |
-| **Probado en entorno simulado** | Sí. 309 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
+| **Probado en entorno simulado** | Sí. 315 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
 | **Probado en integración** | No. No existe el conector real de Service Layer ni un SAP de pruebas (DP-09). Tampoco se probó con sensores, lectores ni impresoras reales |
 | **Validado en SAP real** | No |
 
@@ -183,6 +183,17 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | Una OF no recibe más etiquetas que las que llena su cantidad planificada, tampoco en paralelo | `BoxLabelsTest::test_an_order_never_gets_more_labels_than_its_planned_quantity_fills`, `BoxLabelConcurrencyTest::test_parallel_batches_never_pass_the_planned_quantity` |
 | Lo impreso queda como evidencia inmutable | `BoxLabelsTest::test_a_generated_batch_is_evidence_and_never_changes` |
 | Permisos en el servidor | `BoxLabelsTest::test_only_people_with_box_labels_print_consult_and_generate`, `BoxLabelsTest::test_the_page_and_the_download_need_the_permission` |
+| Un lote tiene un solo vencimiento entre tandas | `BoxLabelsTest::test_a_lot_keeps_one_expiration_date_across_batches` |
+
+### Lotes en el recibo de producción (requisito agregado después de la Fase 7)
+
+| Escenario | Prueba |
+|---|---|
+| Cada lote va a SAP con el vencimiento de sus etiquetas de caja y fabricación = admisión | `ProductionReceiptFlowTest::test_each_batch_goes_with_the_expiration_of_its_box_labels_and_the_admission_date` |
+| Lote sin etiquetas de caja: no hay recibo y no se inventa la fecha | `ProductionReceiptFlowTest::test_a_lot_without_box_labels_is_refused_and_nothing_is_created` |
+| Un reenvío después de medianoche conserva la fecha de admisión | `ProductionReceiptFlowTest::test_a_resend_after_midnight_keeps_the_admission_date` |
+| Un lote con otras fechas en SAP nunca se confirma | `ProductionReceiptFlowTest::test_a_batch_with_other_dates_in_sap_is_never_confirmed` |
+| La etiqueta de la estiba muestra el vencimiento del lote | `PalletDetailAndLabelTest::test_the_label_shows_the_expiration_of_its_lot_from_the_box_labels` |
 
 ## 6. Seguridad (sección 12)
 
@@ -279,7 +290,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 PHP 8.3.6 y PostgreSQL 16.15, en la sesión de la Fase 7:
 
 ```
-php artisan test             → 309 pruebas, 309 pasan (con el QR legible y el EAN-14 sin borde en las etiquetas de caja)
+php artisan test             → 315 pruebas, 315 pasan (con los lotes y sus fechas en los recibos y el vencimiento en la etiqueta de la estiba)
 phpstan analyse (nivel 7)    → 0 errores
 pint --test                  → pasa
 composer audit               → sin avisos

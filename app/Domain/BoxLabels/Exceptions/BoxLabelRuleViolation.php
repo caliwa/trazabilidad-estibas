@@ -2,6 +2,7 @@
 
 namespace App\Domain\BoxLabels\Exceptions;
 
+use Carbon\CarbonInterface;
 use DomainException;
 
 /**
@@ -65,6 +66,11 @@ class BoxLabelRuleViolation extends DomainException
     public static function futureProductionDate(): self
     {
         return new self('La fecha de producción no puede ser futura.');
+    }
+
+    public static function lotExpirationMismatch(string $lotCode, CarbonInterface $expiration): self
+    {
+        return new self("El lote {$lotCode} ya tiene etiquetas con vencimiento {$expiration->format('d/m/Y')}. Un lote tiene una sola fecha de vencimiento.");
     }
 
     public static function invalidExpiration(): self

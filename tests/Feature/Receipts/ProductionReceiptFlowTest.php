@@ -17,12 +17,14 @@ use App\Integrations\Sap\Dto\SapDocument;
 use App\Integrations\Sap\Dto\SapDocumentLine;
 use App\Integrations\Sap\Fake\FakeScenario;
 use App\Models\BoxConversionFactor;
+use App\Models\BoxLabelBatch;
 use App\Models\IntegrationAttempt;
 use App\Models\Pallet;
 use App\Models\ProductionOrder;
 use App\Models\ProductionReceipt;
 use App\Models\ProductionReceiptPallet;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
@@ -79,6 +81,82 @@ class ProductionReceiptFlowTest extends TestCase
         $lines = ProductionReceiptPallet::query()->where('production_receipt_id', $receipt->id)->get();
         $this->assertTrue($lines->every(fn ($l) => $l->hold_status === PalletHold::Confirmed && $l->sap_line_num !== null && $l->sap_quantity === '480.000000'));
         $this->assertSame(2, $lines->pluck('sap_line_num')->unique()->count());
+    }
+
+    public function test_each_batch_goes_with_the_expiration_of_its_box_labels_and_the_admission_date(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-21 09:30'));
+        $order = ProductionOrder::factory()->create();
+        BoxLabelBatch::factory()->create(['production_order_id' => $order->id, 'lot_code' => 'L-1', 'expiration_date' => '2028-10-20']);
+        BoxLabelBatch::factory()->create(['production_order_id' => $order->id, 'lot_code' => 'L-2', 'expiration_date' => '2028-10-21']);
+
+        [$receipt] = $this->requestReceipts($this->admin, $this->labeledPallets(['L-1', 'L-1', 'L-2'], order: $order));
+
+        $this->assertSame('2026-10-21', $receipt->payload['posting_date']);
+        $byLot = collect($receipt->payload['lines'])->keyBy('lot_code');
+        $this->assertSame(['2028-10-20', '2026-10-21'], [$byLot['L-1']['expiration_date'], $byLot['L-1']['manufacturing_date']]);
+        $this->assertSame(['2028-10-21', '2026-10-21'], [$byLot['L-2']['expiration_date'], $byLot['L-2']['manufacturing_date']]);
+
+        // What reached SAP: one batch per lot with its dates, posted on the admission day.
+        $document = $this->sap()->receipts()[0];
+        $this->assertSame('2026-10-21', $document->postingDate?->toDateString());
+        $dates = collect($document->lines)->mapWithKeys(fn (SapDocumentLine $l) => [$l->lotCode => [$l->expirationDate?->toDateString(), $l->manufacturingDate?->toDateString()]])->all();
+        $this->assertEquals(['L-1' => ['2028-10-20', '2026-10-21'], 'L-2' => ['2028-10-21', '2026-10-21']], $dates);
+        $this->assertSame(SapDocumentStatus::Confirmed, $receipt->refresh()->status);
+    }
+
+    public function test_a_lot_without_box_labels_is_refused_and_nothing_is_created(): void
+    {
+        $order = ProductionOrder::factory()->create();
+        BoxConversionFactor::factory()->create(['item_id' => $order->item_id]);
+        $labeled = $this->labeledPallets(['L-1'], order: $order);
+        $orphan = Pallet::factory()->labeled()->create(['production_order_id' => $order->id, 'lot_code' => 'L-SIN-ETIQUETA', 'pallet_standard_id' => $labeled[0]->pallet_standard_id]);
+
+        try {
+            $this->requestReceipts($this->admin, [$labeled[0], $orphan]);
+            $this->fail('Un lote sin etiquetas de caja no puede ir a SAP.');
+        } catch (ReceiptRuleViolation $e) {
+            $this->assertStringContainsString('El lote L-SIN-ETIQUETA no tiene etiquetas de caja', $e->getMessage());
+        }
+
+        $this->assertSame(0, ProductionReceipt::count());
+        $this->assertSame(ReceiptStatus::None, $labeled[0]->refresh()->receipt_status);
+        $this->assertSame(0, $this->sap()->receiptWriteCalls());
+    }
+
+    public function test_a_resend_after_midnight_keeps_the_admission_date(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-21 23:55'));
+        $this->sap()->queueReceiptScenarios(FakeScenario::TimeoutWithoutCreating);
+        [$receipt] = $this->requestReceipts($this->admin, $this->labeledPallets(['L-1']));
+
+        $this->travel(config()->integer('sap.reconciliation.resend_after_minutes') + 1)->minutes();
+        $this->lifecycle()->reconcile($receipt->id);
+
+        $this->assertSame(SapDocumentStatus::Confirmed, $receipt->refresh()->status);
+        $this->assertSame(2, $this->sap()->receiptWriteCalls());
+        $this->assertSame('2026-10-21', $this->sap()->receipts()[0]->postingDate?->toDateString());
+        $this->assertSame('2026-10-21', $this->sap()->receipts()[0]->lines[0]->manufacturingDate?->toDateString());
+    }
+
+    public function test_a_batch_with_other_dates_in_sap_is_never_confirmed(): void
+    {
+        $this->sap()->queueReceiptScenarios(FakeScenario::CreateThenTimeout);
+        [$receipt] = $this->requestReceipts($this->admin, $this->labeledPallets(['L-1']));
+        $this->sap()->alterReceipt($receipt->request_uuid, fn (SapDocument $d) => new SapDocument($d->docEntry, $d->docNum, $d->correlationId, [
+            new SapDocumentLine(0, $d->lines[0]->itemCode, $d->lines[0]->lotCode, $d->lines[0]->quantity, $d->lines[0]->warehouse, CarbonImmutable::parse('2027-01-01'), $d->lines[0]->manufacturingDate),
+        ], $d->productionOrderRef, postingDate: $d->postingDate));
+
+        $this->travel(60)->minutes();
+        $this->lifecycle()->reconcile($receipt->id);
+
+        $receipt->refresh();
+        $this->assertSame(SapDocumentStatus::PendingReconciliation, $receipt->status);
+        $this->assertTrue($receipt->reconciliation['mismatch']);
+        $this->assertCount(1, $receipt->reconciliation['differences']);
+        $this->assertStringContainsString('Fecha de vencimiento distinta', $receipt->reconciliation['differences'][0]);
+        $this->assertStringContainsString('pedida 2028-10-20, en SAP 2027-01-01', $receipt->reconciliation['differences'][0]);
+        $this->assertSame(1, $this->sap()->receiptWriteCalls());
     }
 
     public function test_three_pallets_in_separate_receipts(): void
