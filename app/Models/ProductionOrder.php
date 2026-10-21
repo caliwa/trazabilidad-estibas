@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonImmutable;
 use Database\Factories\ProductionOrderFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -10,6 +11,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Production order (local read cache of SAP).
+ *
+ * @property CarbonImmutable|null $order_date
+ * @property CarbonImmutable|null $start_date
+ * @property CarbonImmutable|null $due_date
+ * @property CarbonImmutable|null $ready_to_close_notified_at
  */
 class ProductionOrder extends Model
 {
@@ -29,6 +35,7 @@ class ProductionOrder extends Model
             'due_date' => 'immutable_date',
             'sap_header' => 'array',
             'consulted_at' => 'datetime',
+            'ready_to_close_notified_at' => 'datetime',
         ];
     }
 

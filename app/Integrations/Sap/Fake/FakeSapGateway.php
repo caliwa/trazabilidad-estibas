@@ -10,6 +10,7 @@ use App\Integrations\Sap\Dto\SapDocument;
 use App\Integrations\Sap\Dto\SapDocumentLine;
 use App\Integrations\Sap\Dto\SapProductionOrder;
 use App\Integrations\Sap\Dto\SapWriteResult;
+use App\Integrations\Sap\Enums\ProductionOrderStatus;
 use App\Integrations\Sap\Exceptions\SapLookupFailed;
 use Carbon\CarbonImmutable;
 
@@ -166,6 +167,17 @@ class FakeSapGateway implements SapGateway
         }
 
         return $this->productionOrders[trim($docNum)] ?? null;
+    }
+
+    public function releasedProductionOrders(): array
+    {
+        if ($this->failingLookups > 0) {
+            $this->failingLookups--;
+
+            throw new SapLookupFailed('Consulta a SAP sin respuesta (simulador).');
+        }
+
+        return array_values(array_filter($this->productionOrders, fn (SapProductionOrder $o) => $o->status === ProductionOrderStatus::Released));
     }
 
     /**

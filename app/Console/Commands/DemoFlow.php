@@ -9,6 +9,7 @@ use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
 use App\Domain\BoxLabels\BoxLot;
 use App\Domain\Devices\ManageDevices;
 use App\Domain\Integration\Enums\MasterStatus;
+use App\Domain\Orders\Actions\SyncReleasedOrders;
 use App\Domain\Pallets\Actions\CloseManually;
 use App\Domain\Pallets\Actions\ConfirmLabeled;
 use App\Domain\Pallets\Actions\ConfirmPalletized;
@@ -102,7 +103,7 @@ class DemoFlow extends Command
     {
         $this->at('05:45');
         $people = $this->people();
-        [$oats, $choco, $noStandard] = $this->masters($people['produccion']);
+        [$oats, $choco, $noStandard, $complete] = $this->masters($people['produccion']);
         $lotA1 = BoxLot::code($oats->ref, $this->day);
         $lotA2 = BoxLot::code($oats->ref, $this->day->subDay());
         $lotA3 = BoxLot::code($oats->ref, $this->day->subDays(2));
@@ -176,11 +177,35 @@ class DemoFlow extends Command
         $this->line("   4 aprobadas: cada una pidió su transferencia a 05 al aprobarse. 3 confirmadas en SAP; la de {$b1->first()->pallet_code} queda pendiente (timeout sin crear).");
         $this->line("   1 discrepancia en {$p3->pallet_code} (se contó una caja menos): no se mueve.");
 
+        $this->at('14:00');
+        $this->components->info('5. Una OF completa: recibos por todo lo planificado');
+        $lotD1 = BoxLot::code($complete->ref, $this->day);
+        $this->labels($people['produccion'], $complete, 10, $this->day);
+        $this->reads($complete, $lotD1, 10);
+        foreach (Pallet::query()->where('production_order_id', $complete->id)->where('physical_status', PhysicalStatus::Finished)->orderBy('id')->get() as $pallet) {
+            $this->tick(120);
+            app(ConfirmPalletized::class)->handle($people['produccion'], $pallet->id, $this->web($people['produccion']));
+            app(PrintLabel::class)->handle($people['produccion'], $pallet->id, null, $this->web($people['produccion']));
+            app(ConfirmLabeled::class)->handle($people['produccion'], $pallet->id, PalletQr::payload($pallet->refresh()), $this->web($people['produccion']));
+        }
+        $this->tick(300);
+        $receipts->handle($people['supervisor'], $this->ids($this->pallets($complete, $lotD1)), false, $this->web($people['supervisor']));
+        foreach ($this->pallets($complete, $lotD1) as $pallet) {
+            $this->count($people['cedi'], $pallet, $pallet->boxes_count);
+        }
+        $this->line("   OF {$complete->ref}: 240 de 240 unidades recibidas y transferidas a CEDI. Queda lista para cerrar en SAP y llega la alerta a los supervisores.");
+
+        $this->at('16:00');
+        $this->components->info('6. Tablero de OF actualizado desde SAP');
+        $sync = app(SyncReleasedOrders::class)->handle($people['supervisor'], $this->web($people['supervisor']));
+        $this->line("   {$sync->released} órdenes liberadas en SAP en el tablero.");
+
         $ready = $a2->first();
 
         $this->newLine();
         $this->components->info('Listo. Para mirar:');
         $this->table(['Pantalla', 'Ruta', 'Usuario'], [
+            ['Tablero de OF (KPIs; 33134 lista para cerrar)', '/orders', 'supervisor@example.com'],
             ['Tablero e historia de cada estiba', '/pallets', 'supervisor@example.com'],
             ['Etiquetas de caja (consultar OF 33128)', '/box-labels', 'produccion@example.com'],
             ['Estación de producción', '/production', 'produccion@example.com'],
@@ -222,10 +247,10 @@ class DemoFlow extends Command
     }
 
     /**
-     * The 40 finished products of the SAP catalog, and three released
+     * The 40 finished products of the SAP catalog, and four released
      * orders looked up in SAP the same way the box labels screen does it.
      *
-     * @return array{ProductionOrder, ProductionOrder, ProductionOrder}
+     * @return array{ProductionOrder, ProductionOrder, ProductionOrder, ProductionOrder}
      */
     private function masters(User $consultant): array
     {
@@ -255,6 +280,8 @@ class DemoFlow extends Command
             $order('33131', 8, '24'),
             // GELATINA AZUCARADA BOOM LIMON 1000 GR, without a pallet standard on purpose
             $order('33132', null, '12'),
+            // GELATINA MERCALDAS SIN SABOR 30 GR: 240 units, 10 boxes, 2 pallets, received in full
+            $order('33134', 5, '24'),
         ];
     }
 

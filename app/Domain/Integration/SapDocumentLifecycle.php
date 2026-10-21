@@ -335,7 +335,12 @@ abstract class SapDocumentLifecycle
             to: ['status' => SapDocumentStatus::Confirmed->value],
             sapRefs: ['doc_entry' => $found->docEntry, 'doc_num' => $found->docNum],
         );
+
+        $this->afterConfirmed($document);
     }
+
+    /** Runs inside the confirming transaction. Nothing by default. */
+    protected function afterConfirmed(ProductionReceipt|InventoryTransfer $document): void {}
 
     private function setPallets(ProductionReceipt|InventoryTransfer $document, DocumentPhase $phase): void
     {
