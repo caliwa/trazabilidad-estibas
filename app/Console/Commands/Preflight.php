@@ -33,6 +33,13 @@ class Preflight extends Command
         $this->check(! in_array(config('queue.default'), ['sync', 'null'], true), 'QUEUE_CONNECTION persistente (no sync)');
         $this->check(! in_array(config('cache.default'), ['array', 'null'], true), 'CACHE_STORE compartido (no array)');
         $this->check(config('sap.driver') !== 'fake', 'SAP_DRIVER real (el simulador no sirve en producción; DP-09)');
+        if (config('sap.driver') === 'service_layer') {
+            $env = config()->string('sap.environment');
+            $sl = config()->array('sap.service_layer');
+            $this->check(filled($sl['base_url'] ?? null) && filled($sl['company_db'] ?? null) && filled($sl['username'] ?? null) && filled($sl['password'] ?? null), "Credenciales de Service Layer completas (SAP_API_URL_{$env}, SAP_COMPANY_{$env}, SAP_USER_{$env}, SAP_PASSWORD_{$env})");
+            $this->check(str_starts_with((string) ($sl['base_url'] ?? ''), 'https://'), "SAP_API_URL_{$env} con https");
+            $this->check(($sl['verify_tls'] ?? true) === true, 'SAP_SL_VERIFY_TLS=true (certificado de SAP verificado)');
+        }
         $this->check($this->databaseReachable(), 'PostgreSQL responde');
         $this->warnIf(config('logging.channels.'.config('logging.default').'.level') === 'debug', 'LOG_LEVEL=debug escribe demasiado en producción');
         $this->warnIf(in_array(config('mail.default'), ['log', 'array'], true), 'El correo no sale (MAIL_MAILER log o array): las alertas solo quedan en la app');

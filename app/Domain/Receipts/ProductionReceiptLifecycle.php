@@ -70,6 +70,7 @@ class ProductionReceiptLifecycle extends SapDocumentLifecycle
                 $payload['lines'],
             )),
             $date($payload['posting_date'] ?? null),
+            isset($payload['production_order_doc_entry']) ? (int) $payload['production_order_doc_entry'] : null,
         ));
     }
 
@@ -86,6 +87,11 @@ class ProductionReceiptLifecycle extends SapDocumentLifecycle
 
         if ($found->productionOrderRef !== null && $found->productionOrderRef !== $ref) {
             $differences[] = "Orden distinta en SAP: {$found->productionOrderRef}";
+        }
+
+        $docEntry = $document->payload['production_order_doc_entry'] ?? null;
+        if ($docEntry !== null && $found->productionOrderDocEntry !== null && $found->productionOrderDocEntry !== (int) $docEntry) {
+            $differences[] = "Orden base distinta en SAP: DocEntry {$found->productionOrderDocEntry}, pedida {$docEntry}";
         }
 
         // The batch's manufacturing date is this same date, so SAP must have posted it on the requested day.

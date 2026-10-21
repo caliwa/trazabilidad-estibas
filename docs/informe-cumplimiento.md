@@ -11,8 +11,8 @@ El prompt pide distinguir cuatro niveles. Este es el estado real:
 | Nivel | Estado |
 |---|---|
 | **Terminado funcionalmente** | Sí, para todo lo que no depende de una decisión pendiente. Lo que depende de DP-01, DP-03 y DP-04 está implementado y **apagado**. DP-08 no está implementado |
-| **Probado en entorno simulado** | Sí. 327 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
-| **Probado en integración** | No. No existe el conector real de Service Layer ni un SAP de pruebas (DP-09). Tampoco se probó con sensores, lectores ni impresoras reales |
+| **Probado en entorno simulado** | Sí. 345 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
+| **Probado en integración** | No. El conector de Service Layer para recibos y OF existe y está probado con respuestas simuladas, pero no se ha corrido contra el SAP DEV (no hay acceso desde esta sesión). La transferencia 04 → 05 no está conectada. Tampoco se probó con sensores, lectores ni impresoras reales |
 | **Validado en SAP real** | No |
 
 **No está listo para producción.** Faltan las decisiones de la sección 9, el conector SAP real y una prueba en planta. `php artisan app:preflight` falla a propósito mientras `SAP_DRIVER=fake`.
@@ -63,7 +63,7 @@ El prompt pide distinguir cuatro niveles. Este es el estado real:
 | RN-14 | Discrepancias sin ajuste automático | `BlindCountTest::test_closing_a_case_needs_an_approved_action_a_different_person_and_never_adjusts_anything` |
 | RN-15 | No retroceder estados confirmados | `PalletInvariantsTest::test_confirmed_states_cannot_go_back`, `StateTransitionsMatchDatabaseTest::test_enum_and_database_agree_on_every_pair` |
 | RN-16 | Sin secretos en logs | `RedactorTest::test_secret_keys_are_masked_at_any_depth_and_the_rest_is_kept`, `TraceEventsTest::test_context_and_log_lines_never_carry_secrets`, `HardeningTest::test_log_lines_are_json_with_the_correlation_id_and_no_secrets` |
-| RN-17 | Nada pendiente por suposición | `SapGatewayBindingTest::test_the_real_connector_does_not_exist_until_sap_is_verified`, `BlindCountTest::test_a_discrepancy_blocks_new_counts_until_dp04_allows_a_reaudit`, `HealthAndPreflightTest::test_preflight_fails_on_an_unsafe_configuration` |
+| RN-17 | Nada pendiente por suposición | `ServiceLayerGatewayTest::test_transfers_are_not_connected_and_never_send_anything`, `BlindCountTest::test_a_discrepancy_blocks_new_counts_until_dp04_allows_a_reaudit`, `HealthAndPreflightTest::test_preflight_fails_on_an_unsafe_configuration` |
 | RN-18 | Toda regla con prueba | Este informe y `ComplianceReportTest::test_every_test_cited_in_the_report_exists` |
 
 ## 4. Criterios de aceptación
@@ -206,6 +206,19 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | KPIs y pantalla | `OrderBoardTest::test_the_kpis_add_up_the_released_orders`, `OrderBoardTest::test_the_board_shows_the_kpis_and_the_released_orders_most_urgent_first` |
 | Permisos en el servidor | `OrderBoardTest::test_only_people_with_orders_view_sync_or_open_the_board` |
 
+### Conector SAP Service Layer (recibos y OF)
+
+| Escenario | Prueba |
+|---|---|
+| El recibo va a InventoryGenEntries con una línea por lote, normas de reparto y correlación | `ServiceLayerGatewayTest::test_the_receipt_goes_as_inventory_gen_entries_with_one_line_per_lot`, `ServiceLayerGatewayTest::test_the_costing_codes_and_the_correlation_field_come_from_the_configuration` |
+| Error claro de SAP = rechazado; lo que pudo haber llegado = incierto | `ServiceLayerGatewayTest::test_a_clear_sap_error_is_rejected_and_anything_that_may_have_landed_is_uncertain`, `ServiceLayerGatewayTest::test_a_timeout_is_uncertain_never_rejected`, `ServiceLayerGatewayTest::test_a_failed_login_sends_nothing_and_is_uncertain` |
+| Sesión vencida: un solo reintento de login | `ServiceLayerGatewayTest::test_an_expired_session_logs_in_again_once` |
+| Recibo encontrado por correlación y leído lote por lote; "no existe" nunca se confunde con "no se pudo preguntar" | `ServiceLayerGatewayTest::test_a_receipt_is_found_by_its_correlation_and_read_lot_by_lot`, `ServiceLayerGatewayTest::test_not_found_is_null_and_not_knowing_is_never_null` |
+| OF desde ProductionOrders, una y todas las liberadas con paginación | `ServiceLayerGatewayTest::test_a_production_order_is_read_from_production_orders_with_its_product`, `ServiceLayerGatewayTest::test_the_released_orders_follow_every_page`, `ServiceLayerGatewayTest::test_an_unknown_order_status_or_an_unreachable_sap_is_never_taken_as_an_answer` |
+| Flujo completo: crear, leer de vuelta, comparar y confirmar; fechas distintas no se confirman; rechazo libera la estiba | `ServiceLayerReceiptFlowTest::test_a_receipt_is_created_in_sap_read_back_and_confirmed`, `ServiceLayerReceiptFlowTest::test_a_receipt_with_other_batch_dates_in_sap_is_never_confirmed`, `ServiceLayerReceiptFlowTest::test_sap_rejecting_the_receipt_fails_it_and_frees_the_pallet` |
+| Credenciales obligatorias y nunca en logs ni salidas | `ServiceLayerGatewayTest::test_credentials_are_required_and_never_logged`, `ServiceLayerGatewayTest::test_the_check_command_reads_the_released_orders` |
+| La transferencia no está conectada y no envía nada | `ServiceLayerGatewayTest::test_transfers_are_not_connected_and_never_send_anything` |
+
 ## 6. Seguridad (sección 12)
 
 | Control | Cómo | Evidencia |
@@ -276,7 +289,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 | DP-06 | Cierre de órdenes en SAP con recibos parciales | Se revisa la copia local | Depende de cómo opere SAP |
 | DP-07 | Etiqueta física | Etiqueta HTML 100 × 150 mm | Depende de la impresora |
 | DP-08 | Reversión de documentos y estibas devueltas | No implementado | Sí, para operar devoluciones |
-| DP-09 | Acceso a SAP, correlación, almacenes | Solo simulador | Sí |
+| DP-09 | Acceso a SAP, correlación, almacenes | Conector de recibos y OF escrito; falta probarlo en DEV, crear el campo de correlación y conectar la transferencia | Sí |
 
 ## 10. Definición de terminado
 
@@ -301,7 +314,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 PHP 8.3.6 y PostgreSQL 16.15, en la sesión de la Fase 7:
 
 ```
-php artisan test             → 327 pruebas, 327 pasan (con el tablero de OF)
+php artisan test             → 345 pruebas, 345 pasan (con el conector de Service Layer para recibos y OF)
 phpstan analyse (nivel 7)    → 0 errores
 pint --test                  → pasa
 composer audit               → sin avisos

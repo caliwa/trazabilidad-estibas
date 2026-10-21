@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Http\Middleware\AuthenticateDevice;
 use App\Integrations\Sap\Contracts\SapGateway;
 use App\Integrations\Sap\Fake\FakeSapGateway;
+use App\Integrations\Sap\ServiceLayer\ServiceLayerClient;
+use App\Integrations\Sap\ServiceLayer\ServiceLayerGateway;
 use App\Models\BoxConversionFactor;
 use App\Models\BoxLabelBatch;
 use App\Models\Device;
@@ -59,7 +61,28 @@ class AppServiceProvider extends ServiceProvider
                 return new FakeSapGateway;
             }
 
-            throw new LogicException("El conector SAP [{$driver}] no está implementado. Ver DP-09.");
+            if ($driver === 'service_layer') {
+                $sl = config()->array('sap.service_layer');
+
+                return new ServiceLayerGateway(
+                    new ServiceLayerClient(
+                        (string) ($sl['base_url'] ?? ''),
+                        (string) ($sl['company_db'] ?? ''),
+                        (string) ($sl['username'] ?? ''),
+                        (string) ($sl['password'] ?? ''),
+                        (bool) ($sl['verify_tls'] ?? true),
+                        (int) ($sl['timeout_seconds'] ?? 30),
+                    ),
+                    [
+                        'correlation_field' => config()->string('sap.receipt.correlation_field'),
+                        'costing_code' => config('sap.receipt.costing_code'),
+                        'costing_code2' => config('sap.receipt.costing_code2'),
+                        'costing_code3' => config('sap.receipt.costing_code3'),
+                    ],
+                );
+            }
+
+            throw new LogicException("Conector SAP desconocido: [{$driver}]. Usa fake o service_layer.");
         });
     }
 

@@ -58,7 +58,7 @@ class HealthAndPreflightTest extends TestCase
         $this->app['env'] = 'production';
         config([
             'app.debug' => false, 'app.url' => 'https://estibas.example.com', 'session.secure' => true, 'session.http_only' => true,
-            'session.same_site' => 'lax', 'queue.default' => 'database', 'cache.default' => 'database', 'sap.driver' => 'service_layer',
+            'session.same_site' => 'lax', 'queue.default' => 'database', 'cache.default' => 'database', 'sap.driver' => 'service_layer', 'sap.service_layer.base_url' => 'https://sap.example/b1s/v1', 'sap.service_layer.company_db' => 'SBO', 'sap.service_layer.username' => 'u', 'sap.service_layer.password' => 'p',
         ]);
 
         $code = Artisan::call('app:preflight');

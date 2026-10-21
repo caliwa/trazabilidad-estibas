@@ -140,7 +140,7 @@ class FakeSapGateway implements SapGateway
 
     public function createProductionReceipt(ProductionReceiptRequest $request): SapWriteResult
     {
-        return $this->write(self::RECEIPTS, $request->requestUuid, $request->lines, $request->productionOrderRef, null, $request->postingDate);
+        return $this->write(self::RECEIPTS, $request->requestUuid, $request->lines, $request->productionOrderRef, null, $request->postingDate, $request->productionOrderDocEntry);
     }
 
     public function findProductionReceiptByCorrelation(string $requestUuid): ?SapDocument
@@ -183,7 +183,7 @@ class FakeSapGateway implements SapGateway
     /**
      * @param  list<DocumentLine>  $lines
      */
-    private function write(string $kind, string $correlation, array $lines, ?string $orderRef, ?string $fromWarehouse, ?CarbonImmutable $postingDate = null): SapWriteResult
+    private function write(string $kind, string $correlation, array $lines, ?string $orderRef, ?string $fromWarehouse, ?CarbonImmutable $postingDate = null, ?int $baseEntry = null): SapWriteResult
     {
         $this->writeCalls[$kind]++;
         $scenario = array_shift($this->scenarios[$kind]) ?? FakeScenario::Create;
@@ -209,6 +209,7 @@ class FakeSapGateway implements SapGateway
             productionOrderRef: $orderRef,
             fromWarehouse: $fromWarehouse,
             postingDate: $postingDate,
+            productionOrderDocEntry: $baseEntry,
         );
         $this->documents[$kind][] = $document;
 
