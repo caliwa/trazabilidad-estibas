@@ -5,20 +5,25 @@ namespace App\Domain\BoxLabels;
 use Carbon\CarbonImmutable;
 
 /**
- * What the box QR carries, in a fixed order after a version prefix:
+ * What the box QR carries: the same lines a person reads on the label,
+ * one per line, so any reader (a phone, a keyboard-wedge scanner in
+ * Notepad) shows them as they are:
  *
- *   CJ1|<OF>|<product>|<units per box> <unit>|<lot>|<EAN>|<expiration YYYY-MM-DD>
+ *   OF 33128
+ *   PT1350023
+ *   GELATINA OLIMPICA SIN SABOR 30 GR
+ *   Lote: 33128294
+ *   Vence: 20/10/2028
+ *   Contenido: 24 UNIDAD por caja
  *
- * Every box of the same order, lot and date carries the same text: the QR
- * says what is in the box, not which box it is.
+ * The EAN goes in its own barcode, not in the QR.
  */
 final class BoxLabelPayload
 {
-    public const PREFIX = 'CJ1';
-
     public function __construct(
         public readonly string $orderRef,
         public readonly string $itemCode,
+        public readonly string $itemDescription,
         public readonly string $unitsPerBox,
         public readonly ?string $uomName,
         public readonly string $lotCode,
@@ -26,28 +31,61 @@ final class BoxLabelPayload
         public readonly CarbonImmutable $expirationDate,
     ) {}
 
+    public function content(): string
+    {
+        return trim($this->unitsPerBox.' '.($this->uomName ?? '')).' por caja';
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function lines(): array
+    {
+        return array_map(fn (string $line) => self::clean($line), [
+            'OF '.$this->orderRef,
+            $this->itemCode,
+            $this->itemDescription,
+            'Lote: '.$this->lotCode,
+            'Vence: '.$this->expirationDate->format('d/m/Y'),
+            'Contenido: '.$this->content(),
+        ]);
+    }
+
     public function encode(): string
     {
-        $units = trim($this->unitsPerBox.' '.($this->uomName ?? ''));
-
-        return implode('|', array_map(fn (string $field) => str_replace('|', '/', trim($field)), [
-            self::PREFIX, $this->orderRef, $this->itemCode, $units, $this->lotCode, $this->barcode, $this->expirationDate->format('Y-m-d'),
-        ]));
+        return implode("\n", $this->lines());
     }
 
     /**
      * The fields of a scanned box QR, or null when it is not one of ours.
+     * Readers may turn the line breaks into CR LF.
      *
-     * @return array{order: string, item: string, units: string, lot: string, barcode: string, expiration: string}|null
+     * @return array{order: string, item: string, description: string, lot: string, expiration: string, content: string}|null
      */
     public static function decode(string $scanned): ?array
     {
-        $parts = explode('|', trim($scanned));
+        $lines = preg_split('/\r\n|\r|\n/', trim($scanned)) ?: [];
 
-        if (count($parts) !== 7 || $parts[0] !== self::PREFIX || preg_match('/^\d{4}-\d{2}-\d{2}$/', $parts[6]) !== 1) {
+        if (count($lines) !== 6
+            || ! str_starts_with($lines[0], 'OF ')
+            || ! str_starts_with($lines[3], 'Lote: ')
+            || preg_match('#^Vence: \d{2}/\d{2}/\d{4}$#', $lines[4]) !== 1
+            || ! str_starts_with($lines[5], 'Contenido: ')) {
             return null;
         }
 
-        return ['order' => $parts[1], 'item' => $parts[2], 'units' => $parts[3], 'lot' => $parts[4], 'barcode' => $parts[5], 'expiration' => $parts[6]];
+        return [
+            'order' => substr($lines[0], 3),
+            'item' => $lines[1],
+            'description' => $lines[2],
+            'lot' => substr($lines[3], 6),
+            'expiration' => substr($lines[4], 7),
+            'content' => substr($lines[5], 11),
+        ];
+    }
+
+    private static function clean(string $text): string
+    {
+        return trim(preg_replace('/\s+/', ' ', $text) ?? '');
     }
 }

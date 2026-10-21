@@ -5,6 +5,7 @@ use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
 use App\Domain\BoxLabels\BoxLabelPayload;
 use App\Domain\BoxLabels\BoxLabelQr;
 use App\Domain\BoxLabels\BoxLot;
+use App\Domain\BoxLabels\Itf14;
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
 use App\Domain\Integration\Enums\MasterStatus;
 use App\Domain\Shared\Origin;
@@ -111,6 +112,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
         return new BoxLabelPayload(
             orderRef: $this->order->ref,
             itemCode: $this->order->item->code,
+            itemDescription: $this->order->item->description,
             unitsPerBox: (new Quantity((string) $this->factor->units_per_box))->display(),
             uomName: $this->order->uom_name ?? $this->order->item->inventory_uom,
             lotCode: BoxLot::code($this->order->ref, $production),
@@ -235,7 +237,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                 <dl class="grid grid-cols-2 gap-2 text-sm">
                     <dt class="text-zinc-500">Unidades por caja</dt>
                     <dd class="font-medium">{{ $this->factor ? (new Quantity((string) $this->factor->units_per_box))->display().' '.($order->uom_name ?? $order->item->inventory_uom) : 'Sin definir (DP-02)' }}</dd>
-                    <dt class="text-zinc-500">Código EAN</dt>
+                    <dt class="text-zinc-500">Código EAN-14</dt>
                     <dd class="font-mono font-medium">{{ $order->item->barcode ?? 'Sin código en SAP' }}</dd>
                     <dt class="text-zinc-500">Etiquetas generadas</dt>
                     <dd class="font-medium tabular-nums">{{ $printed }}{{ $max === null ? '' : ' de '.$max }}</dd>
@@ -257,20 +259,30 @@ new #[Title('Etiquetas de caja')] class extends Component {
                 <flux:heading size="lg" level="2">{{ $this->batch ? 'Etiquetas generadas' : 'Vista previa' }}</flux:heading>
                 @if ($shownPayload !== null)
                     @php($data = BoxLabelPayload::decode($shownPayload))
-                    {{-- 10 × 8 cm at screen scale: the ZPL is what prints. --}}
-                    <div class="flex aspect-[10/8] w-full max-w-md justify-between gap-3 rounded-md border-2 border-zinc-800 bg-white p-4 text-black">
-                        <div class="flex min-w-0 flex-col gap-1 text-xs">
-                            <div class="text-lg font-bold">OF {{ $data['order'] ?? '' }}</div>
-                            <div class="font-semibold">{{ $data['item'] ?? '' }}</div>
-                            <div>{{ $this->batch?->item_description ?? $order->item->description }}</div>
-                            <div class="mt-1">Lote: <b>{{ $data['lot'] ?? '' }}</b></div>
-                            <div>Vence: <b>{{ isset($data['expiration']) ? CarbonImmutable::parse($data['expiration'])->format('d/m/Y') : '' }}</b></div>
-                            <div>Contenido: <b>{{ $data['units'] ?? '' }}</b> por caja</div>
-                            <div class="mt-auto font-mono">EAN {{ $data['barcode'] ?? '' }}</div>
+                    @php($ean = $this->batch?->barcode ?? (string) $order->item->barcode)
+                    {{-- 10 × 8 cm at screen scale, same layout as the ZPL: text and QR on top, ITF-14 below. --}}
+                    <div class="flex aspect-[10/8] w-full max-w-md flex-col rounded-md border-2 border-zinc-800 bg-white p-4 text-black">
+                        <div class="flex flex-1 justify-between gap-3">
+                            <div class="flex min-w-0 flex-col gap-0.5 text-xs">
+                                <div class="text-xl font-bold leading-tight">OF {{ $data['order'] ?? '' }}</div>
+                                <div class="text-sm font-semibold">{{ $data['item'] ?? '' }}</div>
+                                <div class="leading-snug">{{ $data['description'] ?? '' }}</div>
+                                <div class="mt-1 text-sm">Lote: <b>{{ $data['lot'] ?? '' }}</b></div>
+                                <div class="text-sm">Vence: <b>{{ $data['expiration'] ?? '' }}</b></div>
+                                <div>Contenido: <b>{{ $data['content'] ?? '' }}</b></div>
+                            </div>
+                            <div class="w-[38%] shrink-0 [&_svg]:h-auto [&_svg]:w-full">{!! BoxLabelQr::svg($shownPayload) !!}</div>
                         </div>
-                        <div class="w-2/5 shrink-0 [&_svg]:h-auto [&_svg]:w-full">{!! BoxLabelQr::svg($shownPayload) !!}</div>
+                        <div class="mt-2 border-t-2 border-zinc-800 pt-2">
+                            @if (Itf14::isValid($ean))
+                                <div class="mx-auto w-4/5 [&_svg]:h-auto [&_svg]:w-full">{!! Itf14::svg($ean) !!}</div>
+                            @else
+                                <div class="text-center text-xs text-red-700">Código EAN-14 no válido: {{ $ean ?: 'sin código' }}</div>
+                            @endif
+                        </div>
                     </div>
-                    <flux:text class="font-mono text-xs break-all">{{ $shownPayload }}</flux:text>
+                    <flux:text class="text-xs">Lo que escribe el lector al leer el QR:</flux:text>
+                    <pre class="rounded bg-zinc-100 p-2 font-mono text-xs dark:bg-zinc-800">{{ $shownPayload }}</pre>
                     @if ($this->batch)
                         <div>
                             <flux:button variant="primary" icon="arrow-down-tray" :href="route('box-labels.zpl', $this->batch)">Descargar ZPL ({{ $this->batch->labels }} etiquetas)</flux:button>

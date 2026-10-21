@@ -2,6 +2,7 @@
 
 namespace App\Integrations\Sap\Fake;
 
+use App\Domain\BoxLabels\Itf14;
 use App\Integrations\Sap\Dto\Quantity;
 use App\Integrations\Sap\Dto\SapProductionOrder;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
@@ -10,8 +11,9 @@ use Carbon\CarbonImmutable;
 /**
  * Master data the simulator answers with. The item codes and descriptions
  * are the real finished products (from the SAP item list the business
- * shared). The barcodes are NOT real: they use the 200 prefix, reserved
- * for internal use, so they can never be mistaken for a product's EAN.
+ * shared). The box barcodes (EAN-14 / GTIN-14) are NOT real: indicator 1
+ * and the 200 prefix, reserved for internal use, so they can never be
+ * mistaken for a real code.
  * The production orders are examples modelled on order 33128.
  */
 final class FakeSapCatalog
@@ -61,17 +63,13 @@ final class FakeSapCatalog
     ];
 
     /**
-     * A 13-digit barcode with a valid check digit, in the internal-use range.
+     * A 14-digit box code (GTIN-14) with a valid check digit, in the internal-use range.
      */
     public static function barcode(string $itemCode): string
     {
-        $body = '200'.str_pad(substr(preg_replace('/\D/', '', $itemCode) ?? '', -9), 9, '0', STR_PAD_LEFT);
-        $sum = 0;
-        foreach (str_split($body) as $i => $digit) {
-            $sum += (int) $digit * ($i % 2 === 0 ? 1 : 3);
-        }
+        $body = '1200'.str_pad(substr(preg_replace('/\D/', '', $itemCode) ?? '', -9), 9, '0', STR_PAD_LEFT);
 
-        return $body.((10 - $sum % 10) % 10);
+        return $body.Itf14::checkDigit($body);
     }
 
     /**

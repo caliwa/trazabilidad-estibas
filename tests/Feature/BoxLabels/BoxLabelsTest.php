@@ -8,6 +8,7 @@ use App\Domain\BoxLabels\BoxLabelPayload;
 use App\Domain\BoxLabels\BoxLabelZpl;
 use App\Domain\BoxLabels\BoxLot;
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
+use App\Domain\BoxLabels\Itf14;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
@@ -170,16 +171,23 @@ class BoxLabelsTest extends TestCase
         $this->assertSame('33128366', BoxLot::code('33128', CarbonImmutable::parse('2028-12-31')));
     }
 
-    public function test_a_batch_carries_order_product_units_lot_ean_and_expiration_in_the_qr(): void
+    public function test_the_qr_reads_as_the_lines_of_the_label_and_the_ean14_goes_apart(): void
     {
         $order = $this->ready();
 
         $batch = $this->generate($order, 30);
 
-        $ean = FakeSapCatalog::barcode('PT1350023');
-        $this->assertSame("CJ1|33128|PT1350023|24 UNIDAD|33128293|{$ean}|2027-10-20", $batch->qr_payload);
+        $this->assertSame(
+            "OF 33128\nPT1350023\nGELATINA OLIMPICA SIN SABOR 30 GR\nLote: 33128293\nVence: 20/10/2027\nContenido: 24 UNIDAD por caja",
+            $batch->qr_payload,
+        );
         $this->assertSame(['33128293', '2026-10-20', '2027-10-20', 30], [$batch->lot_code, $batch->production_date->toDateString(), $batch->expiration_date->toDateString(), $batch->labels]);
-        $this->assertSame(['order' => '33128', 'item' => 'PT1350023', 'units' => '24 UNIDAD', 'lot' => '33128293', 'barcode' => $ean, 'expiration' => '2027-10-20'], BoxLabelPayload::decode($batch->qr_payload));
+        $this->assertSame(FakeSapCatalog::barcode('PT1350023'), $batch->barcode);
+        $this->assertStringNotContainsString($batch->barcode, $batch->qr_payload);
+        $this->assertSame(
+            ['order' => '33128', 'item' => 'PT1350023', 'description' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'lot' => '33128293', 'expiration' => '20/10/2027', 'content' => '24 UNIDAD por caja'],
+            BoxLabelPayload::decode(str_replace("\n", "\r\n", $batch->qr_payload)),
+        );
         $this->assertSame(TraceEventType::BoxLabelsGenerated->value, TraceEvent::query()->latest('id')->value('event'));
     }
 
@@ -192,22 +200,31 @@ class BoxLabelsTest extends TestCase
         $this->assertStringContainsString('^PW800', $batch->zpl);
         $this->assertStringContainsString('^LL640', $batch->zpl);
         $this->assertStringContainsString('^CI28', $batch->zpl);
-        $this->assertStringContainsString('^BQN,2,6^FDMA,'.$batch->qr_payload.'^FS', $batch->zpl);
-        $this->assertStringContainsString('^BEN,110,Y,N^FD'.substr($batch->barcode, 0, 12).'^FS', $batch->zpl);
+        // QR with each line break sent as hex, sized to fit its 250-dot box.
+        $magnification = BoxLabelZpl::qrMagnification($batch->qr_payload);
+        $this->assertGreaterThanOrEqual(4, $magnification);
+        $this->assertStringContainsString('^BQN,2,'.$magnification.'^FH_^FDMA,'.str_replace("\n", '_0A', $batch->qr_payload).'^FS', $batch->zpl);
+        // EAN-14 as ITF-14: check digit already in the data, bearer bars, digits underneath.
+        $this->assertStringContainsString('^BY4,2.5^B2N,140,N,N,N^FD'.$batch->barcode.'^FS', $batch->zpl);
+        $this->assertMatchesRegularExpression('/\^GB\d+,156,8\^FS/', $batch->zpl);
+        $this->assertStringContainsString('^FD'.Itf14::readable($batch->barcode).'^FS', $batch->zpl);
         $this->assertStringContainsString('^FDGELATINA OLIMPICA SIN SABOR 30 GR^FS', $batch->zpl);
+        $this->assertStringContainsString('^FDContenido: 24 UNIDAD por caja^FS', $batch->zpl);
         $this->assertStringContainsString('^PQ25,0,1,Y', $batch->zpl);
         $this->assertSame(1, substr_count($batch->zpl, '^XA'));
     }
 
     public function test_text_from_sap_can_never_inject_zpl_commands(): void
     {
-        $payload = new BoxLabelPayload('1', 'PT^X', '1', null, '1001', '123', CarbonImmutable::parse('2027-01-01'));
+        $payload = new BoxLabelPayload('1', 'PT^X', 'DESCRIPCION ^XZ^XA~JA_X', '1', null, '1001', FakeSapCatalog::barcode('PT1'), CarbonImmutable::parse('2027-01-01'));
 
-        $zpl = BoxLabelZpl::render($payload, 'DESCRIPCION ^XZ^XA~JA', CarbonImmutable::parse('2026-01-01'), 1);
+        $zpl = BoxLabelZpl::render($payload, CarbonImmutable::parse('2026-01-01'), 1);
 
         $this->assertSame(1, substr_count($zpl, '^XZ'));
+        $this->assertSame(1, substr_count($zpl, '^XA'));
         $this->assertStringNotContainsString('~JA', $zpl);
-        $this->assertStringContainsString('^FDEAN: 123^FS', $zpl);
+        // Inside the QR (^FH_), a literal underscore must not start a hex escape.
+        $this->assertStringContainsString('JA_5FX', $zpl);
     }
 
     public function test_the_expiration_comes_from_the_shelf_life_or_is_typed_and_must_be_after_production(): void
@@ -244,7 +261,13 @@ class BoxLabelsTest extends TestCase
 
         BoxConversionFactor::factory()->create(['item_id' => $order->item_id, 'units_per_box' => '24']);
         Item::query()->whereKey($order->item_id)->update(['barcode' => null]);
-        $this->expectViolation(fn () => $this->generate($order, 1, expiration: '2027-01-01'), 'no tiene código EAN');
+        $this->expectViolation(fn () => $this->generate($order, 1, expiration: '2027-01-01'), 'no tiene código EAN-14');
+
+        // 13 digits (an EAN-13) or a wrong check digit is not a box EAN-14.
+        foreach (['2000013500236', '12000013500234'] as $wrong) {
+            Item::query()->whereKey($order->item_id)->update(['barcode' => $wrong]);
+            $this->expectViolation(fn () => $this->generate($order, 1, expiration: '2027-01-01'), 'no es un EAN-14 (GTIN-14) válido');
+        }
 
         Item::query()->whereKey($order->item_id)->update(['barcode' => FakeSapCatalog::barcode('PT1350023')]);
         $this->expectViolation(fn () => $this->generate($order, 1, production: '2026-10-21', expiration: '2027-01-01'), 'no puede ser futura');
@@ -288,7 +311,7 @@ class BoxLabelsTest extends TestCase
             ->call('generate');
 
         $batch = BoxLabelBatch::sole();
-        $page->assertSee('Descargar ZPL (12 etiquetas)')->assertSee($batch->qr_payload);
+        $page->assertSee('Descargar ZPL (12 etiquetas)')->assertSee($batch->qr_payload)->assertSee(Itf14::readable($batch->barcode));
 
         $response = $this->actingAs($this->operator)->get(route('box-labels.zpl', $batch));
         $response->assertOk()->assertHeader('Content-Disposition', 'attachment; filename="OF33128-lote33128293-12cajas.zpl"');
@@ -308,11 +331,29 @@ class BoxLabelsTest extends TestCase
         }
     }
 
+    public function test_the_ean14_check_digit_and_itf14_pattern_follow_gs1(): void
+    {
+        // GS1's own example GTIN-14.
+        $this->assertSame(7, Itf14::checkDigit('1001234500001'));
+        $this->assertTrue(Itf14::isValid('10012345000017'));
+        $this->assertFalse(Itf14::isValid('10012345000018'));
+        $this->assertSame('1 00 12345 00001 7', Itf14::readable('10012345000017'));
+
+        // Start (4 narrow), 7 pairs of 10 elements, stop (wide bar, narrow space, narrow bar).
+        $elements = Itf14::elements('10012345000017');
+        $this->assertCount(4 + 70 + 3, $elements);
+        $this->assertSame([[true, false], [false, false], [true, false], [false, false]], array_slice($elements, 0, 4));
+        $this->assertSame([[true, true], [false, false], [true, false]], array_slice($elements, -3));
+        // Every digit has exactly two wide elements.
+        $this->assertSame(14 * 2 + 1, count(array_filter($elements, fn (array $e) => $e[1])));
+    }
+
     public function test_the_simulator_knows_the_real_finished_products(): void
     {
         $this->assertCount(40, FakeSapCatalog::ITEMS);
         $this->assertSame('GELATINA AZUCARADA SAN VALENTIN MORA 1000 GR', FakeSapCatalog::ITEMS['PT1350041']);
         $this->assertSame(ProductionOrderStatus::Released, FakeSapCatalog::productionOrders()['33128']->status);
-        $this->assertMatchesRegularExpression('/^200\d{10}$/', FakeSapCatalog::barcode('PT1350002'));
+        $this->assertMatchesRegularExpression('/^1200\d{10}$/', FakeSapCatalog::barcode('PT1350002'));
+        $this->assertTrue(Itf14::isValid(FakeSapCatalog::barcode('PT1350002')));
     }
 }

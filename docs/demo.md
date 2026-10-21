@@ -21,7 +21,7 @@ El turno es del último día terminado (`D`): lecturas desde las 06:00, paletiza
 | 33131 | PT1350019 · GELATINA ALKOSTO SIN SABOR 30 GR | Estándar de 8 cajas, 24 unidades por caja |
 | 33132 | PT1350002 · GELATINA AZUCARADA BOOM LIMON 1000 GR | Sin estándar de estiba, a propósito: sus lecturas se rechazan |
 
-Los lotes siguen la regla de las etiquetas de caja: OF + día juliano. `33128DDD` es el lote del día `D`, y los lotes de 33128 de los dos días anteriores van como A2 y A3. Los códigos EAN son del simulador (prefijo 200, uso interno) y la vida útil de 730 días es un valor de demo.
+Los lotes siguen la regla de las etiquetas de caja: OF + día juliano. `33128DDD` es el lote del día `D`, y los lotes de 33128 de los dos días anteriores van como A2 y A3. Los códigos EAN-14 son del simulador (indicador 1 y prefijo 200, de uso interno) y la vida útil de 730 días es un valor de demo.
 
 | Estiba | Lote | Dónde queda |
 |---|---|---|
