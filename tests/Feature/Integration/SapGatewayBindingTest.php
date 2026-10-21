@@ -3,6 +3,7 @@
 namespace Tests\Feature\Integration;
 
 use App\Integrations\Sap\Contracts\SapGateway;
+use App\Integrations\Sap\ServiceLayer\ServiceLayerGateway;
 use LogicException;
 use Tests\TestCase;
 
@@ -17,13 +18,16 @@ class SapGatewayBindingTest extends TestCase
         app(SapGateway::class);
     }
 
-    public function test_the_real_connector_does_not_exist_until_sap_is_verified(): void
+    public function test_service_layer_binds_the_real_connector_and_an_unknown_driver_is_refused(): void
     {
         $this->app->forgetInstance(SapGateway::class);
-        config(['sap.driver' => 'service_layer']);
+        config(['sap.driver' => 'service_layer', 'sap.service_layer' => ['base_url' => 'https://sap.test/b1s/v1', 'company_db' => 'SBO', 'username' => 'u', 'password' => 'p']]);
+        $this->assertInstanceOf(ServiceLayerGateway::class, app(SapGateway::class));
 
+        $this->app->forgetInstance(SapGateway::class);
+        config(['sap.driver' => 'otro']);
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('DP-09');
+        $this->expectExceptionMessage('Conector SAP desconocido');
         app(SapGateway::class);
     }
 }

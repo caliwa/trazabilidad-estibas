@@ -21,5 +21,7 @@ final readonly class SapDocument
         public ?string $productionOrderRef = null,
         public ?string $fromWarehouse = null,
         public ?CarbonImmutable $postingDate = null,
+        // DocEntry of the production order the receipt is based on, when SAP says it.
+        public ?int $productionOrderDocEntry = null,
     ) {}
 }

@@ -16,6 +16,8 @@ final readonly class ProductionReceiptRequest
         public array $lines,
         // Fixed when the receipt is requested, so a resend after midnight keeps the same date.
         public ?CarbonImmutable $postingDate = null,
+        // SAP's internal key of the production order (DocEntry), the receipt's base document.
+        public ?int $productionOrderDocEntry = null,
     ) {
         if ($lines === []) {
             throw new InvalidArgumentException('Un recibo de producción necesita al menos una línea.');

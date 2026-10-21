@@ -127,6 +127,7 @@ class RequestProductionReceipts
         $payload = [
             'request_uuid' => $uuid,
             'production_order_ref' => $order->ref,
+            'production_order_doc_entry' => $order->sap_doc_entry,
             'posting_date' => $postingDate,
             'lines' => array_values(array_map(fn (array $l) => [
                 'item_code' => $l['item_code'],
