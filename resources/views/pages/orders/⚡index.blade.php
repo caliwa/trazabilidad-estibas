@@ -1,6 +1,6 @@
 <?php
 
-use App\Domain\Orders\Actions\RefreshProductionOrders;
+use App\Domain\Orders\Actions\SyncReleasedOrders;
 use App\Domain\Orders\Enums\OrderStage;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
@@ -8,23 +8,19 @@ use App\Enums\Permission;
 use App\Queries\OrderBoardQuery;
 use App\Support\Correlation\CorrelationId;
 use Flux\Flux;
-use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
-use Livewire\WithPagination;
 
 /**
- * Production order board: each released order's progress from the box
- * labels to the stock in 05, next to what SAP says. SAP is only read when
- * someone presses "Actualizar desde SAP", which also brings in orders
- * released since and drops the ones closed there.
+ * KPI board of the production orders released in SAP B1: how far each one
+ * got with confirmed receipts and how much of it is already in the CEDI.
+ * SAP is only read when someone presses "Actualizar desde SAP".
  */
 new #[Title('Tablero de OF')] class extends Component {
-    use WithPagination;
-
     public function boot(): void
     {
         abort_unless(Auth::user()?->can(Permission::OrdersView->value), 403);
@@ -36,66 +32,62 @@ new #[Title('Tablero de OF')] class extends Component {
     #[Url(except: '')]
     public string $stage = '';
 
-    #[Url(except: false)]
-    public bool $onlyAlerts = false;
-
     /** @var array<string, string> */
     public array $problems = [];
 
-    public function updated(): void
+    public function syncFromSap(): void
     {
-        $this->resetPage();
-    }
+        $result = app(SyncReleasedOrders::class)->handle(Auth::user(), TraceContext::forUser(Auth::user(), Origin::Web, app(CorrelationId::class)->get(), request()->ip()));
+        $this->problems = $result->problems;
 
-    public function clearFilters(): void
-    {
-        $this->reset('search', 'stage', 'onlyAlerts');
-        $this->resetPage();
-    }
+        if ($result->error !== null) {
+            Flux::toast(variant: 'danger', text: $result->error);
+        } else {
+            Flux::toast(variant: $result->problems === [] ? 'success' : 'warning', text: "SAP tiene {$result->released} órdenes liberadas. Tablero actualizado.");
+        }
 
-    public function refreshFromSap(): void
-    {
-        $ids = RefreshProductionOrders::openOrderIds();
-        $this->problems = app(RefreshProductionOrders::class)->handle(
-            Auth::user(), $ids, TraceContext::forUser(Auth::user(), Origin::Web, app(CorrelationId::class)->get(), request()->ip()),
-        );
-
-        $done = count($ids) - count($this->problems);
-        Flux::toast(variant: $this->problems === [] ? 'success' : 'warning', text: "{$done} de ".count($ids).' órdenes actualizadas desde SAP.');
-        unset($this->rows, $this->indicators);
-    }
-
-    #[Computed]
-    public function rows(): LengthAwarePaginator
-    {
-        return app(OrderBoardQuery::class)->paginate($this->search, $this->stage, $this->onlyAlerts, $this->getPage());
+        unset($this->rows, $this->kpis);
     }
 
     /**
-     * @return array<string, int>
+     * @return Collection<int, array{order: \App\Models\ProductionOrder, progress: \App\Domain\Orders\OrderProgress}>
      */
     #[Computed]
-    public function indicators(): array
+    public function rows(): Collection
     {
-        return app(OrderBoardQuery::class)->indicators();
+        return app(OrderBoardQuery::class)->rows($this->search, $this->stage);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    #[Computed]
+    public function kpis(): array
+    {
+        return app(OrderBoardQuery::class)->kpis();
     }
 }; ?>
 
 @php
     use App\Support\Quantities;
-    $units = fn (?int $micro) => $micro === null ? '—' : Quantities::format($micro);
+    $kpis = $this->kpis;
+    $pct = fn (int $part, int $whole) => $whole === 0 ? 0 : (int) min(100, intdiv($part * 100, $whole));
+    $lastSync = \App\Models\ProductionOrder::query()->where('sap_status', 'LIBERADO')->max('synced_at');
 @endphp
 
 <section class="flex w-full flex-col gap-6">
     <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
             <flux:heading size="xl" level="1">Tablero de OF</flux:heading>
-            <flux:subheading>Órdenes de fabricación liberadas en SAP: avance contra lo planificado</flux:subheading>
+            <flux:subheading>Órdenes de fabricación liberadas en SAP B1: avance por recibos y transferencia a CEDI</flux:subheading>
         </div>
-        <flux:button icon="arrow-path" wire:click="refreshFromSap" wire:loading.attr="disabled" wire:target="refreshFromSap">
-            <span wire:loading.remove wire:target="refreshFromSap">Actualizar desde SAP</span>
-            <span wire:loading wire:target="refreshFromSap">Consultando SAP…</span>
-        </flux:button>
+        <div class="text-end">
+            <flux:button icon="arrow-path" wire:click="syncFromSap" wire:loading.attr="disabled" wire:target="syncFromSap">
+                <span wire:loading.remove wire:target="syncFromSap">Actualizar desde SAP</span>
+                <span wire:loading wire:target="syncFromSap">Consultando SAP…</span>
+            </flux:button>
+            <div class="mt-1 text-xs text-zinc-500">Última actualización: {{ $lastSync ? \Carbon\CarbonImmutable::parse($lastSync)->timezone(config('app.timezone'))->format('d/m/Y H:i') : 'nunca' }}</div>
+        </div>
     </div>
 
     @if ($problems !== [])
@@ -108,98 +100,82 @@ new #[Title('Tablero de OF')] class extends Component {
         </flux:callout>
     @endif
 
-    <dl class="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        @foreach ([
-            'released' => ['OF liberadas', null], 'ready' => ['Listas para cerrar', 'green'], 'over' => ['Sobreproducción', 'red'], 'alerts' => ['Con alertas', 'amber'],
-            'boxes_today' => ['Cajas leídas hoy', null], 'received_today' => ['Estibas recibidas hoy', null], 'transferred_today' => ['Estibas en 05 hoy', null],
-        ] as $key => [$label, $tone])
-            @php($hot = $tone !== null && $this->indicators[$key] > 0)
-            <div @class([
-                'rounded-xl border p-4',
-                'border-zinc-200 dark:border-zinc-700' => ! $hot,
-                'border-green-400 bg-green-50 dark:border-green-700 dark:bg-green-950' => $hot && $tone === 'green',
-                'border-red-400 bg-red-50 dark:border-red-700 dark:bg-red-950' => $hot && $tone === 'red',
-                'border-amber-400 bg-amber-50 dark:border-amber-600 dark:bg-amber-950' => $hot && $tone === 'amber',
-            ])>
-                <dt class="text-xs text-zinc-500 dark:text-zinc-400">{{ $label }}</dt>
-                <dd class="text-2xl font-semibold tabular-nums text-zinc-900 dark:text-white">{{ number_format($this->indicators[$key], 0, ',', '.') }}</dd>
+    {{-- KPIs --}}
+    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="rounded-xl border border-zinc-200 p-5 dark:border-zinc-700">
+            <div class="text-sm text-zinc-500 dark:text-zinc-400">OF liberadas</div>
+            <div class="mt-1 text-4xl font-semibold tabular-nums">{{ $kpis['orders'] }}</div>
+            <div class="mt-2 text-xs text-zinc-500">{{ $kpis['no_progress'] }} sin avance</div>
+        </div>
+        @foreach ($kpis['units'] as $uom => $u)
+            <div class="rounded-xl border border-zinc-200 p-5 dark:border-zinc-700">
+                <div class="text-sm text-zinc-500 dark:text-zinc-400">Recibido en 04</div>
+                <div class="mt-1 text-4xl font-semibold tabular-nums">{{ $pct($u['received'], $u['planned']) }}%</div>
+                <div class="mt-2 h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"><div class="h-full rounded-full bg-blue-500" style="width: {{ $pct($u['received'], $u['planned']) }}%"></div></div>
+                <div class="mt-2 text-xs text-zinc-500 tabular-nums">{{ Quantities::format($u['received']) }} de {{ Quantities::format($u['planned']) }} {{ $uom }}</div>
+            </div>
+            <div class="rounded-xl border border-zinc-200 p-5 dark:border-zinc-700">
+                <div class="text-sm text-zinc-500 dark:text-zinc-400">Transferido a CEDI</div>
+                <div class="mt-1 text-4xl font-semibold tabular-nums">{{ $pct($u['transferred'], $u['planned']) }}%</div>
+                <div class="mt-2 h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"><div class="h-full rounded-full bg-violet-500" style="width: {{ $pct($u['transferred'], $u['planned']) }}%"></div></div>
+                <div class="mt-2 text-xs text-zinc-500 tabular-nums">{{ Quantities::format($u['transferred']) }} de {{ Quantities::format($u['planned']) }} {{ $uom }}</div>
             </div>
         @endforeach
-    </dl>
+        <div @class(['rounded-xl border p-5', 'border-green-400 bg-green-50 dark:border-green-700 dark:bg-green-950' => $kpis['ready'] + $kpis['over'] > 0, 'border-zinc-200 dark:border-zinc-700' => $kpis['ready'] + $kpis['over'] === 0])>
+            <div class="text-sm text-zinc-500 dark:text-zinc-400">Listas para cerrar en SAP</div>
+            <div class="mt-1 text-4xl font-semibold tabular-nums">{{ $kpis['ready'] + $kpis['over'] }}</div>
+            <div class="mt-2 text-xs text-zinc-500">{{ $kpis['in_cedi'] }} ya completas en CEDI @if ($kpis['over'] > 0)· <span class="text-red-600">{{ $kpis['over'] }} con sobreproducción</span>@endif</div>
+        </div>
+    </div>
 
-    <div class="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    @if ($kpis['pending_in_sap'] > 0)
+        <flux:callout variant="warning" icon="clock">{{ $kpis['pending_in_sap'] }} OF con recibos o transferencias pendientes de conciliar con SAP. Esas cantidades todavía no suman.</flux:callout>
+    @endif
+
+    <div class="grid items-end gap-3 sm:grid-cols-3">
         <flux:input wire:model.live.debounce.400ms="search" label="Buscar" placeholder="OF, código o descripción" clearable />
-        <flux:select wire:model.live="stage" label="Avance">
+        <flux:select wire:model.live="stage" label="Estado">
             <flux:select.option value="">Todos</flux:select.option>
-            @foreach ([OrderStage::InProgress, OrderStage::ReadyToClose, OrderStage::OverProduced] as $s)<flux:select.option :value="$s->value">{{ $s->label() }}</flux:select.option>@endforeach
+            @foreach ([OrderStage::NoProgress, OrderStage::InProgress, OrderStage::ReadyToClose, OrderStage::OverProduced] as $s)<flux:select.option :value="$s->value">{{ $s->label() }}</flux:select.option>@endforeach
         </flux:select>
-        <flux:checkbox wire:model.live="onlyAlerts" label="Solo con alertas" />
-        <flux:button variant="ghost" icon="x-mark" wire:click="clearFilters">Limpiar filtros</flux:button>
     </div>
 
     <div wire:loading.class="opacity-60" class="transition-opacity">
         @if ($this->rows->isEmpty())
-            <div class="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">No hay órdenes liberadas con esos filtros. Si acaban de liberar una en SAP, usa «Actualizar desde SAP».</div>
+            <div class="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">No hay órdenes liberadas con esos filtros. Usa «Actualizar desde SAP» para traerlas.</div>
         @else
-            <flux:table :paginator="$this->rows">
+            <flux:table>
                 <flux:table.columns>
                     <flux:table.column>OF</flux:table.column>
                     <flux:table.column>Producto</flux:table.column>
-                    <flux:table.column>Avance</flux:table.column>
                     <flux:table.column align="end">Planificado</flux:table.column>
-                    <flux:table.column align="end">Etiquetas</flux:table.column>
-                    <flux:table.column align="end">Cajas leídas</flux:table.column>
-                    <flux:table.column>Estibas</flux:table.column>
-                    <flux:table.column align="end">Recibido en 04</flux:table.column>
-                    <flux:table.column align="end">En 05</flux:table.column>
-                    <flux:table.column>Alertas</flux:table.column>
+                    <flux:table.column>Recibido en 04</flux:table.column>
+                    <flux:table.column>Transferido a CEDI</flux:table.column>
+                    <flux:table.column>Estado</flux:table.column>
                 </flux:table.columns>
                 <flux:table.rows>
                     @foreach ($this->rows as ['order' => $order, 'progress' => $p])
                         @php($stage = $p->stage())
-                        <flux:table.row :key="$order->id" @class(['bg-green-50/60 dark:bg-green-950/40' => $stage === OrderStage::ReadyToClose, 'bg-red-50/60 dark:bg-red-950/40' => $stage === OrderStage::OverProduced])>
+                        <flux:table.row :key="$order->id">
                             <flux:table.cell>
-                                <a href="{{ route('orders.show', $order) }}" wire:navigate class="font-mono font-semibold hover:underline">{{ $order->ref }}</a>
+                                <span class="font-mono font-semibold">{{ $order->ref }}</span>
                                 @if ($order->due_date)<div class="text-xs text-zinc-500">Fin {{ $order->due_date->format('d/m/Y') }}</div>@endif
                             </flux:table.cell>
-                            <flux:table.cell class="max-w-56 whitespace-normal"><div>{{ $order->item->code }}</div><div class="text-xs text-zinc-500">{{ $order->item->description }}</div></flux:table.cell>
-                            <flux:table.cell class="min-w-40">
-                                <flux:badge size="sm" :color="$stage->color()">{{ $stage->label() }}</flux:badge>
-                                @if ($p->plannedMicro !== null)
-                                    <div class="mt-1 flex items-center gap-2">
-                                        <div class="h-2 w-24 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
-                                            <div @class(['h-full rounded-full', 'bg-red-500' => $stage === OrderStage::OverProduced, 'bg-green-500' => $stage !== OrderStage::OverProduced]) style="width: {{ $p->percent() }}%"></div>
-                                        </div>
-                                        <span class="text-xs tabular-nums">{{ $p->percent() }}%</span>
+                            <flux:table.cell class="max-w-64 whitespace-normal"><div>{{ $order->item->code }}</div><div class="text-xs text-zinc-500">{{ $order->item->description }}</div></flux:table.cell>
+                            <flux:table.cell align="end" class="whitespace-nowrap tabular-nums">{{ Quantities::format((int) $p->plannedMicro) }} <span class="text-xs text-zinc-500">{{ $order->uom_name }}</span></flux:table.cell>
+                            @foreach ([[$p->receivedPercent(), $p->receivedMicro, 'bg-blue-500'], [$p->transferredPercent(), $p->transferredMicro, 'bg-violet-500']] as [$percent, $micro, $color])
+                                <flux:table.cell class="min-w-44">
+                                    <div class="flex items-center gap-2">
+                                        <div class="h-2.5 w-28 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"><div class="h-full rounded-full {{ $color }}" style="width: {{ $percent }}%"></div></div>
+                                        <span class="w-10 text-end text-sm font-medium tabular-nums">{{ $percent }}%</span>
                                     </div>
-                                @endif
-                            </flux:table.cell>
-                            <flux:table.cell align="end" class="tabular-nums">
-                                {{ $units($p->plannedMicro) }} @if ($p->plannedMicro !== null)<span class="text-xs text-zinc-500">{{ $order->uom_name }}</span>@endif
-                                @if ($p->plannedBoxes() !== null)<div class="text-xs text-zinc-500">{{ $p->plannedBoxes() }} cajas</div>@endif
-                            </flux:table.cell>
-                            <flux:table.cell align="end" class="tabular-nums">{{ $p->labels }}</flux:table.cell>
-                            <flux:table.cell align="end" class="tabular-nums">{{ $p->boxesRead }}</flux:table.cell>
-                            <flux:table.cell class="whitespace-nowrap text-xs">
-                                <div>{{ $p->palletsStacking }} armando</div>
-                                <div>{{ $p->palletsFinished }} terminadas</div>
-                                <div>{{ $p->palletsLabeled }} etiquetadas</div>
-                            </flux:table.cell>
-                            <flux:table.cell align="end" class="tabular-nums">
-                                {{ $units($p->receivedMicro) }}
-                                <div class="text-xs text-zinc-500">{{ $p->receivedBoxes }} cajas</div>
-                                @if ($p->sapCompletedMicro !== null)<div class="text-xs text-zinc-500">SAP: {{ $units($p->sapCompletedMicro) }}</div>@endif
-                            </flux:table.cell>
-                            <flux:table.cell align="end" class="tabular-nums">
-                                {{ $units($p->transferredMicro) }}
-                                <div class="text-xs text-zinc-500">{{ $p->transferredBoxes }} cajas</div>
-                            </flux:table.cell>
-                            <flux:table.cell class="max-w-72 whitespace-normal text-xs">
-                                @forelse ($p->alerts() as $alert)
-                                    <div @class(['mb-1', 'text-red-700 dark:text-red-400' => $alert['level'] === 'danger', 'text-amber-700 dark:text-amber-400' => $alert['level'] === 'warning', 'text-green-700 dark:text-green-400' => $alert['level'] === 'success'])>{{ $alert['text'] }}</div>
-                                @empty
-                                    <span class="text-zinc-400">—</span>
-                                @endforelse
+                                    <div class="mt-0.5 text-xs text-zinc-500 tabular-nums">{{ Quantities::format($micro) }} {{ $order->uom_name }}</div>
+                                </flux:table.cell>
+                            @endforeach
+                            <flux:table.cell>
+                                <flux:badge size="sm" :color="$stage->color()">{{ $stage->label() }}</flux:badge>
+                                @if ($stage->closable() && $p->allInCedi())<div class="mt-1"><flux:badge size="sm" color="violet">Completa en CEDI</flux:badge></div>@endif
+                                @if ($p->pendingInSap > 0)<div class="mt-1 text-xs text-amber-700 dark:text-amber-400">Pendiente de conciliar en SAP</div>@endif
                             </flux:table.cell>
                         </flux:table.row>
                     @endforeach

@@ -45,7 +45,7 @@ class OrderReadyToClose extends Notification implements ShouldQueue
         return [
             'title' => "OF {$order->ref} lista para cerrar en SAP",
             'body' => "Recibido {$received} de {$planned} {$uom}.".($over ? ' Hay sobreproducción: revisar antes de cerrar.' : ' Ya se puede cerrar la orden en SAP.'),
-            'url' => route('orders.show', $order),
+            'url' => route('orders.index', ['search' => $order->ref]),
             'icon' => 'check-circle',
             'level' => $over ? 'warning' : 'success',
         ];
@@ -55,6 +55,6 @@ class OrderReadyToClose extends Notification implements ShouldQueue
     {
         $data = $this->toArray($notifiable);
 
-        return (new MailMessage)->subject($data['title'])->line($data['body'])->action('Ver la orden', $data['url']);
+        return (new MailMessage)->subject($data['title'])->line($data['body'])->action('Ver el tablero de OF', $data['url']);
     }
 }

@@ -3,13 +3,12 @@
 namespace App\Domain\Orders\Enums;
 
 /**
- * Where a production order stands, from SAP's status and what this
- * application received against it.
+ * Where a production order stands, from SAP's status and the receipts this
+ * application confirmed against it.
  */
 enum OrderStage: string
 {
-    /** Never looked up in SAP: no planned quantity to compare with. */
-    case NotConsulted = 'SIN_CONSULTAR';
+    case NoProgress = 'SIN_AVANCE';
     case InProgress = 'EN_PROCESO';
     /** Confirmed receipts reach the planned quantity (up to its last box): it can be closed in SAP. */
     case ReadyToClose = 'LISTA_PARA_CERRAR';
@@ -21,7 +20,7 @@ enum OrderStage: string
     public function label(): string
     {
         return match ($this) {
-            self::NotConsulted => 'Sin consultar en SAP',
+            self::NoProgress => 'Sin avance',
             self::InProgress => 'En proceso',
             self::ReadyToClose => 'Lista para cerrar en SAP',
             self::OverProduced => 'Sobreproducción',
@@ -33,7 +32,7 @@ enum OrderStage: string
     public function color(): string
     {
         return match ($this) {
-            self::NotConsulted => 'zinc',
+            self::NoProgress => 'zinc',
             self::InProgress => 'blue',
             self::ReadyToClose => 'green',
             self::OverProduced => 'red',

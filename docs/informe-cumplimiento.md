@@ -199,13 +199,12 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 
 | Escenario | Prueba |
 |---|---|
-| Estado de la OF según recibos confirmados contra lo planificado | `OrderBoardTest::test_the_stage_follows_confirmed_receipts_against_the_planned_quantity`, `OrderBoardTest::test_the_last_partial_box_still_counts_as_the_planned_quantity` |
-| Un recibo sin confirmar no cuenta | `OrderBoardTest::test_a_receipt_not_confirmed_yet_does_not_count` |
+| Se traen todas las OF liberadas en SAP y ninguna otra | `OrderBoardTest::test_the_sync_brings_every_order_released_in_sap_and_nothing_else` |
+| Una OF cerrada en SAP sale del tablero; SAP sin respuesta no cambia nada; una OF que SAP ya no tiene se reporta | `OrderBoardTest::test_an_order_closed_in_sap_leaves_the_board_on_the_next_sync`, `OrderBoardTest::test_when_sap_does_not_answer_nothing_changes`, `OrderBoardTest::test_an_order_released_here_that_sap_no_longer_has_is_kept_and_reported` |
+| Avance por recibos confirmados y transferencia a CEDI | `OrderBoardTest::test_progress_follows_confirmed_receipts_and_the_transfer_to_the_cedi`, `OrderBoardTest::test_a_receipt_not_confirmed_yet_does_not_count`, `OrderBoardTest::test_the_last_partial_box_still_counts_as_the_planned_quantity` |
 | Aviso "Lista para cerrar" una sola vez, solo a quien sigue el tablero y solo con la OF liberada | `OrderBoardTest::test_the_ready_to_close_alert_goes_once_to_the_people_who_follow_the_board`, `OrderBoardTest::test_an_order_not_released_in_sap_never_raises_the_alert` |
-| Actualización desde SAP: estado, cantidad completada, cierre; SAP sin respuesta o sin la OF | `OrderBoardTest::test_the_refresh_reads_status_and_completed_quantity_from_sap`, `OrderBoardTest::test_an_order_that_cannot_be_refreshed_keeps_its_data_and_says_why` |
-| Alertas de diferencia con SAP y de más cajas que etiquetas | `OrderBoardTest::test_sap_and_the_app_disagreeing_is_an_alert`, `OrderBoardTest::test_more_boxes_read_than_labels_is_an_alert` |
-| Solo OF liberadas, en orden de urgencia; detalle | `OrderBoardTest::test_the_board_lists_only_released_orders_most_urgent_first`, `OrderBoardTest::test_the_detail_shows_the_way_lots_documents_and_pallets` |
-| Permisos en el servidor | `OrderBoardTest::test_only_people_with_orders_view_refresh_or_open_the_board` |
+| KPIs y pantalla | `OrderBoardTest::test_the_kpis_add_up_the_released_orders`, `OrderBoardTest::test_the_board_shows_the_kpis_and_the_released_orders_most_urgent_first` |
+| Permisos en el servidor | `OrderBoardTest::test_only_people_with_orders_view_sync_or_open_the_board` |
 
 ## 6. Seguridad (sección 12)
 

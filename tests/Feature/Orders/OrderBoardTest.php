@@ -2,10 +2,12 @@
 
 namespace Tests\Feature\Orders;
 
-use App\Domain\BoxLabels\Actions\ConsultProductionOrder;
-use App\Domain\Orders\Actions\RefreshProductionOrders;
+use App\Domain\Audits\Actions\StartBlindCount;
+use App\Domain\Audits\Actions\SubmitBlindCount;
+use App\Domain\Orders\Actions\SyncReleasedOrders;
 use App\Domain\Orders\Enums\OrderStage;
 use App\Domain\Orders\OrderProgress;
+use App\Domain\Pallets\PalletQr;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
@@ -14,10 +16,12 @@ use App\Integrations\Sap\Dto\SapProductionOrder;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
 use App\Integrations\Sap\Fake\FakeSapCatalog;
 use App\Integrations\Sap\Fake\FakeScenario;
+use App\Models\Pallet;
 use App\Models\ProductionOrder;
 use App\Models\TraceEvent;
 use App\Models\User;
 use App\Notifications\OrderReadyToClose;
+use App\Queries\OrderBoardQuery;
 use App\Queries\OrderProgressQuery;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -29,8 +33,9 @@ use Tests\Concerns\CreatesUsers;
 use Tests\TestCase;
 
 /**
- * Production order board: progress against SAP, the "ready to close in
- * SAP" alert, the refresh from SAP and the screens.
+ * KPI board of the production orders released in SAP: sync from SAP,
+ * progress by confirmed receipts and transfer to the CEDI, the "ready to
+ * close in SAP" alert and the screen.
  */
 class OrderBoardTest extends TestCase
 {
@@ -51,77 +56,140 @@ class OrderBoardTest extends TestCase
         return TraceContext::forUser($user ?? $this->admin, Origin::Web, (string) Str::uuid());
     }
 
-    /** OF 33128 as SAP has it: released, 800 units. At 10 per box a labeled pallet (40 boxes) is 400 units. */
-    private function released(): ProductionOrder
+    private function sync(): void
     {
-        return app(ConsultProductionOrder::class)->handle($this->admin, '33128', $this->ctx());
+        $result = app(SyncReleasedOrders::class)->handle($this->admin, $this->ctx());
+        $this->assertNull($result->error);
     }
 
-    private function stage(ProductionOrder $order): OrderStage
+    private function order(string $ref): ProductionOrder
     {
-        return app(OrderProgressQuery::class)->forOrder($order->id)?->stage() ?? $this->fail('Sin avance');
+        return ProductionOrder::query()->where('ref', $ref)->sole();
     }
 
-    private function receive(ProductionOrder $order, string $lot): void
+    private function progress(ProductionOrder $order): OrderProgress
     {
-        $this->requestReceipts($this->admin, $this->labeledPallets([$lot], unitsPerBox: '10', order: $order));
+        return app(OrderProgressQuery::class)->forOrder($order->id) ?? $this->fail('Sin avance');
     }
 
-    public function test_the_stage_follows_confirmed_receipts_against_the_planned_quantity(): void
+    /** One labeled pallet of 40 boxes; at 10 per box that is 400 units, half of OF 33128. */
+    private function receive(ProductionOrder $order, string $lot): Pallet
     {
-        $order = $this->released();
-        $this->assertSame(OrderStage::InProgress, $this->stage($order));
+        $pallet = $this->labeledPallets([$lot], unitsPerBox: '10', order: $order)->sole();
+        $this->requestReceipts($this->admin, [$pallet]);
 
-        $this->receive($order, 'L-1');
-        $progress = app(OrderProgressQuery::class)->forOrder($order->id);
-        $this->assertSame(OrderStage::InProgress, $progress?->stage());
-        $this->assertSame(50, $progress->percent());
-        $this->assertSame(40, $progress->receivedBoxes);
-        $this->assertSame(80, $progress->plannedBoxes());
+        return $pallet->refresh();
+    }
+
+    private function transferToCedi(Pallet $pallet): void
+    {
+        $counter = $this->userWithRole(Role::LogisticsOperator);
+        $view = app(StartBlindCount::class)->handle($counter, PalletQr::payload($pallet), $this->ctx($counter));
+        app(SubmitBlindCount::class)->handle($counter, $view->auditId, $pallet->boxes_count, $this->ctx($counter));
+    }
+
+    public function test_the_sync_brings_every_order_released_in_sap_and_nothing_else(): void
+    {
+        $result = app(SyncReleasedOrders::class)->handle($this->admin, $this->ctx());
+
+        $this->assertSame(4, $result->released);
+        $this->assertSame([], $result->problems);
+        $this->assertEqualsCanonicalizing(['33128', '33131', '33132', '33134'], ProductionOrder::query()->pluck('ref')->all());
+        $this->assertSame('800.000000', $this->order('33128')->planned_quantity);
+        $this->assertSame('GELATINA OLIMPICA SIN SABOR 30 GR', $this->order('33128')->item->description);
+        $this->assertSame(4, TraceEvent::query()->where('event', TraceEventType::ProductionOrderRefreshed->value)->count());
+    }
+
+    public function test_an_order_closed_in_sap_leaves_the_board_on_the_next_sync(): void
+    {
+        $this->sync();
+        $sapOrder = FakeSapCatalog::productionOrders()['33128'];
+        $this->sap()->putProductionOrder(new SapProductionOrder(...[...get_object_vars($sapOrder), 'status' => ProductionOrderStatus::Closed]));
+
+        $this->sync();
+
+        $order = $this->order('33128');
+        $this->assertSame('CERRADO', $order->sap_status);
+        $this->assertFalse($order->is_open);
+        $this->assertNotContains('33128', app(OrderBoardQuery::class)->rows()->map(fn (array $r) => $r['order']->ref)->all());
+    }
+
+    public function test_when_sap_does_not_answer_nothing_changes(): void
+    {
+        $this->sync();
+        $this->sap()->failNextLookups();
+
+        $result = app(SyncReleasedOrders::class)->handle($this->admin, $this->ctx());
+
+        $this->assertSame('SAP no respondió. El tablero sigue con los datos de la última actualización.', $result->error);
+        $this->assertSame(4, ProductionOrder::query()->where('sap_status', 'LIBERADO')->count());
+    }
+
+    public function test_an_order_released_here_that_sap_no_longer_has_is_kept_and_reported(): void
+    {
+        ProductionOrder::factory()->create(['ref' => '99999', 'sap_status' => 'LIBERADO']);
+
+        $result = app(SyncReleasedOrders::class)->handle($this->admin, $this->ctx());
+
+        $this->assertSame(['99999' => 'SAP ya no tiene una orden con ese número. Queda como estaba para revisarla.'], $result->problems);
+        $this->assertSame('LIBERADO', $this->order('99999')->sap_status);
+    }
+
+    public function test_progress_follows_confirmed_receipts_and_the_transfer_to_the_cedi(): void
+    {
+        $this->sync();
+        $order = $this->order('33128');
+        $this->assertSame(OrderStage::NoProgress, $this->progress($order)->stage());
+
+        $first = $this->receive($order, 'L-1');
+        $p = $this->progress($order);
+        $this->assertSame([OrderStage::InProgress, 50, 0], [$p->stage(), $p->receivedPercent(), $p->transferredPercent()]);
+
+        $this->transferToCedi($first);
+        $p = $this->progress($order);
+        $this->assertSame([50, 50], [$p->receivedPercent(), $p->transferredPercent()]);
+        $this->assertTrue($p->allInCedi());
 
         $this->receive($order, 'L-2');
-        $this->assertSame(OrderStage::ReadyToClose, $this->stage($order));
+        $p = $this->progress($order);
+        $this->assertSame([OrderStage::ReadyToClose, 100, 50], [$p->stage(), $p->receivedPercent(), $p->transferredPercent()]);
+        $this->assertFalse($p->allInCedi());
 
         $this->receive($order, 'L-3');
-        $progress = app(OrderProgressQuery::class)->forOrder($order->id);
-        $this->assertSame(OrderStage::OverProduced, $progress?->stage());
-        $this->assertSame(100, $progress->percent());
-        $this->assertStringContainsString('400 UNIDAD por encima de lo planificado', $progress->alerts()[0]['text']);
+        $this->assertSame(OrderStage::OverProduced, $this->progress($order)->stage());
+    }
+
+    public function test_a_receipt_not_confirmed_yet_does_not_count(): void
+    {
+        $this->sync();
+        $order = $this->order('33128');
+        $this->sap()->queueReceiptScenarios(FakeScenario::TimeoutWithoutCreating);
+        $this->receive($order, 'L-1');
+
+        $p = $this->progress($order);
+        $this->assertSame(OrderStage::NoProgress, $p->stage());
+        $this->assertSame(1, $p->pendingInSap);
     }
 
     public function test_the_last_partial_box_still_counts_as_the_planned_quantity(): void
     {
         // 800 units at 24 per box: 33 full boxes and one of 8. Receipts go in whole boxes.
-        $progress = fn (int $received, ?int $perBox = 24) => new OrderProgress(1, 'LIBERADO', 800_000_000, 'UNIDAD', $perBox === null ? null : $perBox * 1_000_000, null,
-            0, 0, 0, 0, 0, 0, $received * 1_000_000, 0, 0, 0, 0, 0, 0, 0, 0);
+        $progress = fn (int $received, ?int $perBox = 24) => new OrderProgress(1, 'LIBERADO', 800_000_000, $perBox === null ? null : $perBox * 1_000_000, $received * 1_000_000, 0, 0);
 
         $this->assertSame(OrderStage::InProgress, $progress(792)->stage());
         $this->assertSame(OrderStage::ReadyToClose, $progress(800)->stage());
         $this->assertSame(OrderStage::ReadyToClose, $progress(816)->stage());
-        $this->assertStringContainsString('La última caja va completa en el recibo: 16 UNIDAD más', $progress(816)->alerts()[0]['text']);
         $this->assertSame(OrderStage::OverProduced, $progress(840)->stage());
         // Without a conversion factor there are no boxes to reason about: the plan is the limit.
         $this->assertSame(OrderStage::OverProduced, $progress(816, null)->stage());
-    }
-
-    public function test_a_receipt_not_confirmed_yet_does_not_count(): void
-    {
-        $order = $this->released();
-        $this->receive($order, 'L-1');
-        $this->sap()->queueReceiptScenarios(FakeScenario::TimeoutWithoutCreating);
-        $this->receive($order, 'L-2');
-
-        $progress = app(OrderProgressQuery::class)->forOrder($order->id);
-        $this->assertSame(OrderStage::InProgress, $progress?->stage());
-        $this->assertSame(1, $progress->receiptsPending);
-        $this->assertContains('1 recibo(s) pendiente(s) de conciliar con SAP.', array_column($progress->alerts(), 'text'));
     }
 
     public function test_the_ready_to_close_alert_goes_once_to_the_people_who_follow_the_board(): void
     {
         Notification::fake();
         $operator = $this->userWithRole(Role::ProductionOperator);
-        $order = $this->released();
+        $this->sync();
+        $order = $this->order('33128');
 
         $this->receive($order, 'L-1');
         Notification::assertNothingSent();
@@ -133,6 +201,7 @@ class OrderBoardTest extends TestCase
         $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::ProductionOrderReadyToClose->value)->count());
 
         $this->receive($order, 'L-3');
+        $this->sync();
         Notification::assertSentToTimes($this->admin, OrderReadyToClose::class, 1);
 
         $data = (new OrderReadyToClose($order->id))->toArray($this->admin);
@@ -151,120 +220,54 @@ class OrderBoardTest extends TestCase
         $this->assertNull($order->refresh()->ready_to_close_notified_at);
     }
 
-    public function test_the_refresh_reads_status_and_completed_quantity_from_sap(): void
+    public function test_the_kpis_add_up_the_released_orders(): void
     {
-        $order = $this->released();
-        $this->receive($order, 'L-1');
+        $this->sync();
+        $order = $this->order('33128');
+        $pallet = $this->receive($order, 'L-1');
+        $this->transferToCedi($pallet);
+        $this->receive($order, 'L-2');
 
-        $problems = app(RefreshProductionOrders::class)->handle($this->admin, [$order->id], $this->ctx());
+        $kpis = app(OrderBoardQuery::class)->kpis();
 
-        $this->assertSame([], $problems);
-        $this->assertSame('400.000000', $order->refresh()->sap_completed_quantity);
-        // SAP and the app agree: no alert about it.
-        $alerts = implode(' ', array_column(app(OrderProgressQuery::class)->forOrder($order->id)?->alerts() ?? [], 'text'));
-        $this->assertStringNotContainsString('SAP reporta', $alerts);
-        $this->assertSame(TraceEventType::ProductionOrderRefreshed->value, TraceEvent::query()->latest('id')->value('event'));
-
-        // Someone closes it in SAP: after the refresh it is closed here too, and nothing more can be received.
-        $sapOrder = FakeSapCatalog::productionOrders()['33128'];
-        $this->sap()->putProductionOrder(new SapProductionOrder(...[...get_object_vars($sapOrder), 'status' => ProductionOrderStatus::Closed]));
-        app(RefreshProductionOrders::class)->handle($this->admin, RefreshProductionOrders::openOrderIds(), $this->ctx());
-
-        $order->refresh();
-        $this->assertSame('CERRADO', $order->sap_status);
-        $this->assertFalse($order->is_open);
-        $this->assertSame(OrderStage::Closed, $this->stage($order));
-        $this->assertSame([], RefreshProductionOrders::openOrderIds());
+        $this->assertSame(4, $kpis['orders']);
+        $this->assertSame(1, $kpis['ready']);
+        $this->assertSame(3, $kpis['no_progress']);
+        $this->assertSame(0, $kpis['in_cedi']);
+        // 800 + 600 + 400 + 240 planned; 800 received; 400 in the CEDI.
+        $this->assertSame(['planned' => 2_040_000_000, 'received' => 800_000_000, 'transferred' => 400_000_000], $kpis['units']['UNIDAD']);
     }
 
-    public function test_sap_and_the_app_disagreeing_is_an_alert(): void
-    {
-        $order = $this->released();
-        $this->receive($order, 'L-1');
-        $order->forceFill(['sap_completed_quantity' => '600'])->save();
-
-        $alerts = array_column(app(OrderProgressQuery::class)->forOrder($order->id)?->alerts() ?? [], 'text');
-
-        $this->assertContains('SAP reporta 600 UNIDAD completadas y la aplicación confirmó 400. Puede haber recibos hechos por fuera o pendientes.', $alerts);
-    }
-
-    public function test_more_boxes_read_than_labels_is_an_alert(): void
-    {
-        $order = $this->released();
-        // The helper prints 10 labels per lot; a labeled pallet holds 40 boxes.
-        $this->labeledPallets(['L-1'], unitsPerBox: '10', order: $order);
-
-        $this->assertContains('Se leyeron 40 cajas y solo se generaron 10 etiquetas de caja.', array_column(app(OrderProgressQuery::class)->forOrder($order->id)?->alerts() ?? [], 'text'));
-    }
-
-    public function test_an_order_that_cannot_be_refreshed_keeps_its_data_and_says_why(): void
-    {
-        $order = $this->released();
-        $ghost = ProductionOrder::factory()->create(['ref' => '99999']);
-
-        $this->sap()->failNextLookups();
-        $problems = app(RefreshProductionOrders::class)->handle($this->admin, [$order->id, $ghost->id], $this->ctx());
-
-        $this->assertSame(['33128' => 'SAP no respondió. Quedan los datos de la última actualización.', '99999' => 'SAP no tiene una orden con ese número.'], $problems);
-        $this->assertSame('LIBERADO', $order->refresh()->sap_status);
-        $this->assertNull($ghost->refresh()->sap_status);
-    }
-
-    public function test_only_people_with_orders_view_refresh_or_open_the_board(): void
+    public function test_only_people_with_orders_view_sync_or_open_the_board(): void
     {
         $operator = $this->userWithRole(Role::ProductionOperator);
-        $order = $this->released();
 
-        $this->expectExceptionObject(new AuthorizationException('This action is unauthorized.'));
-        try {
-            $this->actingAs($operator)->get(route('orders.index'))->assertForbidden();
-            $this->actingAs($operator)->get(route('orders.show', $order))->assertForbidden();
-            $this->actingAs($this->userWithRole(Role::Viewer))->get(route('orders.index'))->assertForbidden();
-        } finally {
-            app(RefreshProductionOrders::class)->handle($operator, [$order->id], $this->ctx($operator));
-        }
+        $this->actingAs($operator)->get(route('orders.index'))->assertForbidden();
+        $this->actingAs($this->userWithRole(Role::Viewer))->get(route('orders.index'))->assertForbidden();
+
+        $this->expectException(AuthorizationException::class);
+        app(SyncReleasedOrders::class)->handle($operator, $this->ctx($operator));
     }
 
-    public function test_the_board_lists_only_released_orders_most_urgent_first(): void
+    public function test_the_board_shows_the_kpis_and_the_released_orders_most_urgent_first(): void
     {
-        $inProgress = $this->released();
-        $ready = app(ConsultProductionOrder::class)->handle($this->admin, '33131', $this->ctx());
-        $this->requestReceipts($this->admin, $this->labeledPallets(['L-1'], unitsPerBox: '15', order: $ready));
-        $notConsulted = ProductionOrder::factory()->create(['ref' => '55555']);
-        $closed = ProductionOrder::factory()->create(['ref' => '66666', 'sap_status' => 'CERRADO', 'is_open' => false]);
+        $this->actingAs($this->admin)->get(route('orders.index'))->assertOk()->assertSee('No hay órdenes liberadas');
+
+        Livewire::actingAs($this->admin)->test('pages::orders.index')->call('syncFromSap')->assertSee('33128')->assertDontSee('33129');
+
+        $this->receive($this->order('33134'), 'L-1');
+        ProductionOrder::factory()->create(['ref' => '66666', 'sap_status' => 'CERRADO', 'is_open' => false]);
 
         $this->actingAs($this->admin)->get(route('orders.index'))
             ->assertOk()
-            ->assertSeeInOrder(['33131', 'Lista para cerrar en SAP', '33128', 'En proceso'])
-            ->assertDontSee($notConsulted->ref)
-            ->assertDontSee($closed->ref);
+            ->assertSeeInOrder(['OF liberadas', '4', 'Recibido en 04', 'Transferido a CEDI', 'Listas para cerrar en SAP'])
+            ->assertSeeInOrder(['33134', 'Sobreproducción', '33128', 'Sin avance'])
+            ->assertDontSee('66666');
 
         Livewire::actingAs($this->admin)->test('pages::orders.index')
-            ->set('stage', OrderStage::ReadyToClose->value)
-            ->assertSee('33131')->assertDontSee('GELATINA OLIMPICA')
+            ->set('stage', OrderStage::OverProduced->value)
+            ->assertSee('GELATINA MERCALDAS')->assertDontSee('GELATINA OLIMPICA')
             ->set('stage', '')->set('search', 'olimpica')
-            ->assertSee('33128')->assertDontSee('GELATINA ALKOSTO')
-            ->call('refreshFromSap')
-            ->assertHasNoErrors();
-
-        // The refresh also asked SAP about the order nobody had looked up: SAP doesn't have it.
-        Livewire::actingAs($this->admin)->test('pages::orders.index')->call('refreshFromSap')->assertSee('OF 55555')->assertSee('SAP no tiene una orden con ese número.');
-    }
-
-    public function test_the_detail_shows_the_way_lots_documents_and_pallets(): void
-    {
-        $order = $this->released();
-        $this->receive($order, 'L-1');
-
-        $this->actingAs($this->admin)->get(route('orders.show', $order))
-            ->assertOk()
-            ->assertSee('OF 33128')
-            ->assertSee('GELATINA OLIMPICA SIN SABOR 30 GR')
-            ->assertSeeInOrder(['Planificado', '800 UNIDAD', 'Recorrido', 'Recibido en 04', '40 cajas', '400 UNIDAD'])
-            ->assertSeeInOrder(['Lotes', 'L-1', '20/10/2028'])
-            ->assertSeeInOrder(['Documentos en SAP', 'Recibo de producción', 'Confirmado'])
-            ->assertSee('Estibas (1)');
-
-        Livewire::actingAs($this->admin)->test('pages::orders.show', ['order' => $order])->call('refreshFromSap')->assertSee('400 UNIDAD');
+            ->assertSee('GELATINA OLIMPICA')->assertDontSee('GELATINA MERCALDAS');
     }
 }

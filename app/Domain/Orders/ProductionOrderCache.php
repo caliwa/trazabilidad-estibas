@@ -64,7 +64,6 @@ final class ProductionOrderCache
             'user' => $sapOrder->userName,
             'origin' => $sapOrder->origin,
             'linked_to' => $sapOrder->linkedTo,
-            'completed_quantity' => $sapOrder->completedQuantity,
         ];
 
         $order->forceFill([
@@ -85,7 +84,6 @@ final class ProductionOrderCache
             'sap_user' => $sapOrder->userName,
             'sap_origin' => $sapOrder->origin,
             'sap_linked_to' => $sapOrder->linkedTo,
-            'sap_completed_quantity' => $sapOrder->completedQuantity,
             'sap_header' => $header,
             'consulted_at' => now(),
             'consulted_by' => $user->id,

@@ -47,4 +47,14 @@ interface SapGateway
      * @throws SapLookupFailed
      */
     public function findProductionOrder(string $docNum): ?SapProductionOrder;
+
+    /**
+     * Every production order released in SAP right now, with the same header
+     * as findProductionOrder(). An empty list means SAP has none released.
+     *
+     * @return list<SapProductionOrder>
+     *
+     * @throws SapLookupFailed
+     */
+    public function releasedProductionOrders(): array;
 }

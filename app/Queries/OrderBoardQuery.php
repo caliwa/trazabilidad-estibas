@@ -2,25 +2,17 @@
 
 namespace App\Queries;
 
-use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Orders\Enums\OrderStage;
 use App\Domain\Orders\OrderProgress;
-use App\Domain\Pallets\Enums\ScanEventStatus;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
 use App\Models\ProductionOrder;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Collection;
 
 /**
- * Production order board. Only orders released in SAP are on it: planned,
- * closed and cancelled ones, and orders nobody looked up in SAP yet, stay
- * off until a refresh from SAP says they are released.
- *
- * The order list is filtered in SQL; the stage and
- * the alerts come from each order's progress, so filtering by them and
- * sorting by urgency happen after computing it (an order list is in the
- * hundreds, not the millions).
+ * KPI board of production orders released in SAP. Planned, closed and
+ * cancelled orders stay off. The stage comes from each order's progress,
+ * so filtering by it and sorting by urgency happen after computing it.
  */
 class OrderBoardQuery
 {
@@ -29,16 +21,16 @@ class OrderBoardQuery
         OrderStage::OverProduced->value => 0,
         OrderStage::ReadyToClose->value => 1,
         OrderStage::InProgress->value => 2,
-        OrderStage::NotConsulted->value => 3,
+        OrderStage::NoProgress->value => 3,
         OrderStage::Closed->value => 4,
     ];
 
     public function __construct(private readonly OrderProgressQuery $progress) {}
 
     /**
-     * @return LengthAwarePaginator<int, array{order: ProductionOrder, progress: OrderProgress}>
+     * @return Collection<int, array{order: ProductionOrder, progress: OrderProgress}>
      */
-    public function paginate(string $search, string $stage, bool $onlyAlerts, int $page, int $perPage = 25): LengthAwarePaginator
+    public function rows(string $search = '', string $stage = ''): Collection
     {
         $like = '%'.addcslashes(trim($search), '%_\\').'%';
 
@@ -51,15 +43,41 @@ class OrderBoardQuery
 
         $progress = $this->progress->for(array_values(array_map('intval', $orders->modelKeys())));
 
-        $rows = $orders
+        return $orders
             ->map(fn (ProductionOrder $order) => ['order' => $order, 'progress' => $progress[$order->id]])
             ->filter(fn (array $row) => $stage === '' || $row['progress']->stage()->value === $stage)
-            ->filter(fn (array $row) => ! $onlyAlerts || $row['progress']->alerts() !== [])
             ->sort(fn (array $a, array $b) => [self::STAGE_ORDER[$a['progress']->stage()->value], $a['order']->due_date->timestamp ?? PHP_INT_MAX, -$a['order']->id]
                 <=> [self::STAGE_ORDER[$b['progress']->stage()->value], $b['order']->due_date->timestamp ?? PHP_INT_MAX, -$b['order']->id])
             ->values();
+    }
 
-        return new LengthAwarePaginator($rows->forPage($page, $perPage)->values(), $rows->count(), $perPage, $page, ['path' => request()->url(), 'pageName' => 'page']);
+    /**
+     * KPIs over every released order. Units are added up only across orders
+     * that share the unit, which is why they are grouped by unit.
+     *
+     * @return array{orders: int, ready: int, over: int, no_progress: int, in_cedi: int, pending_in_sap: int, units: array<string, array{planned: int, received: int, transferred: int}>}
+     */
+    public function kpis(): array
+    {
+        $rows = $this->rows();
+        $kpis = ['orders' => $rows->count(), 'ready' => 0, 'over' => 0, 'no_progress' => 0, 'in_cedi' => 0, 'pending_in_sap' => 0, 'units' => []];
+
+        foreach ($rows as ['order' => $order, 'progress' => $p]) {
+            $stage = $p->stage();
+            $kpis['ready'] += (int) ($stage === OrderStage::ReadyToClose);
+            $kpis['over'] += (int) ($stage === OrderStage::OverProduced);
+            $kpis['no_progress'] += (int) ($stage === OrderStage::NoProgress);
+            $kpis['in_cedi'] += (int) ($stage->closable() && $p->allInCedi());
+            $kpis['pending_in_sap'] += (int) ($p->pendingInSap > 0);
+
+            $uom = $order->uom_name ?? 'UNIDAD';
+            $kpis['units'][$uom] ??= ['planned' => 0, 'received' => 0, 'transferred' => 0];
+            $kpis['units'][$uom]['planned'] += (int) $p->plannedMicro;
+            $kpis['units'][$uom]['received'] += $p->receivedMicro;
+            $kpis['units'][$uom]['transferred'] += $p->transferredMicro;
+        }
+
+        return $kpis;
     }
 
     /**
@@ -68,28 +86,5 @@ class OrderBoardQuery
     private function released(): Builder
     {
         return ProductionOrder::query()->where('sap_status', ProductionOrderStatus::Released->value);
-    }
-
-    /**
-     * Counters for the top of the board: orders by stage and today's movement.
-     *
-     * @return array{released: int, ready: int, over: int, alerts: int, boxes_today: int, received_today: int, transferred_today: int}
-     */
-    public function indicators(): array
-    {
-        $progress = $this->progress->for(array_values(array_map('intval', $this->released()->pluck('id')->all())));
-        $start = now()->startOfDay();
-
-        return [
-            'released' => count($progress),
-            'ready' => count(array_filter($progress, fn (OrderProgress $p) => $p->stage() === OrderStage::ReadyToClose)),
-            'over' => count(array_filter($progress, fn (OrderProgress $p) => $p->stage() === OrderStage::OverProduced)),
-            'alerts' => count(array_filter($progress, fn (OrderProgress $p) => $p->alerts() !== [])),
-            'boxes_today' => DB::table('pallet_scan_events')->where('processing_status', ScanEventStatus::Accepted->value)->where('event_occurred_at', '>=', $start)->count(),
-            'received_today' => DB::table('production_receipt_pallets')->join('production_receipts', 'production_receipts.id', '=', 'production_receipt_pallets.production_receipt_id')
-                ->where('production_receipts.status', SapDocumentStatus::Confirmed->value)->where('production_receipts.confirmed_at', '>=', $start)->count(),
-            'transferred_today' => DB::table('inventory_transfer_pallets')->join('inventory_transfers', 'inventory_transfers.id', '=', 'inventory_transfer_pallets.inventory_transfer_id')
-                ->where('inventory_transfers.status', SapDocumentStatus::Confirmed->value)->where('inventory_transfers.confirmed_at', '>=', $start)->count(),
-        ];
     }
 }

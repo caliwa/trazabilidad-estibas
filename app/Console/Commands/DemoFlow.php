@@ -9,7 +9,7 @@ use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
 use App\Domain\BoxLabels\BoxLot;
 use App\Domain\Devices\ManageDevices;
 use App\Domain\Integration\Enums\MasterStatus;
-use App\Domain\Orders\Actions\RefreshProductionOrders;
+use App\Domain\Orders\Actions\SyncReleasedOrders;
 use App\Domain\Pallets\Actions\CloseManually;
 use App\Domain\Pallets\Actions\ConfirmLabeled;
 use App\Domain\Pallets\Actions\ConfirmPalletized;
@@ -190,19 +190,22 @@ class DemoFlow extends Command
         }
         $this->tick(300);
         $receipts->handle($people['supervisor'], $this->ids($this->pallets($complete, $lotD1)), false, $this->web($people['supervisor']));
-        $this->line("   OF {$complete->ref}: 240 de 240 unidades recibidas. Queda lista para cerrar en SAP y llega la alerta a los supervisores.");
+        foreach ($this->pallets($complete, $lotD1) as $pallet) {
+            $this->count($people['cedi'], $pallet, $pallet->boxes_count);
+        }
+        $this->line("   OF {$complete->ref}: 240 de 240 unidades recibidas y transferidas a CEDI. Queda lista para cerrar en SAP y llega la alerta a los supervisores.");
 
         $this->at('16:00');
         $this->components->info('6. Tablero de OF actualizado desde SAP');
-        $problems = app(RefreshProductionOrders::class)->handle($people['supervisor'], RefreshProductionOrders::openOrderIds(), $this->web($people['supervisor']));
-        $this->line('   '.(count(RefreshProductionOrders::openOrderIds()) - count($problems)).' órdenes con el estado y la cantidad completada que reporta SAP.');
+        $sync = app(SyncReleasedOrders::class)->handle($people['supervisor'], $this->web($people['supervisor']));
+        $this->line("   {$sync->released} órdenes liberadas en SAP en el tablero.");
 
         $ready = $a2->first();
 
         $this->newLine();
         $this->components->info('Listo. Para mirar:');
         $this->table(['Pantalla', 'Ruta', 'Usuario'], [
-            ['Tablero de OF (33134 lista para cerrar)', '/orders', 'supervisor@example.com'],
+            ['Tablero de OF (KPIs; 33134 lista para cerrar)', '/orders', 'supervisor@example.com'],
             ['Tablero e historia de cada estiba', '/pallets', 'supervisor@example.com'],
             ['Etiquetas de caja (consultar OF 33128)', '/box-labels', 'produccion@example.com'],
             ['Estación de producción', '/production', 'produccion@example.com'],

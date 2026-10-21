@@ -8,7 +8,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::livewire('production', 'pages::production.station')->middleware('can:pallets.operate')->name('production.station');
 
     Route::livewire('orders', 'pages::orders.index')->middleware('can:orders.view')->name('orders.index');
-    Route::livewire('orders/{order}', 'pages::orders.show')->middleware('can:orders.view')->whereNumber('order')->name('orders.show');
 
     Route::livewire('box-labels', 'pages::box-labels.index')->middleware('can:box_labels.print')->name('box-labels.index');
     Route::get('box-labels/batches/{batch}/zpl', [BoxLabelController::class, 'zpl'])
