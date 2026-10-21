@@ -36,6 +36,7 @@
             <tr><th>Orden</th><td>{{ $pallet->production_order_ref }}</td></tr>
             <tr><th>Producto</th><td>{{ $pallet->item_code }}<br><span style="font-weight: normal">{{ $pallet->item->description }}</span></td></tr>
             <tr><th>Lote</th><td>{{ $pallet->lot_code }}</td></tr>
+            <tr><th>Vence</th><td>{{ $expiration?->format('d/m/Y') ?? '—' }}</td></tr>
             <tr><th>Cajas</th><td class="boxes">{{ $pallet->boxes_count }}</td></tr>
         </table>
         <div class="meta">

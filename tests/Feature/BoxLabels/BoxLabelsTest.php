@@ -204,9 +204,9 @@ class BoxLabelsTest extends TestCase
         $magnification = BoxLabelZpl::qrMagnification($batch->qr_payload);
         $this->assertGreaterThanOrEqual(4, $magnification);
         $this->assertStringContainsString('^BQN,2,'.$magnification.'^FH_^FDMA,'.str_replace("\n", '_0A', $batch->qr_payload).'^FS', $batch->zpl);
-        // EAN-14 as ITF-14: check digit already in the data, bearer bars, digits underneath.
+        // EAN-14 as ITF-14: check digit already in the data, digits underneath, no bearer-bar box.
         $this->assertStringContainsString('^BY4,2.5^B2N,140,N,N,N^FD'.$batch->barcode.'^FS', $batch->zpl);
-        $this->assertMatchesRegularExpression('/\^GB\d+,156,8\^FS/', $batch->zpl);
+        $this->assertSame(1, substr_count($batch->zpl, '^GB'), 'Solo la línea separadora, sin recuadro alrededor del código');
         $this->assertStringContainsString('^FD'.Itf14::readable($batch->barcode).'^FS', $batch->zpl);
         $this->assertStringContainsString('^FDGELATINA OLIMPICA SIN SABOR 30 GR^FS', $batch->zpl);
         $this->assertStringContainsString('^FDContenido: 24 UNIDAD por caja^FS', $batch->zpl);
@@ -234,6 +234,20 @@ class BoxLabelsTest extends TestCase
         $this->expectViolation(fn () => $this->generate($order, 1), 'fecha de vencimiento');
         $this->expectViolation(fn () => $this->generate($order, 1, expiration: '2026-10-20'), 'fecha de vencimiento');
         $this->assertSame('2027-04-30', $this->generate($order, 1, expiration: '2027-04-30')->expiration_date->toDateString());
+    }
+
+    public function test_a_lot_keeps_one_expiration_date_across_batches(): void
+    {
+        $order = $this->ready(shelfLifeDays: null);
+        $this->generate($order, 2, expiration: '2028-10-20');
+
+        // Same order and day means the same lot: a second batch can't print another expiration.
+        $this->expectViolation(fn () => $this->generate($order, 1, expiration: '2028-11-01'), 'ya tiene etiquetas con vencimiento 20/10/2028');
+        $this->generate($order, 1, expiration: '2028-10-20');
+        // Another day is another lot, free to have its own date.
+        $this->generate($order, 1, production: '2026-10-19', expiration: '2028-11-01');
+
+        $this->assertSame(3, BoxLabelBatch::query()->count());
     }
 
     public function test_an_order_never_gets_more_labels_than_its_planned_quantity_fills(): void

@@ -2,6 +2,7 @@
 
 namespace App\Domain\Receipts\Actions;
 
+use App\Domain\BoxLabels\LotDates;
 use App\Domain\Integration\ConversionFactors;
 use App\Domain\Integration\Enums\PalletHold;
 use App\Domain\Integration\Enums\SapDocumentStatus;
@@ -27,6 +28,11 @@ use Illuminate\Support\Str;
 /**
  * Creates production receipt requests for labeled pallets of one order:
  * a single document holding all of them, or one document per pallet.
+ *
+ * SAP asks for the batch of every line. The batch is the one printed on the
+ * boxes: its expiration comes from the box labels of that order and lot, and
+ * its manufacturing date is the admission (posting) date, fixed here so a
+ * resend keeps it. A lot without box labels is refused, never guessed.
  *
  * Everything is stored before SAP is called: the request_uuid, the exact
  * payload and its hash, and the pallets held by a line in ACTIVA (the
@@ -106,23 +112,29 @@ class RequestProductionReceipts
     {
         $uuid = (string) Str::uuid();
         $warehouse = config()->string('sap.warehouses.production_receipt');
+        $postingDate = now()->toDateString();
 
         // One SAP line per item + lot; each pallet keeps its own quantity in its local line.
         $sapLines = [];
         foreach ($pallets as $pallet) {
             $key = "{$pallet->item_code}|{$pallet->lot_code}";
             $boxes = ($sapLines[$key]['boxes'] ?? 0) + $pallet->boxes_count;
-            $sapLines[$key] = ['item_code' => $pallet->item_code, 'lot_code' => $pallet->lot_code, 'boxes' => $boxes, 'factor' => (string) $factors[$pallet->item_id]->units_per_box];
+            $expiration = $sapLines[$key]['expiration'] ?? LotDates::expiration($order->id, $pallet->lot_code)?->toDateString()
+                ?? throw ReceiptRuleViolation::lotWithoutLabels($pallet->lot_code, $order->ref);
+            $sapLines[$key] = ['item_code' => $pallet->item_code, 'lot_code' => $pallet->lot_code, 'boxes' => $boxes, 'factor' => (string) $factors[$pallet->item_id]->units_per_box, 'expiration' => $expiration];
         }
 
         $payload = [
             'request_uuid' => $uuid,
             'production_order_ref' => $order->ref,
+            'posting_date' => $postingDate,
             'lines' => array_values(array_map(fn (array $l) => [
                 'item_code' => $l['item_code'],
                 'lot_code' => $l['lot_code'],
                 'quantity' => Quantity::ofBoxes($l['boxes'], $l['factor'])->value,
                 'warehouse' => $warehouse,
+                'expiration_date' => $l['expiration'],
+                'manufacturing_date' => $postingDate,
             ], $sapLines)),
         ];
 

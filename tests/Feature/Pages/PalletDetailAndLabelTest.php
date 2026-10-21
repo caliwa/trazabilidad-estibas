@@ -6,6 +6,7 @@ use App\Domain\Pallets\Actions\PrintLabel;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Enums\Role;
+use App\Models\BoxLabelBatch;
 use App\Models\Pallet;
 use App\Models\PalletLabelPrint;
 use App\Models\PalletScanEvent;
@@ -79,6 +80,21 @@ class PalletDetailAndLabelTest extends TestCase
             ->getContent();
 
         $this->assertStringContainsString('<svg', (string) $html);
+    }
+
+    public function test_the_label_shows_the_expiration_of_its_lot_from_the_box_labels(): void
+    {
+        $pallet = Pallet::factory()->palletized()->create();
+        $this->printed(pallet: $pallet);
+        $url = route('pallets.label', ['pallet' => $pallet->id, 'print' => 1]);
+
+        // No box labels for the lot yet: a dash, never a made-up date.
+        $this->actingAs($this->admin)->get($url)->assertOk()->assertSeeInOrder(['Vence', '—']);
+
+        BoxLabelBatch::factory()->create(['production_order_id' => $pallet->production_order_id, 'lot_code' => $pallet->lot_code, 'expiration_date' => '2028-10-20']);
+        BoxLabelBatch::factory()->create(['production_order_id' => $pallet->production_order_id, 'lot_code' => 'OTRO-LOTE', 'expiration_date' => '2029-01-01']);
+
+        $this->actingAs($this->admin)->get($url)->assertOk()->assertSeeInOrder(['Vence', '20/10/2028'])->assertDontSee('01/01/2029');
     }
 
     public function test_opening_the_label_again_records_nothing_and_a_reprint_is_marked(): void

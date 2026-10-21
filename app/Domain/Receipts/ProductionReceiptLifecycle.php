@@ -18,6 +18,7 @@ use App\Integrations\Sap\Dto\SapWriteResult;
 use App\Models\InventoryTransfer;
 use App\Models\ProductionReceipt;
 use App\Models\ProductionReceiptPallet;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -56,10 +57,17 @@ class ProductionReceiptLifecycle extends SapDocumentLifecycle
     {
         $payload = $document->payload;
 
-        return $this->sap->createProductionReceipt(new ProductionReceiptRequest($document->request_uuid, $payload['production_order_ref'], array_values(array_map(
-            fn (array $l) => new DocumentLine($l['item_code'], $l['lot_code'], new Quantity($l['quantity']), $l['warehouse']),
-            $payload['lines'],
-        ))));
+        $date = fn (?string $value) => $value === null ? null : CarbonImmutable::parse($value);
+
+        return $this->sap->createProductionReceipt(new ProductionReceiptRequest(
+            $document->request_uuid,
+            $payload['production_order_ref'],
+            array_values(array_map(
+                fn (array $l) => new DocumentLine($l['item_code'], $l['lot_code'], new Quantity($l['quantity']), $l['warehouse'], $date($l['expiration_date'] ?? null), $date($l['manufacturing_date'] ?? null)),
+                $payload['lines'],
+            )),
+            $date($payload['posting_date'] ?? null),
+        ));
     }
 
     protected function find(string $requestUuid): ?SapDocument
@@ -70,8 +78,19 @@ class ProductionReceiptLifecycle extends SapDocumentLifecycle
     protected function headerDifferences(ProductionReceipt|InventoryTransfer $document, SapDocument $found): array
     {
         $ref = $document->payload['production_order_ref'] ?? null;
+        $date = $document->payload['posting_date'] ?? null;
+        $differences = [];
 
-        return $found->productionOrderRef !== null && $found->productionOrderRef !== $ref ? ["Orden distinta en SAP: {$found->productionOrderRef}"] : [];
+        if ($found->productionOrderRef !== null && $found->productionOrderRef !== $ref) {
+            $differences[] = "Orden distinta en SAP: {$found->productionOrderRef}";
+        }
+
+        // The batch's manufacturing date is this same date, so SAP must have posted it on the requested day.
+        if ($date !== null && $found->postingDate?->toDateString() !== $date) {
+            $differences[] = "Fecha de contabilización distinta: pedida {$date}, en SAP ".($found->postingDate?->toDateString() ?? 'vacía');
+        }
+
+        return $differences;
     }
 
     protected function palletColumn(): string

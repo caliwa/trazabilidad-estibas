@@ -7,6 +7,9 @@ use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Transfers\Enums\TransferStatus;
+use App\Integrations\Sap\Contracts\SapGateway;
+use App\Integrations\Sap\Fake\FakeSapGateway;
+use App\Models\BoxLabelBatch;
 use App\Models\DiscrepancyCase;
 use App\Models\InventoryTransfer;
 use App\Models\Pallet;
@@ -55,6 +58,18 @@ class DemoFlowTest extends TestCase
         $this->assertSame(3, InventoryTransfer::query()->where('status', SapDocumentStatus::Confirmed)->count());
         $this->assertSame(1, InventoryTransfer::query()->where('status', SapDocumentStatus::PendingReconciliation)->count());
         $this->assertSame(1, DiscrepancyCase::query()->count());
+
+        // Box labels first, one batch per lot; every receipt line took its lot's dates from them.
+        $this->assertSame(5, BoxLabelBatch::query()->count());
+        $sap = app(SapGateway::class);
+        $this->assertInstanceOf(FakeSapGateway::class, $sap);
+        foreach ($sap->receipts() as $document) {
+            foreach ($document->lines as $line) {
+                $batch = BoxLabelBatch::query()->where('lot_code', $line->lotCode)->sole();
+                $this->assertSame($batch->expiration_date->toDateString(), $line->expirationDate?->toDateString());
+                $this->assertSame($document->postingDate?->toDateString(), $line->manufacturingDate?->toDateString());
+            }
+        }
         $this->assertStringContainsString('TRZ1:', $output);
     }
 

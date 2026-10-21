@@ -11,6 +11,7 @@ use App\Integrations\Sap\Dto\SapDocumentLine;
 use App\Integrations\Sap\Dto\SapProductionOrder;
 use App\Integrations\Sap\Dto\SapWriteResult;
 use App\Integrations\Sap\Exceptions\SapLookupFailed;
+use Carbon\CarbonImmutable;
 
 /**
  * In-memory SAP for tests and local work. It behaves like a system without
@@ -138,7 +139,7 @@ class FakeSapGateway implements SapGateway
 
     public function createProductionReceipt(ProductionReceiptRequest $request): SapWriteResult
     {
-        return $this->write(self::RECEIPTS, $request->requestUuid, $request->lines, $request->productionOrderRef, null);
+        return $this->write(self::RECEIPTS, $request->requestUuid, $request->lines, $request->productionOrderRef, null, $request->postingDate);
     }
 
     public function findProductionReceiptByCorrelation(string $requestUuid): ?SapDocument
@@ -170,7 +171,7 @@ class FakeSapGateway implements SapGateway
     /**
      * @param  list<DocumentLine>  $lines
      */
-    private function write(string $kind, string $correlation, array $lines, ?string $orderRef, ?string $fromWarehouse): SapWriteResult
+    private function write(string $kind, string $correlation, array $lines, ?string $orderRef, ?string $fromWarehouse, ?CarbonImmutable $postingDate = null): SapWriteResult
     {
         $this->writeCalls[$kind]++;
         $scenario = array_shift($this->scenarios[$kind]) ?? FakeScenario::Create;
@@ -189,12 +190,13 @@ class FakeSapGateway implements SapGateway
             docNum: $docEntry,
             correlationId: $correlation,
             lines: array_map(
-                fn (DocumentLine $line, int $i) => new SapDocumentLine($i, $line->itemCode, $line->lotCode, $line->quantity, $line->warehouse),
+                fn (DocumentLine $line, int $i) => new SapDocumentLine($i, $line->itemCode, $line->lotCode, $line->quantity, $line->warehouse, $line->expirationDate, $line->manufacturingDate),
                 $lines,
                 array_keys($lines),
             ),
             productionOrderRef: $orderRef,
             fromWarehouse: $fromWarehouse,
+            postingDate: $postingDate,
         );
         $this->documents[$kind][] = $document;
 

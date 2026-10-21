@@ -7,6 +7,7 @@ use App\Domain\BoxLabels\BoxLabelZpl;
 use App\Domain\BoxLabels\BoxLot;
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
 use App\Domain\BoxLabels\Itf14;
+use App\Domain\BoxLabels\LotDates;
 use App\Domain\Integration\Enums\MasterStatus;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
@@ -86,13 +87,21 @@ class GenerateBoxLabels
                 throw BoxLabelRuleViolation::invalidExpiration();
             }
 
+            $lotCode = BoxLot::code($order->ref, $productionDate);
+            $lotExpiration = LotDates::expiration($order->id, $lotCode);
+
+            // In SAP a lot has one expiration date: every label set of the lot must carry the same.
+            if ($lotExpiration !== null && ! $lotExpiration->equalTo($expirationDate)) {
+                throw BoxLabelRuleViolation::lotExpirationMismatch($lotCode, $lotExpiration);
+            }
+
             $payload = new BoxLabelPayload(
                 orderRef: $order->ref,
                 itemCode: $item->code,
                 itemDescription: $item->description,
                 unitsPerBox: (new Quantity((string) $factor->units_per_box))->display(),
                 uomName: $order->uom_name ?? $item->inventory_uom,
-                lotCode: BoxLot::code($order->ref, $productionDate),
+                lotCode: $lotCode,
                 barcode: (string) $item->barcode,
                 expirationDate: $expirationDate,
             );

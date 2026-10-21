@@ -8,6 +8,7 @@ use App\Domain\Shared\TraceContext;
 use App\Integrations\Sap\Contracts\SapGateway;
 use App\Integrations\Sap\Fake\FakeSapGateway;
 use App\Models\BoxConversionFactor;
+use App\Models\BoxLabelBatch;
 use App\Models\Pallet;
 use App\Models\PalletStandard;
 use App\Models\ProductionOrder;
@@ -27,7 +28,8 @@ trait BuildsReceipts
     }
 
     /**
-     * Labeled pallets of one order, with a current conversion factor.
+     * Labeled pallets of one order, with a current conversion factor and
+     * box labels for each lot (the receipt takes the lot's expiration from them).
      *
      * @param  list<string>  $lots
      * @return Collection<int, Pallet>
@@ -41,6 +43,12 @@ trait BuildsReceipts
         }
 
         $standard = PalletStandard::factory()->create(['item_id' => $order->item_id, 'boxes_per_pallet' => 40, 'version' => PalletStandard::query()->where('item_id', $order->item_id)->max('version') + 1, 'status' => 'REEMPLAZADO']);
+
+        foreach (array_unique($lots) as $lot) {
+            if (! BoxLabelBatch::query()->where('production_order_id', $order->id)->where('lot_code', $lot)->exists()) {
+                BoxLabelBatch::factory()->create(['production_order_id' => $order->id, 'lot_code' => $lot]);
+            }
+        }
 
         return collect($lots)->map(fn (string $lot) => Pallet::factory()->labeled()->create([
             'production_order_id' => $order->id,

@@ -6,6 +6,7 @@ use App\Domain\Integration\Enums\PalletHold;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Enums\Role;
 use App\Models\BoxConversionFactor;
+use App\Models\BoxLabelBatch;
 use App\Models\Pallet;
 use App\Models\PalletStandard;
 use App\Models\ProductionOrder;
@@ -26,6 +27,9 @@ class ReceiptConcurrencyTest extends ConcurrencyTestCase
         $order = ProductionOrder::factory()->create();
         BoxConversionFactor::factory()->create(['item_id' => $order->item_id]);
         $standard = PalletStandard::factory()->create(['item_id' => $order->item_id]);
+        foreach (['L-1', 'L-2', 'L-3'] as $lot) {
+            BoxLabelBatch::factory()->create(['production_order_id' => $order->id, 'lot_code' => $lot]);
+        }
         $pallets = collect(['L-1', 'L-2', 'L-3'])->map(fn (string $lot) => Pallet::factory()->labeled()->create([
             'production_order_id' => $order->id, 'lot_code' => $lot, 'pallet_standard_id' => $standard->id,
         ]));

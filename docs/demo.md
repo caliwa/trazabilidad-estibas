@@ -17,11 +17,13 @@ El turno es del último día terminado (`D`): lecturas desde las 06:00, paletiza
 
 | OF | Producto | Para qué |
 |---|---|---|
-| 33128 | PT1350023 · GELATINA OLIMPICA SIN SABOR 30 GR | Estándar de 10 cajas por estiba, 24 unidades por caja |
+| 33128 | PT1350023 · GELATINA OLIMPICA SIN SABOR 30 GR | Estándar de 10 cajas por estiba, 12 unidades por caja (así sus 800 unidades alcanzan para las 55 cajas leídas) |
 | 33131 | PT1350019 · GELATINA ALKOSTO SIN SABOR 30 GR | Estándar de 8 cajas, 24 unidades por caja |
 | 33132 | PT1350002 · GELATINA AZUCARADA BOOM LIMON 1000 GR | Sin estándar de estiba, a propósito: sus lecturas se rechazan |
 
 Los lotes siguen la regla de las etiquetas de caja: OF + día juliano. `33128DDD` es el lote del día `D`, y los lotes de 33128 de los dos días anteriores van como A2 y A3. Los códigos EAN-14 son del simulador (indicador 1 y prefijo 200, de uso interno) y la vida útil de 730 días es un valor de demo.
+
+Antes de las lecturas, la demo genera las etiquetas de caja de cada lote (5 tandas). De ahí sale el vencimiento que llevan los recibos a SAP y la etiqueta de cada estiba.
 
 | Estiba | Lote | Dónde queda |
 |---|---|---|
@@ -42,7 +44,7 @@ Además:
 
 ## Etiquetas de caja
 
-Entrar como `produccion@example.com` en `/box-labels` y consultar la OF 33128. Se ve el encabezado guardado y se pueden generar etiquetas (máximo 34: 800 unidades a 24 por caja). Para ver los rechazos: 33129 (planificada), 33130 (cerrada), 33133 (cancelada) o un número que no exista. Ver `docs/etiquetas-de-caja.md`.
+Entrar como `produccion@example.com` en `/box-labels` y consultar la OF 33128. Se ve el encabezado guardado y se pueden generar etiquetas (ya hay 55 generadas por la demo; el máximo es 67: 800 unidades a 12 por caja). Para ver los rechazos: 33129 (planificada), 33130 (cerrada), 33133 (cancelada) o un número que no exista. Ver `docs/etiquetas-de-caja.md`.
 
 ## Usuarios
 

@@ -2,6 +2,8 @@
 
 namespace App\Integrations\Sap\Dto;
 
+use Carbon\CarbonImmutable;
+
 /**
  * A document as read back from SAP, used to verify that what exists there
  * is what was requested before confirming locally.
@@ -18,5 +20,6 @@ final readonly class SapDocument
         public array $lines,
         public ?string $productionOrderRef = null,
         public ?string $fromWarehouse = null,
+        public ?CarbonImmutable $postingDate = null,
     ) {}
 }

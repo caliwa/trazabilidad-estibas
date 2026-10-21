@@ -10,13 +10,19 @@ Recibir en el almacén 04 las estibas etiquetadas, sin recibir nunca dos veces n
    - Se eligen estibas etiquetadas de una sola orden. Puede ser un recibo con todas o uno por estiba.
    - Dentro de una transacción, las estibas se bloquean en orden fijo y se validan: etiquetadas, sin recibo o con un recibo anterior fallido, orden abierta, factor de conversión vigente.
    - Las cajas se convierten a unidades con el factor del producto (`Quantity`, aritmética exacta) y se agrupan en una línea SAP por producto + lote.
+   - **Lotes.** SAP pide el lote de cada línea con sus fechas (pantalla "Lotes: Definir"). Se mandan así:
+     - *Lote*: el de las estibas, que es el mismo de las cajas leídas.
+     - *Vencimiento*: el de las etiquetas de caja generadas para esa OF y ese lote (`LotDates`). Un lote tiene una sola fecha de vencimiento: si una tanda nueva del mismo lote trae otra fecha, se rechaza al generar las etiquetas.
+     - *Fecha de fabricación*: la misma fecha de admisión, que es la fecha de contabilización del recibo.
+     - La fecha de contabilización se fija al pedir el recibo (`posting_date` en el payload). Un reenvío después de medianoche sale con la misma fecha.
+     - Si un lote no tiene etiquetas de caja, el recibo se rechaza. No se inventa un vencimiento.
    - Se guardan el `request_uuid`, el payload exacto, su hash y una línea ACTIVA por estiba; el índice único parcial impide que una estiba quede en dos solicitudes.
    - El job de envío se encola **después del commit**.
 2. **Envío** (`ProductionReceiptLifecycle::send`).
    - Pasa de SOLICITADO a ENVIANDO y lo confirma en la base **antes** de llamar a SAP.
    - Hace la llamada y registra el intento.
 3. **Respuesta.**
-   - *Creado*: se lee el documento por su correlación y se compara línea por línea (producto, lote, almacén, cantidad) y orden. Solo si coincide se confirma, guardando DocEntry, DocNum y número de línea por estiba; las estibas pasan a CONFIRMADO_04.
+   - *Creado*: se lee el documento por su correlación y se compara línea por línea (producto, lote, almacén, cantidad, vencimiento y fabricación del lote), la orden y la fecha de contabilización. Solo si coincide se confirma, guardando DocEntry, DocNum y número de línea por estiba; las estibas pasan a CONFIRMADO_04.
    - *Rechazado*: el recibo queda FALLIDO, las líneas LIBERADAS y las estibas se pueden pedir otra vez.
    - *Timeout o respuesta ambigua*: PENDIENTE_CONCILIACION, sin reintento.
 4. **Conciliación** (`reconcile`).
@@ -62,6 +68,7 @@ Recibir en el almacén 04 las estibas etiquetadas, sin recibir nunca dos veces n
 - **Orden cerrada.** Se revisa contra la copia local (`production_orders.is_open`). Consultar el estado real en SAP antes de cada recibo depende de DP-06 y de DP-09.
 - **Factor de conversión.** Sin factor vigente no hay recibo. La base exige `cantidad SAP = cajas × factor` exacto; si SAP necesita redondeo por unidad de medida, se ajusta con DP-02.
 - **Campo de correlación en SAP.** El simulador busca por `request_uuid`. En SAP real hace falta un campo (UDF) filtrable en la cabecera del documento (DP-09). Sin eso no se habilita el conector.
+- **Fechas del lote en SAP real.** El simulador guarda el vencimiento y la fabricación de cada lote y la fecha del documento. Con qué propiedades de Service Layer se mandan y se leen se define al escribir el conector (DP-09). Supuse que SAP crea el lote con el recibo, como pasa hoy en la pantalla de SAP.
 - **Simulador.** Ahora numera los DocEntry por proceso, para que, como en SAP, nunca se repitan aunque corran varios procesos al tiempo.
 
 ## 5. Resultados reales
