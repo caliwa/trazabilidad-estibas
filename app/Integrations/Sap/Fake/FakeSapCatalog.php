@@ -105,6 +105,7 @@ final class FakeSapCatalog
             $order(33131, ProductionOrderStatus::Released, 'PT1350019', '600', '2026-02-19', '2026-02-26'),
             $order(33132, ProductionOrderStatus::Released, 'PT1350002', '400', '2026-02-20', '2026-02-27'),
             $order(33133, ProductionOrderStatus::Cancelled, 'PT1350030', '200', '2026-02-20', '2026-02-27'),
+            $order(33134, ProductionOrderStatus::Released, 'PT1350030', '240', '2026-02-21', '2026-02-28'),
         ];
 
         return array_combine(array_map(fn (SapProductionOrder $o) => $o->docNum, $orders), $orders);

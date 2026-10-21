@@ -5,6 +5,7 @@ namespace App\Domain\Receipts;
 use App\Domain\Integration\Enums\DocumentPhase;
 use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Integration\SapDocumentLifecycle;
+use App\Domain\Orders\OrderClosureWatch;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Receipts\Exceptions\ReceiptRuleViolation;
 use App\Domain\Shared\TraceContext;
@@ -20,6 +21,8 @@ use App\Models\ProductionReceipt;
 use App\Models\ProductionReceiptPallet;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Production receipts into warehouse 04. The SAP rules live in
@@ -91,6 +94,22 @@ class ProductionReceiptLifecycle extends SapDocumentLifecycle
         }
 
         return $differences;
+    }
+
+    protected function afterConfirmed(ProductionReceipt|InventoryTransfer $document): void
+    {
+        $orderId = $document instanceof ProductionReceipt ? $document->production_order_id : null;
+
+        // After commit, and never able to undo the confirmation: the alert is a side effect.
+        DB::afterCommit(function () use ($orderId): void {
+            try {
+                if ($orderId !== null) {
+                    app(OrderClosureWatch::class)->check($orderId);
+                }
+            } catch (Throwable $e) {
+                report($e);
+            }
+        });
     }
 
     protected function palletColumn(): string

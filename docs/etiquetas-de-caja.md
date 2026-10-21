@@ -100,7 +100,7 @@ Además, desde una captura de la vista previa en el navegador, zxing-cpp leyó e
 ## 8. Lo que falta o está supuesto
 
 - **Conector SAP real (DP-09).** La consulta corre contra el simulador. El contrato (`SapGateway::findProductionOrder`) ya define qué datos hacen falta. Qué propiedades de Service Layer los traen se decide al escribir el conector, con acceso a SAP.
-- **Simulador.** Responde con los 40 PT reales y seis órdenes de ejemplo (33128 a 33133) basadas en la 33128 que mandaste. Los EAN-14 del simulador **no son reales**: llevan indicador 1 y prefijo 200, que es de uso interno.
+- **Simulador.** Responde con los 40 PT reales y siete órdenes de ejemplo (33128 a 33134) basadas en la 33128 que mandaste. Los EAN-14 del simulador **no son reales**: llevan indicador 1 y prefijo 200, que es de uso interno.
 - **De dónde sale el EAN-14 en SAP.** Supuse que SAP guarda el GTIN-14 de la caja tal cual. Si SAP guarda el EAN-13 de la unidad y el de la caja se arma con un dígito indicador, hay que definir ese dígito y dónde se guarda.
 - **Unidades por caja.** Salen del factor de conversión local (DP-02). Sin factor vigente no se generan etiquetas.
 - **Vida útil.** No viene de SAP. Es un campo local por producto (`items.shelf_life_days`). Si está vacío, el operario escribe el vencimiento. Falta definir quién la carga y de dónde sale.

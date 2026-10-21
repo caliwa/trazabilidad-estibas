@@ -11,6 +11,7 @@ use App\Integrations\Sap\Dto\SapDocumentLine;
 use App\Integrations\Sap\Dto\SapProductionOrder;
 use App\Integrations\Sap\Dto\SapWriteResult;
 use App\Integrations\Sap\Exceptions\SapLookupFailed;
+use App\Support\Quantities;
 use Carbon\CarbonImmutable;
 
 /**
@@ -165,7 +166,23 @@ class FakeSapGateway implements SapGateway
             throw new SapLookupFailed('Consulta a SAP sin respuesta (simulador).');
         }
 
-        return $this->productionOrders[trim($docNum)] ?? null;
+        $order = $this->productionOrders[trim($docNum)] ?? null;
+
+        if ($order === null) {
+            return null;
+        }
+
+        // Like SAP: the completed quantity is what the receipts posted against the order add up to.
+        $micro = 0;
+        foreach ($this->documents[self::RECEIPTS] as $receipt) {
+            if ($receipt->productionOrderRef === $order->docNum) {
+                foreach ($receipt->lines as $line) {
+                    $micro += $line->quantity->micro();
+                }
+            }
+        }
+
+        return new SapProductionOrder(...[...get_object_vars($order), 'completedQuantity' => Quantities::fromMicro($micro)]);
     }
 
     /**

@@ -11,15 +11,16 @@ Se niega a correr en producción, con un conector SAP real o si los datos ya exi
 
 ## Qué deja
 
-El turno es del último día terminado (`D`): lecturas desde las 06:00, paletizado a las 07:10, recibos a las 09:30 y conteos con su transferencia a las 13:00.
+El turno es del último día terminado (`D`): lecturas desde las 06:00, paletizado a las 07:10, recibos a las 09:30, conteos con su transferencia a las 13:00, una OF recibida completa a las 14:00 y el tablero de OF actualizado desde SAP a las 16:00.
 
-**Productos y órdenes.** El demo carga los 40 PT reales del catálogo de SAP (`PT1350002` a `PT1350041`) y consulta en el simulador tres órdenes liberadas, igual que la pantalla de etiquetas de caja:
+**Productos y órdenes.** El demo carga los 40 PT reales del catálogo de SAP (`PT1350002` a `PT1350041`) y consulta en el simulador cuatro órdenes liberadas, igual que la pantalla de etiquetas de caja:
 
 | OF | Producto | Para qué |
 |---|---|---|
 | 33128 | PT1350023 · GELATINA OLIMPICA SIN SABOR 30 GR | Estándar de 10 cajas por estiba, 12 unidades por caja (así sus 800 unidades alcanzan para las 55 cajas leídas) |
 | 33131 | PT1350019 · GELATINA ALKOSTO SIN SABOR 30 GR | Estándar de 8 cajas, 24 unidades por caja |
 | 33132 | PT1350002 · GELATINA AZUCARADA BOOM LIMON 1000 GR | Sin estándar de estiba, a propósito: sus lecturas se rechazan |
+| 33134 | PT1350030 · GELATINA MERCALDAS SIN SABOR 30 GR | 240 unidades, 24 por caja, 5 cajas por estiba. Se recibe completa: queda lista para cerrar en SAP |
 
 Los lotes siguen la regla de las etiquetas de caja: OF + día juliano. `33128DDD` es el lote del día `D`, y los lotes de 33128 de los dos días anteriores van como A2 y A3. Los códigos EAN-14 son del simulador (indicador 1 y prefijo 200, de uso interno) y la vida útil de 730 días es un valor de demo.
 
@@ -36,11 +37,23 @@ Antes de las lecturas, la demo genera las etiquetas de caja de cada lote (5 tand
 | EST-00000007 | 33131 del día D | Contada bien; la transferencia quedó pendiente de conciliación (timeout sin crear). Se maneja desde su detalle |
 | EST-00000008 | 33131 del día D | Paletizada, sin etiqueta |
 | EST-00000009 | 33131 del día D | En estibado, 3 de 8 cajas |
+| EST-00000010 | 33134 del día D | Recibida en 04 |
+| EST-00000011 | 33134 del día D | Recibida en 04. Con esta, los recibos cubren las 240 unidades planificadas |
 
 Además:
 
 - **Lecturas.** 3 lecturas rechazadas: 2 por producto sin estándar (OF 33132) y 1 por orden desconocida (99999). También 3 reenvíos duplicados, que no suman.
 - **Alertas.** Las alertas de `/operations` muestran los pendientes, la discrepancia y la orden sin estándar.
+
+## Tablero de OF
+
+Entrar como `supervisor@example.com` en `/orders`:
+
+- **33134** sale en verde, "Lista para cerrar en SAP", y en la campana está la notificación.
+- **33128** muestra que SAP reporta 660 unidades completadas y la aplicación 540: la diferencia es el recibo de EST-00000006, que SAP creó pero la aplicación todavía no confirmó.
+- **33131** tiene la transferencia pendiente; **33132** no tiene avance porque sus lecturas se rechazaron.
+
+Ver `docs/tablero-de-of.md`.
 
 ## Etiquetas de caja
 
@@ -73,4 +86,5 @@ Con otro número se abre una discrepancia, igual que con EST-00000003.
 
 - Las decisiones pendientes (DP-01, DP-03) se encienden solo dentro del proceso del comando. En la aplicación siguen apagadas, por eso la estación de producción dice "Recepción de lecturas apagada (DP-01)".
 - El simulador de SAP vive en memoria. Al conciliar un pendiente desde la pantalla, el simulador del worker no lo conoce: dice que no existe y, pasado el tiempo de gracia, lo reenvía. En SAP real la conciliación lo encontraría.
+- En la pantalla, "Actualizar desde SAP" consulta al simulador del proceso web, que no tiene los recibos de la demo: la cantidad completada en SAP vuelve a 0 y aparece la alerta de diferencia. Los datos que deja la demo vienen de la actualización hecha dentro del comando.
 - El scheduler no corre solo en local, así que `/operations` muestra "Sin señal" para el scheduler y los workers hasta que se levanten.

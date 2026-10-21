@@ -32,5 +32,8 @@ final readonly class SapProductionOrder
         // Item master data the box label needs.
         public ?string $itemBarcode,
         public ?string $itemInventoryUom,
+        // "Completed" quantity of the order form, what SAP has received against it so far,
+        // as an exact decimal string ("0" before any receipt). Null when SAP did not say.
+        public ?string $completedQuantity = null,
     ) {}
 }

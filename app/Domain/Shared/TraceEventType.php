@@ -42,6 +42,8 @@ enum TraceEventType: string
     case ProductionOrderConsulted = 'production_order.consulted';
     case BoxLabelsGenerated = 'box_labels.generated';
     case BoxLabelsDownloaded = 'box_labels.downloaded';
+    case ProductionOrderRefreshed = 'production_order.refreshed';
+    case ProductionOrderReadyToClose = 'production_order.ready_to_close';
 
     public function label(): string
     {
@@ -75,6 +77,8 @@ enum TraceEventType: string
             self::ProductionOrderConsulted => 'Orden de fabricación consultada en SAP',
             self::BoxLabelsGenerated => 'Etiquetas de caja generadas',
             self::BoxLabelsDownloaded => 'Etiquetas de caja descargadas',
+            self::ProductionOrderRefreshed => 'Orden de fabricación actualizada desde SAP',
+            self::ProductionOrderReadyToClose => 'Orden de fabricación lista para cerrar en SAP',
         };
     }
 }

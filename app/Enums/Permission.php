@@ -18,6 +18,8 @@ enum Permission: string
     case PalletsReprint = 'pallets.reprint';
     /** Look up a production order in SAP and generate the QR labels for its boxes. */
     case BoxLabelsPrint = 'box_labels.print';
+    /** Production order board: progress against SAP, refresh from SAP, "ready to close" alert. */
+    case OrdersView = 'orders.view';
     /** Evaluate a rejected scan event again after fixing a master. */
     case ScansReprocess = 'scans.reprocess';
     case ReceiptsRequest = 'receipts.request';

@@ -40,6 +40,7 @@ enum Role: string
                 Permission::PalletsLabel,
                 Permission::PalletsReprint,
                 Permission::BoxLabelsPrint,
+                Permission::OrdersView,
                 Permission::ScansReprocess,
                 Permission::ReceiptsRequest,
                 Permission::ReceiptsReconcile,

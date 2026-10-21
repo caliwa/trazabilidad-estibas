@@ -11,7 +11,7 @@ El prompt pide distinguir cuatro niveles. Este es el estado real:
 | Nivel | Estado |
 |---|---|
 | **Terminado funcionalmente** | Sí, para todo lo que no depende de una decisión pendiente. Lo que depende de DP-01, DP-03 y DP-04 está implementado y **apagado**. DP-08 no está implementado |
-| **Probado en entorno simulado** | Sí. 315 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
+| **Probado en entorno simulado** | Sí. 327 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
 | **Probado en integración** | No. No existe el conector real de Service Layer ni un SAP de pruebas (DP-09). Tampoco se probó con sensores, lectores ni impresoras reales |
 | **Validado en SAP real** | No |
 
@@ -195,6 +195,18 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | Un lote con otras fechas en SAP nunca se confirma | `ProductionReceiptFlowTest::test_a_batch_with_other_dates_in_sap_is_never_confirmed` |
 | La etiqueta de la estiba muestra el vencimiento del lote | `PalletDetailAndLabelTest::test_the_label_shows_the_expiration_of_its_lot_from_the_box_labels` |
 
+### Tablero de OF (requisito agregado después de la Fase 7)
+
+| Escenario | Prueba |
+|---|---|
+| Estado de la OF según recibos confirmados contra lo planificado | `OrderBoardTest::test_the_stage_follows_confirmed_receipts_against_the_planned_quantity`, `OrderBoardTest::test_the_last_partial_box_still_counts_as_the_planned_quantity` |
+| Un recibo sin confirmar no cuenta | `OrderBoardTest::test_a_receipt_not_confirmed_yet_does_not_count` |
+| Aviso "Lista para cerrar" una sola vez, solo a quien sigue el tablero y solo con la OF liberada | `OrderBoardTest::test_the_ready_to_close_alert_goes_once_to_the_people_who_follow_the_board`, `OrderBoardTest::test_an_order_not_released_in_sap_never_raises_the_alert` |
+| Actualización desde SAP: estado, cantidad completada, cierre; SAP sin respuesta o sin la OF | `OrderBoardTest::test_the_refresh_reads_status_and_completed_quantity_from_sap`, `OrderBoardTest::test_an_order_that_cannot_be_refreshed_keeps_its_data_and_says_why` |
+| Alertas de diferencia con SAP y de más cajas que etiquetas | `OrderBoardTest::test_sap_and_the_app_disagreeing_is_an_alert`, `OrderBoardTest::test_more_boxes_read_than_labels_is_an_alert` |
+| Solo OF liberadas, en orden de urgencia; detalle | `OrderBoardTest::test_the_board_lists_only_released_orders_most_urgent_first`, `OrderBoardTest::test_the_detail_shows_the_way_lots_documents_and_pallets` |
+| Permisos en el servidor | `OrderBoardTest::test_only_people_with_orders_view_refresh_or_open_the_board` |
+
 ## 6. Seguridad (sección 12)
 
 | Control | Cómo | Evidencia |
@@ -290,7 +302,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 PHP 8.3.6 y PostgreSQL 16.15, en la sesión de la Fase 7:
 
 ```
-php artisan test             → 315 pruebas, 315 pasan (con los lotes y sus fechas en los recibos y el vencimiento en la etiqueta de la estiba)
+php artisan test             → 327 pruebas, 327 pasan (con el tablero de OF)
 phpstan analyse (nivel 7)    → 0 errores
 pint --test                  → pasa
 composer audit               → sin avisos
