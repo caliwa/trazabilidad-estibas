@@ -279,7 +279,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 PHP 8.3.6 y PostgreSQL 16.15, en la sesión de la Fase 7:
 
 ```
-php artisan test             → 309 pruebas, 309 pasan (dos corridas seguidas, con el QR legible y el EAN-14 en las etiquetas de caja)
+php artisan test             → 309 pruebas, 309 pasan (con el QR legible y el EAN-14 sin borde en las etiquetas de caja)
 phpstan analyse (nivel 7)    → 0 errores
 pint --test                  → pasa
 composer audit               → sin avisos

@@ -56,7 +56,7 @@ ZPL II para una Zebra de 203 dpi: 800 × 640 puntos, es decir 100 × 80 mm.
 │ GELATINA OLIMPICA SIN ...    │      │  │
 │ Lote / Vence / Contenido     └──────┘  │
 │────────────────────────────────────────│
-│        ┃║│║│║  ITF-14  ║│║│║┃          │
+│         ║│║│║  ITF-14  ║│║│║            │
 │         1 20 00013 50023 3             │
 └────────────────────────────────────────┘
 ```
@@ -69,7 +69,7 @@ ZPL II para una Zebra de 203 dpi: 800 × 640 puntos, es decir 100 × 80 mm.
 **EAN-14 (GTIN-14) como ITF-14**, la simbología GS1 para cajas corrugadas:
 
 - **Barras:** entrelazado 2 de 5 con relación ancho/angosto de 2.5. La barra angosta mide 4 puntos (0.5 mm), por encima del mínimo GS1 de 0.495 mm. Alto de 17.5 mm.
-- **Alrededor:** barras portadoras como recuadro, con zona de silencio de 10 barras angostas a cada lado.
+- **Alrededor:** sin barras portadoras (sin recuadro), como lo pidió el negocio. Se dejan las zonas de silencio de 10 barras angostas a cada lado, que son indispensables para la lectura. GS1 recomienda las barras portadoras en cajas corrugadas para evitar lecturas parciales: si el lector de la línea falla, se vuelven a poner.
 - **Validación:** el código tiene que traer 14 dígitos con el dígito de control correcto. Si viene de 13 dígitos o con el dígito de control mal, no se generan etiquetas, porque lo impreso no coincidiría con el código. El dígito de control lo manda el sistema y la Zebra no le agrega otro.
 - **Texto bajo las barras:** `1 20 00013 50023 3`, agrupado como se acostumbra.
 

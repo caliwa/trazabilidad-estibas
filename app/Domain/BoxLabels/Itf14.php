@@ -4,8 +4,12 @@ namespace App\Domain\BoxLabels;
 
 /**
  * EAN-14 (GTIN-14) printed as ITF-14, the GS1 symbology for corrugated
- * boxes: Interleaved 2 of 5 with bearer bars. Check digit and the bar
- * pattern for the on-screen preview; the Zebra draws its own from ^B2.
+ * boxes (Interleaved 2 of 5). Check digit and the bar pattern for the
+ * on-screen preview; the Zebra draws its own from ^B2.
+ *
+ * Printed without bearer bars, as the business asked. GS1 recommends them
+ * on corrugated board against partial reads; the quiet zones stay, those
+ * are indispensable.
  */
 final class Itf14
 {
@@ -62,37 +66,31 @@ final class Itf14
     }
 
     /**
-     * SVG with bearer bars, quiet zones and the digits underneath:
-     * [bearer][quiet zone][bars][quiet zone][bearer]. Use an even narrow
+     * SVG with quiet zones and the digits underneath. Use an even narrow
      * width so the wide bars (2.5 ×) land on whole pixels.
      */
     public static function svg(string $code, int $narrow = 2, int $height = 70): string
     {
         $wide = $narrow * self::RATIO;
         $quiet = 10 * $narrow;
-        $bearer = 2 * $narrow;
-        $x = $bearer + $quiet;
+        $x = $quiet;
         $rects = '';
 
         foreach (self::elements($code) as [$isBar, $isWide]) {
             $w = $isWide ? $wide : $narrow;
             if ($isBar) {
-                $rects .= sprintf('<rect x="%s" y="%d" width="%s" height="%d"/>', $x, $bearer, $w, $height);
+                $rects .= sprintf('<rect x="%s" y="0" width="%s" height="%d"/>', $x, $w, $height);
             }
             $x += $w;
         }
 
-        $width = $x + $quiet + $bearer;
+        $width = $x + $quiet;
         $font = 9 * $narrow;
-        $boxHeight = $height + 2 * $bearer;
-        $total = $boxHeight + $font + 2 * $narrow;
-        // Bearer bars: a frame around the symbol, so a skewed scan cannot read only part of it.
-        $frame = sprintf('<rect x="%s" y="%s" width="%s" height="%s" fill="none" stroke="#000" stroke-width="%d"/>',
-            $bearer / 2, $bearer / 2, $width - $bearer, $boxHeight - $bearer, $bearer);
+        $total = $height + $font + 3 * $narrow;
 
         return sprintf(
-            '<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%d" viewBox="0 0 %s %d" shape-rendering="crispEdges" role="img" aria-label="Código de barras ITF-14 %s"><rect width="100%%" height="100%%" fill="#fff"/><g fill="#000">%s</g>%s<text x="%s" y="%d" font-family="monospace" font-size="%d" text-anchor="middle">%s</text></svg>',
-            $width, $total, $width, $total, $code, $rects, $frame, $width / 2, $boxHeight + $font, $font, self::readable($code),
+            '<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%d" viewBox="0 0 %s %d" shape-rendering="crispEdges" role="img" aria-label="Código de barras ITF-14 %s"><rect width="100%%" height="100%%" fill="#fff"/><g fill="#000">%s</g><text x="%s" y="%d" font-family="monospace" font-size="%d" text-anchor="middle">%s</text></svg>',
+            $width, $total, $width, $total, $code, $rects, $width / 2, $height + $font + $narrow, $font, self::readable($code),
         );
     }
 }

@@ -17,7 +17,7 @@ use Carbon\CarbonImmutable;
  *   │ GELATINA OLIMPICA ...        │      │  │
  *   │ Lote / Vence / Contenido     └──────┘  │
  *   │────────────────────────────────────────│
- *   │        ┃║│║│║ ITF-14 ║│║│║┃          │
+ *   │         ║│║│║ ITF-14 ║│║│║            │
  *   │         1 20 00013 50023 6             │
  *   └────────────────────────────────────────┘
  *
@@ -62,7 +62,7 @@ final class BoxLabelZpl
             '^FO30,310^FB'.$textWidth.',2,4,L^A0N,30,30^FD'.$f($content).'^FS',
             // Right: the QR. Line breaks travel as hex (^FH) so each field is one line on the reader.
             '^FO'.$qrX.',28^BQN,2,'.self::qrMagnification($payload->encode()).'^FH_^FDMA,'.self::hexField($payload->encode()).'^FS',
-            // Separator, then the ITF-14 centred with its bearer bars and digits.
+            // Separator, then the ITF-14 centred with its digits (no bearer bars, as the business asked).
             '^FO30,388^GB740,3,3^FS',
         ];
 
@@ -70,13 +70,11 @@ final class BoxLabelZpl
             $narrow = self::ITF_NARROW;
             // 14 digits of 2 wide + 3 narrow, start (4 narrow) and stop (1 wide + 2 narrow).
             $symbol = (int) round((14 * (2 * Itf14::RATIO + 3) + 4 + Itf14::RATIO + 2) * $narrow);
-            $bearer = 2 * $narrow;
+            // Centred, the quiet zones (10 narrow bars each side) are the white around it.
             $x = intdiv(self::WIDTH_DOTS - $symbol, 2);
-            $quiet = 10 * $narrow;
-            $lines[] = '^FO'.($x - $quiet - $bearer).',404^GB'.($symbol + 2 * ($quiet + $bearer)).','.(self::ITF_HEIGHT + 2 * $bearer).','.$bearer.'^FS';
             // Check digit already in the data (last N): the printer must not add another.
-            $lines[] = '^FO'.$x.','.(404 + $bearer).'^BY'.$narrow.','.Itf14::RATIO.'^B2N,'.self::ITF_HEIGHT.',N,N,N^FD'.$payload->barcode.'^FS';
-            $lines[] = '^FO0,'.(404 + self::ITF_HEIGHT + 2 * $bearer + 8).'^FB'.self::WIDTH_DOTS.',1,0,C^A0N,30,30^FD'.Itf14::readable($payload->barcode).'^FS';
+            $lines[] = '^FO'.$x.',412^BY'.$narrow.','.Itf14::RATIO.'^B2N,'.self::ITF_HEIGHT.',N,N,N^FD'.$payload->barcode.'^FS';
+            $lines[] = '^FO0,'.(412 + self::ITF_HEIGHT + 10).'^FB'.self::WIDTH_DOTS.',1,0,C^A0N,30,30^FD'.Itf14::readable($payload->barcode).'^FS';
         }
 
         $lines[] = '^FO30,'.(self::HEIGHT_DOTS - 26).'^A0N,20,20^FDProd. '.$productionDate->format('d/m/Y').'^FS';
