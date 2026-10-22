@@ -22,6 +22,8 @@ use App\Integrations\Sap\Exceptions\SapLookupFailed;
  *  - find*ByCorrelation() returns null only when SAP proved there is no
  *    document with that correlation. When it cannot tell, it throws
  *    SapLookupFailed. "Not found" and "could not ask" are never the same.
+ *  - find*(docEntry) reads a document SAP already said it created, by its
+ *    DocEntry. Same rule: null only when SAP has no such document.
  *  - findProductionOrder() follows the same rule: null means SAP has no
  *    order with that number.
  */
@@ -34,12 +36,22 @@ interface SapGateway
      */
     public function findProductionReceiptByCorrelation(string $requestUuid): ?SapDocument;
 
+    /**
+     * @throws SapLookupFailed
+     */
+    public function findProductionReceipt(int $docEntry): ?SapDocument;
+
     public function createInventoryTransfer(InventoryTransferRequest $request): SapWriteResult;
 
     /**
      * @throws SapLookupFailed
      */
     public function findInventoryTransferByCorrelation(string $requestUuid): ?SapDocument;
+
+    /**
+     * @throws SapLookupFailed
+     */
+    public function findInventoryTransfer(int $docEntry): ?SapDocument;
 
     /**
      * Header of the production order with this document number (the "Nº" of the form).

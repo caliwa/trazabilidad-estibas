@@ -17,6 +17,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use InvalidArgumentException;
+use Throwable;
 
 /**
  * SAP Business One through Service Layer.
@@ -93,9 +94,23 @@ class ServiceLayerGateway implements SapGateway
             $docEntry = $response->json('DocEntry');
             $docNum = $response->json('DocNum');
 
-            return is_numeric($docEntry) && is_numeric($docNum)
-                ? SapWriteResult::created((int) $docEntry, (int) $docNum, $latency, $response->status())
-                : SapWriteResult::uncertain('NO_DOC_ENTRY', 'SAP respondió sin DocEntry ni DocNum.', $latency, $response->status());
+            if (! is_numeric($docEntry) || ! is_numeric($docNum)) {
+                return SapWriteResult::uncertain('NO_DOC_ENTRY', 'SAP respondió sin DocEntry ni DocNum.', $latency, $response->status());
+            }
+
+            // SAP answers the created document: it is what gets verified, no correlation field needed.
+            // An answer without lines proves nothing: the document is then read by its DocEntry.
+            $answer = (array) $response->json();
+            try {
+                $document = is_array($answer['DocumentLines'] ?? null) && $answer['DocumentLines'] !== []
+                    ? $this->receiptDocument($answer, $request->requestUuid)
+                    : null;
+            } catch (Throwable) {
+                // Created all the same: an unreadable answer only means reading it by DocEntry.
+                $document = null;
+            }
+
+            return SapWriteResult::created((int) $docEntry, (int) $docNum, $latency, $response->status(), $document);
         }
 
         if ($this->mayHaveBeenProcessed($response)) {
@@ -137,9 +152,33 @@ class ServiceLayerGateway implements SapGateway
         return $this->receiptDocument((array) $document->json(), $requestUuid);
     }
 
+    public function findProductionReceipt(int $docEntry): ?SapDocument
+    {
+        try {
+            $response = $this->client->get('InventoryGenEntries('.$docEntry.')');
+        } catch (ConnectionException|ServiceLayerLoginFailed $e) {
+            throw new SapLookupFailed('No se pudo consultar SAP: '.$e->getMessage(), previous: $e);
+        }
+
+        if ($response->status() === 404) {
+            return null;
+        }
+
+        if (! $response->successful()) {
+            throw new SapLookupFailed('SAP respondió '.$response->status().' a la consulta: '.ServiceLayerError::message($response));
+        }
+
+        return $this->receiptDocument((array) $response->json(), '');
+    }
+
     public function createInventoryTransfer(InventoryTransferRequest $request): SapWriteResult
     {
         return SapWriteResult::rejected('NOT_CONNECTED', 'La transferencia 04 → 05 todavía no está conectada con SAP real. No se envió nada.', 0);
+    }
+
+    public function findInventoryTransfer(int $docEntry): ?SapDocument
+    {
+        throw new SapLookupFailed('La transferencia 04 → 05 todavía no está conectada con SAP real.');
     }
 
     public function findInventoryTransferByCorrelation(string $requestUuid): ?SapDocument

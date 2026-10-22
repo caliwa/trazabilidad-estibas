@@ -79,6 +79,11 @@ class ProductionReceiptLifecycle extends SapDocumentLifecycle
         return $this->sap->findProductionReceiptByCorrelation($requestUuid);
     }
 
+    protected function findByDocEntry(int $docEntry): ?SapDocument
+    {
+        return $this->sap->findProductionReceipt($docEntry);
+    }
+
     protected function headerDifferences(ProductionReceipt|InventoryTransfer $document, SapDocument $found): array
     {
         $ref = $document->payload['production_order_ref'] ?? null;

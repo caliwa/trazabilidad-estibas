@@ -6,6 +6,7 @@ use App\Domain\Integration\ConversionFactors;
 use App\Domain\Integration\Enums\MasterStatus;
 use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
+use App\Domain\Receipts\ProductionReceiptLifecycle;
 use App\Domain\Shared\TraceEventType;
 use App\Enums\Role;
 use App\Integrations\Sap\Contracts\SapGateway;
@@ -25,8 +26,8 @@ use Tests\TestCase;
 
 /**
  * The whole production receipt with the Service Layer connector: request,
- * POST InventoryGenEntries, reading it back by its correlation and the
- * comparison before confirming.
+ * POST InventoryGenEntries, the comparison of what SAP answered before
+ * confirming, and reconciliation by the DocEntry SAP gave.
  */
 class ServiceLayerReceiptFlowTest extends TestCase
 {
@@ -76,20 +77,23 @@ class ServiceLayerReceiptFlowTest extends TestCase
         ];
     }
 
-    public function test_a_receipt_is_created_in_sap_read_back_and_confirmed(): void
+    /** SAP without the correlation user field: any query by it is refused. */
+    private const NO_UDF = ['error' => ['code' => -1000, 'message' => ['value' => "Property 'U_TRZ_UUID' of 'Document'is invalid"]]];
+
+    public function test_a_receipt_is_confirmed_with_the_document_sap_answers(): void
     {
         $pallet = $this->pallet();
         $uuid = null;
         Http::fake(function (Request $r) use ($pallet, &$uuid) {
             return match (true) {
                 str_ends_with($r->url(), '/Login') => Http::response(['SessionId' => 's1'], 200, ['Set-Cookie' => 'B1SESSION=s1']),
-                $r->method() === 'POST' && str_ends_with($r->url(), '/InventoryGenEntries') => (function () use ($r, &$uuid) {
+                $r->method() === 'POST' && str_ends_with($r->url(), '/InventoryGenEntries') => (function () use ($r, $pallet, &$uuid) {
                     $uuid = $r['U_TRZ_UUID'];
 
-                    return Http::response(['DocEntry' => 9001, 'DocNum' => 5001], 201);
+                    // Service Layer answers 201 with the created document.
+                    return Http::response($this->document($pallet, (string) $uuid, '2028-10-20T00:00:00Z'), 201);
                 })(),
-                str_contains($r->url(), '/InventoryGenEntries?') => Http::response(['value' => [['DocEntry' => 9001]]]),
-                str_ends_with($r->url(), '/InventoryGenEntries(9001)') => Http::response($this->document($pallet, (string) $uuid, '2028-10-20T00:00:00Z')),
+                str_contains($r->url(), '/InventoryGenEntries?') => Http::response(self::NO_UDF, 400),
                 default => Http::response([], 404),
             };
         });
@@ -102,6 +106,8 @@ class ServiceLayerReceiptFlowTest extends TestCase
         $this->assertSame($receipt->request_uuid, $uuid);
         $this->assertSame(ReceiptStatus::Confirmed, $pallet->refresh()->receipt_status);
 
+        // Nothing is asked by the correlation field: SAP may not have it.
+        Http::assertNotSent(fn (Request $r) => $r->method() === 'GET' && str_contains($r->url(), '/InventoryGenEntries'));
         Http::assertSent(fn (Request $r) => $r->method() === 'POST' && str_ends_with($r->url(), '/InventoryGenEntries')
             && $r['DocDate'] === '2026-10-21'
             && $r['DocumentLines'][0]['BaseEntry'] === 41659
@@ -109,7 +115,7 @@ class ServiceLayerReceiptFlowTest extends TestCase
             && $r['DocumentLines'][0]['BatchNumbers'][0] === ['BaseLineNumber' => 0, 'BatchNumber' => 'L-1', 'Quantity' => 480, 'ManufacturingDate' => '2026-10-21', 'ExpiryDate' => '2028-10-20', 'AddmisionDate' => '2026-10-21']);
     }
 
-    public function test_a_receipt_with_other_batch_dates_in_sap_is_never_confirmed(): void
+    public function test_an_answer_without_lines_is_read_back_by_its_doc_entry(): void
     {
         $pallet = $this->pallet();
         $uuid = null;
@@ -121,8 +127,63 @@ class ServiceLayerReceiptFlowTest extends TestCase
             return match (true) {
                 str_ends_with($r->url(), '/Login') => Http::response(['SessionId' => 's1'], 200),
                 $r->method() === 'POST' => Http::response(['DocEntry' => 9001, 'DocNum' => 5001], 201),
-                str_contains($r->url(), '/InventoryGenEntries?') => Http::response(['value' => [['DocEntry' => 9001]]]),
-                default => Http::response($this->document($pallet, (string) $uuid, '2027-01-01')),
+                str_contains($r->url(), '/InventoryGenEntries?') => Http::response(self::NO_UDF, 400),
+                str_ends_with($r->url(), '/InventoryGenEntries(9001)') => Http::response($this->document($pallet, (string) $uuid, '2028-10-20T00:00:00Z')),
+                default => Http::response([], 404),
+            };
+        });
+
+        [$receipt] = $this->requestReceipts($this->admin, [$pallet]);
+
+        $receipt->refresh();
+        $this->assertSame(SapDocumentStatus::Confirmed, $receipt->status, json_encode($receipt->reconciliation) ?: '');
+        $this->assertSame([9001, 5001], [$receipt->sap_doc_entry, $receipt->sap_doc_num]);
+    }
+
+    public function test_reconciling_a_created_receipt_reads_it_by_the_doc_entry_sap_gave(): void
+    {
+        $pallet = $this->pallet();
+        $uuid = null;
+        $readable = false;
+        Http::fake(function (Request $r) use ($pallet, &$uuid, &$readable) {
+            if ($r->method() === 'POST' && str_ends_with($r->url(), '/InventoryGenEntries')) {
+                $uuid = $r['U_TRZ_UUID'];
+            }
+
+            return match (true) {
+                str_ends_with($r->url(), '/Login') => Http::response(['SessionId' => 's1'], 200),
+                $r->method() === 'POST' => Http::response(['DocEntry' => 9001, 'DocNum' => 5001], 201),
+                str_contains($r->url(), '/InventoryGenEntries?') => Http::response(self::NO_UDF, 400),
+                str_ends_with($r->url(), '/InventoryGenEntries(9001)') => $readable
+                    ? Http::response($this->document($pallet, (string) $uuid, '2028-10-20T00:00:00Z'))
+                    : Http::response(['error' => ['code' => -1, 'message' => ['value' => 'Internal error']]], 500),
+                default => Http::response([], 404),
+            };
+        });
+
+        // Created in SAP, but it could not be read right after: pending, with the reason.
+        [$receipt] = $this->requestReceipts($this->admin, [$pallet]);
+        $this->assertSame(SapDocumentStatus::PendingReconciliation, $receipt->refresh()->status);
+        $this->assertStringContainsString('no se pudo verificar el documento: SAP respondió 500', (string) $receipt->last_error_message);
+
+        // Reconciling reads DocEntry 9001, never the correlation field, and confirms.
+        $readable = true;
+        app(ProductionReceiptLifecycle::class)->reconcile($receipt->id);
+
+        $receipt->refresh();
+        $this->assertSame(SapDocumentStatus::Confirmed, $receipt->status, json_encode($receipt->reconciliation) ?: '');
+        $this->assertSame([9001, 5001], [$receipt->sap_doc_entry, $receipt->sap_doc_num]);
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/InventoryGenEntries?'));
+    }
+
+    public function test_a_receipt_with_other_batch_dates_in_sap_is_never_confirmed(): void
+    {
+        $pallet = $this->pallet();
+        Http::fake(function (Request $r) use ($pallet) {
+            return match (true) {
+                str_ends_with($r->url(), '/Login') => Http::response(['SessionId' => 's1'], 200),
+                $r->method() === 'POST' => Http::response($this->document($pallet, (string) $r['U_TRZ_UUID'], '2027-01-01'), 201),
+                default => Http::response([], 404),
             };
         });
 

@@ -312,6 +312,7 @@ class ProductionReceiptFlowTest extends TestCase
 
     public function test_a_created_receipt_that_cannot_be_read_back_says_why(): void
     {
+        $this->sap()->queueReceiptScenarios(FakeScenario::CreateWithoutDocument);
         $this->sap()->failNextLookups();
         [$receipt] = $this->requestReceipts($this->admin, $this->labeledPallets(['L-1']));
 
@@ -447,8 +448,14 @@ class ProductionReceiptFlowTest extends TestCase
     {
         $this->requestReceipts($this->admin, $this->labeledPallets(['L-1']));
 
-        $this->assertSame(['CREAR', 'CONSULTAR'], IntegrationAttempt::orderBy('attempt_number')->pluck('operation')->all());
-        $this->assertSame([1, 2], IntegrationAttempt::orderBy('attempt_number')->pluck('attempt_number')->all());
+        // The document SAP answered is the one verified: no second call.
+        $this->assertSame(['CREAR'], IntegrationAttempt::orderBy('attempt_number')->pluck('operation')->all());
+
+        // When the answer brings no document, it is read by its DocEntry, and that call is on record too.
+        $this->sap()->queueReceiptScenarios(FakeScenario::CreateWithoutDocument);
+        [$receipt] = $this->requestReceipts($this->admin, $this->labeledPallets(['L-2']));
+        $this->assertSame(['CREAR', 'CONSULTAR'], IntegrationAttempt::where('document_id', $receipt->id)->orderBy('attempt_number')->pluck('operation')->all());
+        $this->assertSame(SapDocumentStatus::Confirmed, $receipt->refresh()->status);
     }
 
     public function test_only_people_with_the_permission_request_receipts(): void

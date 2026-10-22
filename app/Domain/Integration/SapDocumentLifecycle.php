@@ -2,6 +2,7 @@
 
 namespace App\Domain\Integration;
 
+use App\Domain\Integration\Enums\AttemptOutcome;
 use App\Domain\Integration\Enums\DocumentPhase;
 use App\Domain\Integration\Enums\PalletHold;
 use App\Domain\Integration\Enums\SapDocumentStatus;
@@ -16,6 +17,7 @@ use App\Integrations\Sap\Dto\SapDocument;
 use App\Integrations\Sap\Dto\SapWriteResult;
 use App\Integrations\Sap\Dto\WriteOutcome;
 use App\Integrations\Sap\Exceptions\SapLookupFailed;
+use App\Models\IntegrationAttempt;
 use App\Models\InventoryTransfer;
 use App\Models\InventoryTransferPallet;
 use App\Models\Pallet;
@@ -33,11 +35,13 @@ use Throwable;
  *
  *  - send(): SOLICITADO → ENVIANDO is committed before the call, so a
  *    worker that dies mid-call leaves ENVIANDO behind, never a silent retry.
- *  - Created answer: the document is read back by correlation and compared
- *    line by line; only a match confirms. Rejected: failed, pallets
- *    released. Anything else: PENDIENTE_CONCILIACION.
- *  - reconcile(): looks the document up by correlation. Found and matching:
- *    confirm. Found and different: stays pending for a person. Proved absent
+ *  - Created answer: the document SAP answered (or, if that answer could not
+ *    be read, the one read back by its DocEntry) is compared line by line;
+ *    only a match confirms. Rejected: failed, pallets released. Anything
+ *    else: PENDIENTE_CONCILIACION.
+ *  - reconcile(): when SAP already said it created the document, reads it
+ *    by that DocEntry; otherwise looks it up by correlation. Found and
+ *    matching: confirm. Found and different: stays pending for a person. Proved absent
  *    and older than the grace period: resend, up to the limit. Lookup
  *    failed: nothing changes.
  *
@@ -67,6 +71,11 @@ abstract class SapDocumentLifecycle
      * @throws SapLookupFailed
      */
     abstract protected function find(string $requestUuid): ?SapDocument;
+
+    /**
+     * @throws SapLookupFailed
+     */
+    abstract protected function findByDocEntry(int $docEntry): ?SapDocument;
 
     /**
      * Header checks beyond the lines (order, warehouses).
@@ -110,12 +119,21 @@ abstract class SapDocumentLifecycle
         }
 
         $startedAt = CarbonImmutable::now();
+        $createdAs = $this->createdDocEntry($document);
 
         try {
-            $found = $this->find($document->request_uuid);
+            $found = $createdAs !== null ? $this->findByDocEntry($createdAs) : $this->find($document->request_uuid);
         } catch (SapLookupFailed $e) {
             $this->attempts->lookup($document, $startedAt, true, [], $e->getMessage());
             $this->note($document, ['last_checked_at' => now()->toIso8601String(), 'last_result' => 'consulta_fallida', 'last_error' => mb_substr($e->getMessage(), 0, 500)]);
+
+            return;
+        }
+
+        if ($createdAs !== null && $found === null) {
+            // SAP said it created this DocEntry and now has no such document: a person has to look.
+            $this->attempts->lookup($document, $startedAt, false, ['found' => false, 'doc_entry' => $createdAs]);
+            $this->note($document, ['last_checked_at' => now()->toIso8601String(), 'last_result' => 'consulta_fallida', 'last_error' => "SAP respondió creado con DocEntry {$createdAs}, pero ese documento no aparece."]);
 
             return;
         }
@@ -222,21 +240,29 @@ abstract class SapDocumentLifecycle
         $this->attempts->write($document, $startedAt, $result);
 
         match ($result->outcome) {
-            WriteOutcome::Created => $this->afterCreated($document),
+            WriteOutcome::Created => $this->afterCreated($document, $result),
             WriteOutcome::Rejected => DB::transaction(fn () => $this->toFailed($this->lock($document), (string) $result->errorCode, (string) $result->errorMessage, $this->systemContext($document))),
             WriteOutcome::Uncertain => DB::transaction(fn () => $this->toPending($this->lock($document), (string) $result->errorMessage)),
         };
     }
 
     /**
-     * SAP said it created the document. Read it back before believing it.
+     * SAP said it created the document. What it answered is compared with the
+     * request before confirming; if the answer could not be read, the
+     * document is read back by its DocEntry.
      */
-    private function afterCreated(ProductionReceipt|InventoryTransfer $document): void
+    private function afterCreated(ProductionReceipt|InventoryTransfer $document, SapWriteResult $result): void
     {
+        if ($result->document !== null) {
+            $this->verifyAndConfirm($document, $result->document);
+
+            return;
+        }
+
         $startedAt = CarbonImmutable::now();
 
         try {
-            $found = $this->find($document->request_uuid);
+            $found = $this->findByDocEntry((int) $result->docEntry);
         } catch (SapLookupFailed $e) {
             $this->attempts->lookup($document, $startedAt, true, [], $e->getMessage());
             // The reason goes on the document: without it nobody can tell why it is pending.
@@ -248,7 +274,7 @@ abstract class SapDocumentLifecycle
         $this->attempts->lookup($document, $startedAt, false, ['found' => $found !== null, 'doc_entry' => $found?->docEntry]);
 
         if ($found === null) {
-            DB::transaction(fn () => $this->toPending($this->lock($document), 'SAP respondió creado pero el documento no aparece por su correlación.'));
+            DB::transaction(fn () => $this->toPending($this->lock($document), "SAP respondió creado con DocEntry {$result->docEntry}, pero ese documento no aparece."));
 
             return;
         }
@@ -279,6 +305,20 @@ abstract class SapDocumentLifecycle
 
             $this->toConfirmed($locked, $found);
         });
+    }
+
+    /** DocEntry SAP gave when it answered "created" for this request, if it ever did. */
+    private function createdDocEntry(ProductionReceipt|InventoryTransfer $document): ?int
+    {
+        $docEntry = IntegrationAttempt::query()
+            ->where('document_type', $document->getMorphClass())
+            ->where('document_id', $document->id)
+            ->where('operation', 'CREAR')
+            ->where('outcome', AttemptOutcome::Success)
+            ->latest('attempt_number')
+            ->value('response_summary')['doc_entry'] ?? null;
+
+        return is_numeric($docEntry) ? (int) $docEntry : null;
     }
 
     private function markSending(ProductionReceipt|InventoryTransfer $document): void
