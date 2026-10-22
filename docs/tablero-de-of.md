@@ -25,7 +25,11 @@ Las unidades se suman por unidad de medida de SAP. Si hay OF en unidades distint
 
 ## 3. Datos de SAP
 
-SAP se consulta **solo con el botón** "Actualizar desde SAP".
+SAP se consulta **solo con el botón** "Actualizar desde SAP" (o con `php artisan sap:sync-orders`).
+
+- El botón **no espera** a SAP: deja la tarea en la cola `sap` y la pantalla muestra "Actualizando desde SAP…" hasta que termina. Traer cientos de OF puede tardar más de lo que dura una petición web (antes se cortaba a los 30 segundos). Por eso **necesita el worker de la cola `sap` corriendo**, el mismo que envía los recibos.
+- Solo corre una actualización a la vez, desde el botón o desde la consola. Un segundo clic mientras corre no encola otra.
+- Las OF se piden en páginas de 500 y los productos en grupos de 20 por consulta, en lugar de una consulta por OF.
 
 - Se pide a SAP la lista de **todas las OF liberadas** (`SapGateway::releasedProductionOrders`). Cada una se guarda o se actualiza aquí, aunque nunca se haya consultado antes.
 - Las que aquí estaban liberadas y ya no vienen en la lista se consultan una por una. Si quedaron cerradas o canceladas, se marcan igual aquí: salen del tablero y ya no reciben lecturas, etiquetas ni recibos.

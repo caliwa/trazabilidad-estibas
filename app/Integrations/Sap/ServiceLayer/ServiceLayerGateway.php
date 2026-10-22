@@ -45,6 +45,13 @@ class ServiceLayerGateway implements SapGateway
 
     private const MAX_PAGES = 200;
 
+    private const PAGE_SIZE = 500;
+
+    /** Items read per request when bringing many orders (keeps the URL short). */
+    private const ITEMS_PER_REQUEST = 20;
+
+    private const ITEM_FIELDS = 'ItemCode,ItemName,BarCode,InventoryUOM,SalesQtyPerPackUnit,SalesPackagingUnit';
+
     /**
      * @param  array{correlation_field: string, costing_code: ?string, costing_code2: ?string, costing_code3: ?string}  $receipt
      */
@@ -175,13 +182,16 @@ class ServiceLayerGateway implements SapGateway
             '$filter' => "ProductionOrderStatus eq 'boposReleased' and {$this->itemFilter()}",
             '$select' => self::ORDER_FIELDS,
             '$orderby' => 'AbsoluteEntry',
-        ]));
+        ], self::PAGE_SIZE));
 
         for ($page = 1; ; $page++) {
             $value = $response->json('value');
             if (! is_array($value)) {
                 throw new SapLookupFailed('Service Layer respondió sin lista de órdenes de fabricación.');
             }
+
+            // The products of the whole page in a few requests, not one per order.
+            $this->loadItems(array_values(array_map(fn ($row) => (string) (((array) $row)['ItemNo'] ?? ''), $value)), $items);
 
             foreach ($value as $row) {
                 $orders[] = $this->productionOrder((array) $row, $items);
@@ -198,7 +208,7 @@ class ServiceLayerGateway implements SapGateway
                 throw new SapLookupFailed('Service Layer devolvió demasiadas páginas de órdenes liberadas.');
             }
 
-            $response = $this->read(fn () => $this->client->getLink($next));
+            $response = $this->read(fn () => $this->client->getLink($next, self::PAGE_SIZE));
         }
     }
 
@@ -373,9 +383,40 @@ class ServiceLayerGateway implements SapGateway
      */
     private function item(string $itemCode): array
     {
-        $response = $this->read(fn () => $this->client->get("Items('{$this->literal($itemCode)}')", ['$select' => 'ItemCode,ItemName,BarCode,InventoryUOM,SalesQtyPerPackUnit,SalesPackagingUnit']));
+        $response = $this->read(fn () => $this->client->get("Items('{$this->literal($itemCode)}')", ['$select' => self::ITEM_FIELDS]));
 
         return (array) $response->json();
+    }
+
+    /**
+     * Reads the item master of these codes into $items, ITEMS_PER_REQUEST at a
+     * time. A code SAP does not return is left out, and productionOrder()
+     * then reads it on its own (and fails if SAP really does not have it).
+     *
+     * @param  list<string>  $codes
+     * @param  array<string, array<mixed>>  $items
+     */
+    private function loadItems(array $codes, array &$items): void
+    {
+        $missing = array_values(array_diff(array_unique(array_filter($codes)), array_keys($items)));
+
+        foreach (array_chunk($missing, self::ITEMS_PER_REQUEST) as $chunk) {
+            $filter = implode(' or ', array_map(fn (string $code) => "ItemCode eq '{$this->literal($code)}'", $chunk));
+
+            try {
+                $response = $this->read(fn () => $this->client->get('Items', ['$filter' => $filter, '$select' => self::ITEM_FIELDS], self::PAGE_SIZE));
+            } catch (SapLookupFailed) {
+                // Only a shortcut: each product is then read on its own, and that one does fail loudly.
+                return;
+            }
+
+            foreach ((array) $response->json('value') as $row) {
+                $row = (array) $row;
+                if (isset($row['ItemCode']) && is_string($row['ItemCode'])) {
+                    $items[$row['ItemCode']] = $row;
+                }
+            }
+        }
     }
 
     /**

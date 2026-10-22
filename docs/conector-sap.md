@@ -8,7 +8,7 @@
 | Crear recibo de producción | `POST /InventoryGenEntries` | Conectado |
 | Buscar un recibo después de un timeout | `GET /InventoryGenEntries?$filter=<campo de correlación> eq '<uuid>'` y luego `GET /InventoryGenEntries(<DocEntry>)` | Conectado |
 | Consultar una OF | `GET /ProductionOrders?$filter=DocumentNumber eq <n> and startswith(ItemNo,'PT')` y el producto en `GET /Items('<código>')` | Conectado |
-| Traer todas las OF liberadas (tablero de OF, `sap:sync-orders`) | `GET /ProductionOrders?$filter=ProductionOrderStatus eq 'boposReleased' and startswith(ItemNo,'PT')`, siguiendo `odata.nextLink` | Conectado |
+| Traer todas las OF liberadas (tablero de OF, `sap:sync-orders`) | `GET /ProductionOrders?$filter=ProductionOrderStatus eq 'boposReleased' and startswith(ItemNo,'PT')` con `Prefer: odata.maxpagesize=500`, siguiendo `odata.nextLink`; productos con `GET /Items?$filter=ItemCode eq '…' or …` de a 20 | Conectado |
 | Transferencia 04 → 05 | | **No conectada.** Se rechaza sin enviar nada |
 
 Nada de esto se ha corrido contra el SAP DEV todavía: esta sesión no tiene acceso a esa red. Todo está probado con respuestas simuladas de Service Layer (`Http::fake`).

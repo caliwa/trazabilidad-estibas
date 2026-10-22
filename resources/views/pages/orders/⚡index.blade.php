@@ -1,10 +1,9 @@
 <?php
 
-use App\Domain\Orders\Actions\SyncReleasedOrders;
 use App\Domain\Orders\Enums\OrderStage;
-use App\Domain\Shared\Origin;
-use App\Domain\Shared\TraceContext;
+use App\Domain\Orders\OrderSyncStatus;
 use App\Enums\Permission;
+use App\Jobs\SyncReleasedOrdersFromSap;
 use App\Queries\OrderBoardQuery;
 use App\Support\Correlation\CorrelationId;
 use Flux\Flux;
@@ -35,15 +34,45 @@ new #[Title('Tablero de OF')] class extends Component {
     /** @var array<string, string> */
     public array $problems = [];
 
+    /** True while this page waits for a run it started, so it reports the outcome once. */
+    public bool $waiting = false;
+
+    /**
+     * Bringing every released order can take longer than a web request may
+     * last: the work goes to the SAP queue and the page polls its status.
+     */
     public function syncFromSap(): void
     {
-        $result = app(SyncReleasedOrders::class)->handle(Auth::user(), TraceContext::forUser(Auth::user(), Origin::Web, app(CorrelationId::class)->get(), request()->ip()));
-        $this->problems = $result->problems;
+        abort_unless(Auth::user()?->can(Permission::OrdersView->value), 403);
 
-        if ($result->error !== null) {
-            Flux::toast(variant: 'danger', text: $result->error);
+        if (OrderSyncStatus::busy()) {
+            $this->waiting = true;
+            Flux::toast(text: 'Ya hay una actualización desde SAP en curso.');
+
+            return;
+        }
+
+        OrderSyncStatus::queued();
+        SyncReleasedOrdersFromSap::dispatch((int) Auth::id(), app(CorrelationId::class)->get());
+        $this->problems = [];
+        $this->waiting = true;
+    }
+
+    /** Polled while waiting: when the run ends, shows its outcome and reloads the board. */
+    public function checkSync(): void
+    {
+        if (! $this->waiting || OrderSyncStatus::busy()) {
+            return;
+        }
+
+        $this->waiting = false;
+        $status = OrderSyncStatus::get();
+        $this->problems = $status['problems'] ?? [];
+
+        if (($status['state'] ?? null) === 'failed') {
+            Flux::toast(variant: 'danger', text: (string) ($status['error'] ?? 'La actualización desde SAP falló.'));
         } else {
-            Flux::toast(variant: $result->problems === [] ? 'success' : 'warning', text: "SAP tiene {$result->released} órdenes liberadas. Tablero actualizado.");
+            Flux::toast(variant: $this->problems === [] ? 'success' : 'warning', text: 'SAP tiene '.($status['released'] ?? 0).' órdenes liberadas. Tablero actualizado.');
         }
 
         unset($this->rows, $this->kpis);
@@ -82,10 +111,13 @@ new #[Title('Tablero de OF')] class extends Component {
             <flux:subheading>Órdenes de fabricación liberadas en SAP B1: avance por recibos y transferencia a CEDI</flux:subheading>
         </div>
         <div class="text-end">
-            <flux:button icon="arrow-path" wire:click="syncFromSap" wire:loading.attr="disabled" wire:target="syncFromSap">
-                <span wire:loading.remove wire:target="syncFromSap">Actualizar desde SAP</span>
-                <span wire:loading wire:target="syncFromSap">Consultando SAP…</span>
-            </flux:button>
+            @if ($waiting || OrderSyncStatus::busy())
+                <div wire:poll.3s="checkSync">
+                    <flux:button icon="arrow-path" icon:class="animate-spin" disabled>Actualizando desde SAP…</flux:button>
+                </div>
+            @else
+                <flux:button icon="arrow-path" wire:click="syncFromSap">Actualizar desde SAP</flux:button>
+            @endif
             <div class="mt-1 text-xs text-zinc-500">Última actualización: {{ $lastSync ? \Carbon\CarbonImmutable::parse($lastSync)->timezone(config('app.timezone'))->format('d/m/Y H:i') : 'nunca' }}</div>
         </div>
     </div>

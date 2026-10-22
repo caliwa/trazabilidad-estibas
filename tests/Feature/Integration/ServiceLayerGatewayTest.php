@@ -265,22 +265,29 @@ class ServiceLayerGatewayTest extends TestCase
         Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), '$filter=DocumentNumber eq 33128'));
     }
 
-    public function test_the_released_orders_follow_every_page(): void
+    public function test_the_released_orders_follow_every_page_in_big_pages_and_read_products_in_groups(): void
     {
-        $row = fn (int $n) => ['AbsoluteEntry' => $n + 1000, 'DocumentNumber' => $n, 'ProductionOrderStatus' => 'boposReleased', 'ProductionOrderType' => 'bopotStandard', 'ItemNo' => 'PT1350023', 'PlannedQuantity' => 100, 'Warehouse' => '04'];
+        $row = fn (int $n, string $item = 'PT1350023') => ['AbsoluteEntry' => $n + 1000, 'DocumentNumber' => $n, 'ProductionOrderStatus' => 'boposReleased', 'ProductionOrderType' => 'bopotStandard', 'ItemNo' => $item, 'PlannedQuantity' => 100, 'Warehouse' => '04'];
         Http::fake($this->fakes([
             self::URL.'/ProductionOrders?*' => Http::sequence()
-                ->push(['value' => [$row(1), $row(2)], 'odata.nextLink' => "ProductionOrders?\$skip=2&\$filter=ProductionOrderStatus eq 'boposReleased'"])
+                ->push(['value' => [$row(1), $row(2, 'PT1350019')], 'odata.nextLink' => "ProductionOrders?\$skip=2&\$filter=ProductionOrderStatus eq 'boposReleased'"])
                 ->push(['value' => [$row(3)]]),
-            self::URL."/Items('PT1350023')*" => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA', 'InventoryUOM' => 'UNIDAD']),
+            self::URL.'/Items?*' => Http::response(['value' => [
+                ['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA OLIMPICA', 'InventoryUOM' => 'UNIDAD', 'SalesQtyPerPackUnit' => 24],
+                ['ItemCode' => 'PT1350019', 'ItemName' => 'GELATINA ALKOSTO', 'InventoryUOM' => 'UNIDAD'],
+            ]]),
         ]));
 
         $orders = $this->gateway()->releasedProductionOrders();
 
         $this->assertSame(['1', '2', '3'], array_map(fn ($o) => $o->docNum, $orders));
-        Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), "\$filter=ProductionOrderStatus eq 'boposReleased' and startswith(ItemNo,'PT')"));
-        // The product is read once for the three orders.
-        $this->assertCount(1, array_filter(Http::recorded()->all(), fn (array $pair) => str_contains($pair[0]->url(), 'Items(')));
+        $this->assertSame(['GELATINA OLIMPICA', 'GELATINA ALKOSTO', 'GELATINA OLIMPICA'], array_map(fn ($o) => $o->itemDescription, $orders));
+        Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), "\$filter=ProductionOrderStatus eq 'boposReleased' and startswith(ItemNo,'PT')")
+            && $r->header('Prefer') === ['odata.maxpagesize=500']);
+        // Both products in one request for the first page, none for the second (already read).
+        $itemCalls = array_values(array_filter(Http::recorded()->all(), fn (array $pair) => str_contains($pair[0]->url(), '/Items')));
+        $this->assertCount(1, $itemCalls);
+        $this->assertStringContainsString("ItemCode eq 'PT1350023' or ItemCode eq 'PT1350019'", urldecode($itemCalls[0][0]->url()));
     }
 
     public function test_an_unknown_order_status_or_an_unreachable_sap_is_never_taken_as_an_answer(): void
@@ -331,7 +338,7 @@ class ServiceLayerGatewayTest extends TestCase
     {
         Http::fake($this->fakes([
             self::URL.'/ProductionOrders?*' => Http::response(['value' => [['AbsoluteEntry' => 41659, 'DocumentNumber' => 33128, 'ProductionOrderStatus' => 'boposReleased', 'ItemNo' => 'PT1350023', 'PlannedQuantity' => 800, 'Warehouse' => '04']]]),
-            self::URL."/Items('PT1350023')*" => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'InventoryUOM' => 'UNIDAD']),
+            self::URL.'/Items?*' => Http::response(['value' => [['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'InventoryUOM' => 'UNIDAD']]]),
         ]));
 
         $this->assertSame(0, Artisan::call('sap:check'));
