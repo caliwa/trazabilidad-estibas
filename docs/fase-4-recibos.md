@@ -22,11 +22,11 @@ Recibir en el almacén 04 las estibas etiquetadas, sin recibir nunca dos veces n
    - Pasa de SOLICITADO a ENVIANDO y lo confirma en la base **antes** de llamar a SAP.
    - Hace la llamada y registra el intento.
 3. **Respuesta.**
-   - *Creado*: se lee el documento por su correlación y se compara línea por línea (producto, lote, almacén, cantidad, vencimiento y fabricación del lote), la orden y la fecha de contabilización. Solo si coincide se confirma, guardando DocEntry, DocNum y número de línea por estiba; las estibas pasan a CONFIRMADO_04.
+   - *Creado*: se toma el documento que SAP respondió (o, si la respuesta no lo trae, se lee por su DocEntry) y se compara línea por línea (producto, lote, almacén, cantidad, vencimiento y fabricación del lote), la orden y la fecha de contabilización. Solo si coincide se confirma, guardando DocEntry, DocNum y número de línea por estiba; las estibas pasan a CONFIRMADO_04.
    - *Rechazado*: el recibo queda FALLIDO, las líneas LIBERADAS y las estibas se pueden pedir otra vez.
    - *Timeout o respuesta ambigua*: PENDIENTE_CONCILIACION, sin reintento.
 4. **Conciliación** (`reconcile`).
-   - Se busca el documento por correlación.
+   - Si SAP ya había respondido "creado", se lee por ese DocEntry. Si no, se busca el documento por correlación.
    - Si existe y coincide, se confirma.
    - Si existe pero no coincide, queda pendiente con las diferencias anotadas para que lo vea una persona. Nunca se confirma ni se reenvía.
    - Si SAP demuestra que no existe **y** ya pasaron `SAP_RESEND_AFTER_MINUTES` desde el último envío, se reenvía con el mismo `request_uuid`, hasta `SAP_MAX_SEND_ATTEMPTS`.

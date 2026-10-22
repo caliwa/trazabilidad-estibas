@@ -6,6 +6,8 @@ enum FakeScenario
 {
     /** SAP creates the document and answers. */
     case Create;
+    /** SAP creates the document and answers only its DocEntry and DocNum, without the document. */
+    case CreateWithoutDocument;
     /** SAP refuses the document. */
     case Reject;
     /** SAP creates the document but the answer is lost (timeout after commit). */

@@ -25,6 +25,7 @@ use App\Models\ProductionOrder;
 use App\Models\User;
 use App\Services\TraceLogger;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -152,15 +153,28 @@ class RegisterManualBoxScan
 
     private function device(): Device
     {
-        return Device::query()->where('code', self::DEVICE_CODE)->first() ?? tap(new Device, function (Device $device): void {
-            $device->forceFill([
-                'code' => self::DEVICE_CODE,
-                'name' => 'Lectura manual en la estación de producción',
-                'kind' => 'LECTOR',
-                // No token: nothing authenticates as this device through the API.
-                'token_hash' => hash('sha256', Str::random(64)),
-                'active' => true,
-            ])->save();
-        });
+        $existing = Device::query()->where('code', self::DEVICE_CODE)->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $device = new Device;
+        $device->forceFill([
+            'code' => self::DEVICE_CODE,
+            'name' => 'Lectura manual en la estación de producción',
+            'kind' => 'LECTOR',
+            // No token: nothing authenticates as this device through the API.
+            'token_hash' => hash('sha256', Str::random(64)),
+            'active' => true,
+        ]);
+
+        try {
+            // Its own savepoint: two first reads at once both try to create it, and the loser just reads it.
+            DB::transaction(fn () => $device->save());
+        } catch (UniqueConstraintViolationException) {
+            return Device::query()->where('code', self::DEVICE_CODE)->sole();
+        }
+
+        return $device;
     }
 }

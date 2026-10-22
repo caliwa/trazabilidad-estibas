@@ -66,6 +66,11 @@ class InventoryTransferLifecycle extends SapDocumentLifecycle
         return $this->sap->findInventoryTransferByCorrelation($requestUuid);
     }
 
+    protected function findByDocEntry(int $docEntry): ?SapDocument
+    {
+        return $this->sap->findInventoryTransfer($docEntry);
+    }
+
     protected function headerDifferences(ProductionReceipt|InventoryTransfer $document, SapDocument $found): array
     {
         $from = $document->payload['from_warehouse'] ?? null;

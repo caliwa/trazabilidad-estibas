@@ -148,6 +148,16 @@ class FakeSapGateway implements SapGateway
         return $this->find(self::RECEIPTS, $requestUuid);
     }
 
+    public function findProductionReceipt(int $docEntry): ?SapDocument
+    {
+        return $this->findByDocEntry(self::RECEIPTS, $docEntry);
+    }
+
+    public function findInventoryTransfer(int $docEntry): ?SapDocument
+    {
+        return $this->findByDocEntry(self::TRANSFERS, $docEntry);
+    }
+
     public function createInventoryTransfer(InventoryTransferRequest $request): SapWriteResult
     {
         return $this->write(self::TRANSFERS, $request->requestUuid, $request->lines, null, $request->fromWarehouse);
@@ -221,9 +231,28 @@ class FakeSapGateway implements SapGateway
         );
         $this->documents[$kind][] = $document;
 
-        return $scenario === FakeScenario::CreateThenTimeout
-            ? SapWriteResult::uncertain('TIMEOUT', 'Sin respuesta de SAP.', 30_000)
-            : SapWriteResult::created($document->docEntry, $document->docNum, 12, 201);
+        return match ($scenario) {
+            FakeScenario::CreateThenTimeout => SapWriteResult::uncertain('TIMEOUT', 'Sin respuesta de SAP.', 30_000),
+            FakeScenario::CreateWithoutDocument => SapWriteResult::created($document->docEntry, $document->docNum, 12, 201),
+            default => SapWriteResult::created($document->docEntry, $document->docNum, 12, 201, $document),
+        };
+    }
+
+    private function findByDocEntry(string $kind, int $docEntry): ?SapDocument
+    {
+        if ($this->failingLookups > 0) {
+            $this->failingLookups--;
+
+            throw new SapLookupFailed('Consulta a SAP sin respuesta (simulador).');
+        }
+
+        foreach ($this->documents[$kind] as $document) {
+            if ($document->docEntry === $docEntry) {
+                return $document;
+            }
+        }
+
+        return null;
     }
 
     private function find(string $kind, string $correlation): ?SapDocument
