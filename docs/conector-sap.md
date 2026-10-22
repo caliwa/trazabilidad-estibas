@@ -125,7 +125,7 @@ De `ProductionOrders` se usan: `AbsoluteEntry` (DocEntry), `DocumentNumber`, `Pr
 | Otro | No se interpreta: la consulta falla y lo dice |
 
 - El usuario de la OF y el campo "vinculado a" quedan vacíos: `ProductionOrders` da el usuario como número interno y no hay un campo directo para lo segundo.
-- El EAN-14 de la etiqueta de caja sale de `Items.BarCode`. Si ahí está el EAN-13 de la unidad, la etiqueta de caja se rechaza (pide 14 dígitos). Sigue pendiente definir de dónde sale el EAN-14.
+- `Items.BarCode` trae el EAN-13 de la unidad. La etiqueta de caja imprime el EAN-14 armado con el indicador 1 (`SAP_BOX_GTIN_INDICATOR`), los 12 primeros dígitos del EAN-13 y un dígito de control nuevo. Ver `docs/etiquetas-de-caja.md`.
 
 ## 6. Lo que falta
 

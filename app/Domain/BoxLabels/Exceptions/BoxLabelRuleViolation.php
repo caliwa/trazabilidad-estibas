@@ -48,7 +48,7 @@ class BoxLabelRuleViolation extends DomainException
 
     public static function invalidBarcode(string $itemCode, string $barcode): self
     {
-        return new self("El código {$barcode} del producto {$itemCode} no es un EAN-14 (GTIN-14) válido: 14 dígitos con dígito de control. Hay que corregirlo en SAP.");
+        return new self("El código {$barcode} del producto {$itemCode} no es un EAN-13 ni un EAN-14 válido (13 o 14 dígitos con dígito de control). Hay que corregirlo en SAP.");
     }
 
     public static function noFactor(string $itemCode): self
