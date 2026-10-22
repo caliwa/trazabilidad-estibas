@@ -143,6 +143,11 @@ new #[Title('Recibos de producción')] class extends Component {
         Flux::toast(variant: 'success', text: count($created) === 1 ? 'Recibo solicitado. Se envía a SAP en segundo plano.' : count($created).' recibos solicitados. Se envían a SAP en segundo plano.');
         $this->selected = [];
         unset($this->eligible, $this->orders, $this->receipts);
+
+        // Every pallet of the order was requested: it leaves the list, so it is no longer the chosen one.
+        if ($this->eligible->isEmpty()) {
+            $this->orderId = null;
+        }
     }
 
     public function reconcile(int $receiptId): void
@@ -272,6 +277,7 @@ new #[Title('Recibos de producción')] class extends Component {
                             <flux:table.cell class="tabular-nums">{{ $receipt->sap_doc_num ?? '—' }}</flux:table.cell>
                             <flux:table.cell class="max-w-72 whitespace-normal text-xs text-zinc-500">
                                 {{ $receipt->last_error_message }}
+                                @if (($receipt->reconciliation['last_result'] ?? null) === 'consulta_fallida' && isset($receipt->reconciliation['last_error']))<div>Última conciliación: {{ $receipt->reconciliation['last_error'] }}</div>@endif
                                 @if (($receipt->reconciliation['mismatch'] ?? false) === true)<div class="font-medium text-red-600">El documento en SAP no coincide: revisar a mano.</div>@endif
                             </flux:table.cell>
                             <flux:table.cell align="end">

@@ -115,7 +115,7 @@ abstract class SapDocumentLifecycle
             $found = $this->find($document->request_uuid);
         } catch (SapLookupFailed $e) {
             $this->attempts->lookup($document, $startedAt, true, [], $e->getMessage());
-            $this->note($document, ['last_checked_at' => now()->toIso8601String(), 'last_result' => 'consulta_fallida']);
+            $this->note($document, ['last_checked_at' => now()->toIso8601String(), 'last_result' => 'consulta_fallida', 'last_error' => mb_substr($e->getMessage(), 0, 500)]);
 
             return;
         }
@@ -239,7 +239,8 @@ abstract class SapDocumentLifecycle
             $found = $this->find($document->request_uuid);
         } catch (SapLookupFailed $e) {
             $this->attempts->lookup($document, $startedAt, true, [], $e->getMessage());
-            DB::transaction(fn () => $this->toPending($this->lock($document), 'SAP respondió creado pero no se pudo verificar el documento.'));
+            // The reason goes on the document: without it nobody can tell why it is pending.
+            DB::transaction(fn () => $this->toPending($this->lock($document), 'SAP respondió creado pero no se pudo verificar el documento: '.$e->getMessage()));
 
             return;
         }
