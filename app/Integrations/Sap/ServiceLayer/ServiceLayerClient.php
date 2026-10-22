@@ -30,6 +30,7 @@ class ServiceLayerClient
         #[\SensitiveParameter] private readonly string $password,
         private readonly bool $verifyTls = true,
         private readonly int $timeoutSeconds = 30,
+        private readonly int $connectTimeoutSeconds = 10,
     ) {
         if ($baseUrl === '' || $companyDb === '' || $username === '' || $password === '') {
             throw new LogicException('Faltan datos de conexión a SAP Service Layer (SAP_API_URL, SAP_COMPANY, SAP_USER o SAP_PASSWORD del ambiente).');
@@ -136,7 +137,7 @@ class ServiceLayerClient
         return Http::acceptJson()
             ->asJson()
             ->timeout($this->timeoutSeconds)
-            ->connectTimeout(min(10, $this->timeoutSeconds))
+            ->connectTimeout($this->connectTimeoutSeconds)
             ->withOptions(['verify' => $this->verifyTls]);
     }
 

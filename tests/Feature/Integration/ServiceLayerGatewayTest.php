@@ -10,6 +10,7 @@ use App\Integrations\Sap\Dto\Quantity;
 use App\Integrations\Sap\Dto\WriteOutcome;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
 use App\Integrations\Sap\Exceptions\SapLookupFailed;
+use App\Integrations\Sap\ServiceLayer\NetworkProbe;
 use App\Integrations\Sap\ServiceLayer\ServiceLayerGateway;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
@@ -324,6 +325,34 @@ class ServiceLayerGatewayTest extends TestCase
         app(SapGateway::class);
     }
 
+    public function test_the_network_probe_says_where_the_connection_breaks(): void
+    {
+        $closed = NetworkProbe::run('https://127.0.0.1:1/b1s/v1', 2);
+        $this->assertFalse(end($closed)['ok']);
+        $this->assertStringContainsString('No se pudo abrir conexión TCP a 127.0.0.1:1', end($closed)['text']);
+        $this->assertStringContainsString('"localhost" no es el servidor de SAP', $closed[1]['text']);
+
+        $this->assertFalse(NetworkProbe::run('servidor:50000')[0]['ok']);
+        $this->assertNull(NetworkProbe::run('https://sap.test/api', 1, [])[1]['ok']);
+
+        // The proxy is reported without its credentials, and NO_PROXY is honoured.
+        $env = ['HTTPS_PROXY' => 'http://user:pass@proxy.corp:3128', 'NO_PROXY' => 'localhost,.interno.local'];
+        $this->assertSame('http://proxy.corp:3128', NetworkProbe::proxyFor('https', 'sap.empresa.com', $env));
+        $this->assertNull(NetworkProbe::proxyFor('https', 'sap.interno.local', $env));
+        $this->assertNull(NetworkProbe::proxyFor('https', 'sap.empresa.com', []));
+    }
+
+    public function test_the_check_command_stops_when_the_network_does_not_reach_sap(): void
+    {
+        config(['sap.service_layer.base_url' => 'https://127.0.0.1:1/b1s/v1']);
+        $this->app->forgetInstance(SapGateway::class);
+        Http::fake();
+
+        $this->assertSame(1, Artisan::call('sap:check'));
+        $this->assertStringContainsString('No hay conexión de red con Service Layer', Artisan::output());
+        Http::assertNothingSent();
+    }
+
     public function test_the_check_command_reads_the_released_orders(): void
     {
         Http::fake($this->fakes([
@@ -331,7 +360,7 @@ class ServiceLayerGatewayTest extends TestCase
             self::URL."/Items('PT1350023')*" => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'InventoryUOM' => 'UNIDAD']),
         ]));
 
-        $this->assertSame(0, Artisan::call('sap:check'));
+        $this->assertSame(0, Artisan::call('sap:check', ['--skip-network' => true]));
         $output = Artisan::output();
         $this->assertStringContainsString('OF liberadas en SAP: 1', $output);
         $this->assertStringContainsString('33128', $output);

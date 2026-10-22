@@ -72,6 +72,7 @@ class AppServiceProvider extends ServiceProvider
                         (string) ($sl['password'] ?? ''),
                         (bool) ($sl['verify_tls'] ?? true),
                         (int) ($sl['timeout_seconds'] ?? 30),
+                        (int) ($sl['connect_timeout_seconds'] ?? 10),
                     ),
                     [
                         'correlation_field' => config()->string('sap.receipt.correlation_field'),
