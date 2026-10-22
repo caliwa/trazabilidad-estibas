@@ -5,9 +5,7 @@ namespace App\Domain\BoxLabels;
 use Carbon\CarbonImmutable;
 
 /**
- * What the box QR carries: the same lines a person reads on the label,
- * one per line, so any reader (a phone, a keyboard-wedge scanner in
- * Notepad) shows them as they are:
+ * The text printed on a box label, one field per line:
  *
  *   OF 33128
  *   PT1350023
@@ -17,10 +15,9 @@ use Carbon\CarbonImmutable;
  *   Contenido: 24 UNIDAD por caja
  *   Caja: 33128294-0007
  *
- * The last line is the box's own code, different on every label, so a box
- * can be counted only once. The batch keeps the first six lines; each label
- * adds its code (withBox()).
- * The EAN goes in its own barcode, not in the QR.
+ * It is for people: the QR beside it carries only the box token (BoxQr),
+ * and a read takes these fields from the database. The batch keeps the
+ * first six lines; each label adds its box code (withBox()).
  */
 final class BoxLabelPayload
 {
@@ -102,53 +99,6 @@ final class BoxLabelPayload
             'expiration' => substr($lines[4], 7),
             'content' => substr($lines[5], 11),
             'box' => isset($lines[6]) ? substr($lines[6], 6) : null,
-        ];
-    }
-
-    /**
-     * Like decode(), for what a hand reader actually types: the line breaks
-     * may arrive as Enter (CR, LF or both), and with a keyboard layout that
-     * differs from the reader's the ":" and "/" may come out as other symbols.
-     * So the fields are taken by position and pattern, not by exact text: the
-     * order number from the first line, the lot as the last word of the
-     * fourth line, the expiration as dd?mm?yyyy with any separator.
-     *
-     * The box code comes from a line "Caja: <code>" anywhere after the fifth
-     * (null on labels printed before box codes existed).
-     *
-     * @return array{order: string, item: string, description: string, lot: string, expiration: CarbonImmutable, box: ?string}|null
-     */
-    public static function read(string $scanned): ?array
-    {
-        $lines = array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', trim($scanned)) ?: []), fn (string $l) => $l !== ''));
-
-        if (count($lines) < 5
-            || preg_match('/^OF\D{0,3}(\d{1,20})$/iu', $lines[0], $order) !== 1
-            || preg_match('/^Lote.*?(\S+)$/iu', $lines[3], $lot) !== 1
-            || preg_match('/(\d{2})\D(\d{2})\D(\d{4})/', $lines[4], $date) !== 1
-            || ! checkdate((int) $date[2], (int) $date[1], (int) $date[3])) {
-            return null;
-        }
-
-        // "Lote: 33128294" → the last word. If the separator came glued to it ("Lote:33128294",
-        // "LoteÑ33128294"), drop "Lote" and whatever is not a letter or digit before the code.
-        $lotCode = preg_replace('/^(Lote)?[^A-Za-z0-9]*/iu', '', $lot[1]) ?? $lot[1];
-
-        $box = null;
-        foreach (array_slice($lines, 5) as $line) {
-            // Any separator between lot and sequence: a reader on another keyboard layout may type "-" as "'" or "?".
-            if (preg_match('/^Caja.*?([A-Za-z0-9]+)[^A-Za-z0-9](\d{4,})$/iu', $line, $m) === 1) {
-                $box = $m[1].'-'.$m[2];
-            }
-        }
-
-        return [
-            'order' => $order[1],
-            'item' => $lines[1],
-            'description' => $lines[2],
-            'lot' => $lotCode,
-            'expiration' => CarbonImmutable::createFromDate((int) $date[3], (int) $date[2], (int) $date[1])->startOfDay(),
-            'box' => $box,
         ];
     }
 

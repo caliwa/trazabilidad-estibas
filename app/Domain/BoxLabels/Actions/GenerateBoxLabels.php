@@ -5,6 +5,7 @@ namespace App\Domain\BoxLabels\Actions;
 use App\Domain\BoxLabels\BoxLabelPayload;
 use App\Domain\BoxLabels\BoxLabelZpl;
 use App\Domain\BoxLabels\BoxLot;
+use App\Domain\BoxLabels\BoxQr;
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
 use App\Domain\BoxLabels\Itf14;
 use App\Domain\BoxLabels\LotDates;
@@ -108,7 +109,7 @@ class GenerateBoxLabels
 
             // Box codes continue the lot's sequence across batches (the order row is locked).
             $first = (int) BoxLabel::query()->where('production_order_id', $order->id)->where('lot_code', $lotCode)->max('sequence') + 1;
-            $codes = array_map(fn (int $n) => BoxLot::boxCode($lotCode, $n), range($first, $first + $labels - 1));
+            $boxes = array_map(fn (int $n) => ['code' => BoxLot::boxCode($lotCode, $n), 'token' => BoxQr::newToken()], range($first, $first + $labels - 1));
 
             $batch = new BoxLabelBatch;
             $batch->forceFill([
@@ -125,25 +126,27 @@ class GenerateBoxLabels
                 'uom_name' => $payload->uomName,
                 'barcode' => $payload->barcode,
                 'labels' => $labels,
-                // The six lines every label of the batch shares; each label adds "Caja: <code>".
+                // The printed text every label of the batch shares (each adds its box code). The QR
+                // itself carries only each box's token.
                 'qr_payload' => $payload->encode(),
-                'zpl' => BoxLabelZpl::renderBoxes($payload, $productionDate, $codes),
+                'zpl' => BoxLabelZpl::renderBoxes($payload, $productionDate, $boxes),
                 'generated_by' => $user->id,
                 'generated_at' => now(),
             ])->save();
 
-            foreach ($codes as $i => $code) {
+            foreach ($boxes as $i => $box) {
                 (new BoxLabel)->forceFill([
                     'box_label_batch_id' => $batch->id,
                     'production_order_id' => $order->id,
                     'lot_code' => $lotCode,
                     'sequence' => $first + $i,
-                    'code' => $code,
+                    'code' => $box['code'],
+                    'qr_token' => $box['token'],
                 ])->save();
             }
 
             $this->trace->record($ctx, TraceEventType::BoxLabelsGenerated, $order, context: [
-                'box_codes' => [$codes[0], $codes[count($codes) - 1]],
+                'box_codes' => [$boxes[0]['code'], $boxes[count($boxes) - 1]['code']],
                 'box_label_batch_id' => $batch->id,
                 'labels' => $labels,
                 'lot_code' => $payload->lotCode,

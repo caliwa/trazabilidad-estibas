@@ -5,6 +5,7 @@ use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
 use App\Domain\BoxLabels\BoxLabelPayload;
 use App\Domain\BoxLabels\BoxLabelQr;
 use App\Domain\BoxLabels\BoxLot;
+use App\Domain\BoxLabels\BoxQr;
 use App\Domain\BoxLabels\Itf14;
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
 use App\Domain\Integration\Enums\MasterStatus;
@@ -183,12 +184,14 @@ new #[Title('Etiquetas de caja')] class extends Component {
     $max = $this->maxLabels();
     $printed = $this->printedLabels();
     $tz = config('app.timezone');
-    // The first label: every label adds its own box code as the last line.
-    $boxCodes = $this->batch === null ? [] : BoxLabel::query()->where('box_label_batch_id', $this->batch->id)->orderBy('sequence')->pluck('code')->all();
+    // The first label: its printed text (with its box code) and its QR, which carries only the box token.
+    $boxes = $this->batch === null ? collect() : BoxLabel::query()->where('box_label_batch_id', $this->batch->id)->orderBy('sequence')->get(['code', 'qr_token']);
     $nextBox = $preview === null ? null : BoxLot::boxCode($preview->lotCode, (int) BoxLabel::query()->where('production_order_id', $order->id)->where('lot_code', $preview->lotCode)->max('sequence') + 1);
     $shownPayload = $this->batch !== null
-        ? $this->batch->qr_payload.($boxCodes === [] ? '' : "\nCaja: ".$boxCodes[0])
+        ? $this->batch->qr_payload.($boxes->isEmpty() ? '' : "\nCaja: ".$boxes->first()->code)
         : $preview?->withBox((string) $nextBox)->encode();
+    // Before generating there is no token yet: the preview QR shows the format with a sample.
+    $shownQr = BoxQr::payload($boxes->first()?->qr_token ?? str_repeat('0', 32));
 @endphp
 
 <section class="flex w-full flex-col gap-6">
@@ -281,7 +284,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                 <div>Contenido: <b>{{ $data['content'] ?? '' }}</b></div>
                             </div>
                             <div class="w-[38%] shrink-0 text-center [&_svg]:h-auto [&_svg]:w-full">
-                                {!! BoxLabelQr::svg($shownPayload) !!}
+                                {!! BoxLabelQr::svg($shownQr) !!}
                                 @if ($data['box'] ?? null)<div class="text-xs font-semibold">Caja {{ $data['box'] }}</div>@endif
                             </div>
                         </div>
@@ -294,10 +297,11 @@ new #[Title('Etiquetas de caja')] class extends Component {
                         </div>
                     </div>
                     <flux:text class="text-xs">
-                        Lo que escribe el lector al leer el QR de la primera etiqueta.
-                        @if (count($boxCodes) > 1) Cada etiqueta tiene su propio código de caja: de {{ $boxCodes[0] }} a {{ $boxCodes[count($boxCodes) - 1] }}.@else Cada etiqueta lleva su propio código de caja.@endif
+                        El QR lleva solo el código único de la caja; la OF, el PT, el lote y el vencimiento se toman de la aplicación al leerlo.
+                        @if ($boxes->count() > 1) Cajas de {{ $boxes->first()->code }} a {{ $boxes->last()->code }}.@endif
+                        Lo que escribe el lector{{ $this->batch ? ' con la primera etiqueta' : ' (ejemplo)' }}:
                     </flux:text>
-                    <pre class="rounded bg-zinc-100 p-2 font-mono text-xs dark:bg-zinc-800">{{ $shownPayload }}</pre>
+                    <pre class="rounded bg-zinc-100 p-2 font-mono text-xs dark:bg-zinc-800">{{ $shownQr }}</pre>
                     @if ($this->batch)
                         <div>
                             <flux:button variant="primary" icon="arrow-down-tray" :href="route('box-labels.zpl', $this->batch)">Descargar ZPL ({{ $this->batch->labels }} etiquetas)</flux:button>

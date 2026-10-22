@@ -2,25 +2,21 @@
 
 namespace App\Domain\Pallets\Actions;
 
-use App\Domain\BoxLabels\BoxLabelPayload;
-use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
+use App\Domain\BoxLabels\BoxQr;
 use App\Domain\Integration\Enums\MasterStatus;
-use App\Domain\Orders\ProductionOrderCache;
 use App\Domain\Pallets\Data\ManualBoxScan;
 use App\Domain\Pallets\Data\ScanEventData;
 use App\Domain\Pallets\Data\ScanOutcome;
 use App\Domain\Pallets\Enums\ScanEventStatus;
 use App\Domain\Pallets\Enums\ScanRejection;
 use App\Domain\Pallets\Exceptions\PalletRuleViolation;
+use App\Domain\Pallets\PalletQr;
 use App\Domain\Pallets\ScanMasterResolver;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
 use App\Enums\Permission;
-use App\Integrations\Sap\Contracts\SapGateway;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
-use App\Integrations\Sap\Exceptions\SapLookupFailed;
 use App\Models\BoxLabel;
-use App\Models\BoxLabelBatch;
 use App\Models\Device;
 use App\Models\Item;
 use App\Models\PalletScanEvent;
@@ -36,19 +32,17 @@ use Illuminate\Support\Str;
 /**
  * One box label read by hand at the production station.
  *
- * The label's OF number decides everything: the order must exist (it is
- * brought from SAP if it is not here yet) and be released, the product on
- * the label must be the order's, and the lot must have box labels printed
- * by this application for that order. Then the box is counted with the
- * same rules as a sensor read (ProcessScanEvent): it goes to the open
+ * The box QR carries only the box's token (BoxQr), like the pallet QR. The
+ * token must be one this application printed; the box it names gives the
+ * order, product, lot and expiration. The order must still be released
+ * and its product the one printed on the box. Then the box is counted with
+ * the same rules as a sensor read (ProcessScanEvent): it goes to the open
  * pallet of that order + product + lot, which closes when it reaches the
  * standard.
  *
- * Every label has its own box code (last line of the QR). It must be one
- * this application printed for that order and lot, and it is the read's
- * event id: the database accepts a box code once, so reading the same box
- * again, a retried request or a reader firing twice never counts twice.
- * Labels printed before box codes existed are refused.
+ * The box code is the read's event id: the database accepts it once, so
+ * reading the same box again, a retried request or a reader firing twice
+ * never counts twice.
  */
 class RegisterManualBoxScan
 {
@@ -57,8 +51,6 @@ class RegisterManualBoxScan
     public function __construct(
         private readonly ProcessScanEvent $process,
         private readonly ScanMasterResolver $masters,
-        private readonly SapGateway $sap,
-        private readonly ProductionOrderCache $cache,
         private readonly TraceLogger $trace,
     ) {}
 
@@ -66,21 +58,23 @@ class RegisterManualBoxScan
     {
         Gate::forUser($user)->authorize(Permission::PalletsOperate->value);
 
-        $label = BoxLabelPayload::read($scanned) ?? throw PalletRuleViolation::notABoxLabel();
-        $boxCode = $label['box'] ?? throw PalletRuleViolation::boxLabelWithoutCode();
-        $order = $this->order($label['order'], $user, $ctx);
+        // The QR only names the box; everything else comes from the label printed for it.
+        $token = BoxQr::tokenFrom($scanned)
+            ?? throw (PalletQr::tokenFrom($scanned) !== null ? PalletRuleViolation::palletQrInBoxField() : PalletRuleViolation::notABoxLabel());
+        $box = BoxLabel::query()->with('batch')->where('qr_token', $token)->first() ?? throw PalletRuleViolation::unknownBoxQr();
+        $batch = $box->batch;
+        $boxCode = $box->code;
+        $lot = $box->lot_code;
+
+        $order = ProductionOrder::query()->findOrFail($box->production_order_id);
+        if ($order->sap_status !== ProductionOrderStatus::Released->value || ! $order->is_open) {
+            throw PalletRuleViolation::orderNotReleased($order->ref, ProductionOrderStatus::tryFrom((string) $order->sap_status)?->label() ?? (string) $order->sap_status);
+        }
+
+        // The order's product in SAP must still be the one printed on the box.
         $item = Item::query()->findOrFail($order->item_id);
-
-        if (strcasecmp($item->code, $label['item']) !== 0) {
-            throw PalletRuleViolation::boxItemMismatch($order->ref, $item->code, $label['item']);
-        }
-
-        if (! BoxLabelBatch::query()->where('production_order_id', $order->id)->where('lot_code', $label['lot'])->exists()) {
-            throw PalletRuleViolation::lotWithoutLabels($label['lot'], $order->ref);
-        }
-
-        if (! BoxLabel::query()->where('code', $boxCode)->where('production_order_id', $order->id)->where('lot_code', $label['lot'])->exists()) {
-            throw PalletRuleViolation::unknownBoxCode($boxCode, $order->ref);
+        if ($item->id !== $batch->item_id) {
+            throw PalletRuleViolation::boxItemMismatch($order->ref, $item->code, $batch->item_code);
         }
 
         // Already read: said plainly, without sending it to be counted (that would log a reused-id alarm).
@@ -94,53 +88,20 @@ class RegisterManualBoxScan
         $testStandard = $this->ensureStandard($item, $ctx);
 
         // Checked before counting so a refused box leaves no rejected read under its code.
-        $rejection = $this->masters->resolve(new ScanEventData($boxCode, $order->ref, $item->code, $label['lot'], CarbonImmutable::now()), now());
+        $rejection = $this->masters->resolve(new ScanEventData($boxCode, $order->ref, $item->code, $lot, CarbonImmutable::now()), now());
         if ($rejection instanceof ScanRejection) {
             throw PalletRuleViolation::boxRejected(mb_strtolower($rejection->label()));
         }
 
-        $result = $this->process->handleManual($this->device(), new ScanEventData($boxCode, $order->ref, $item->code, $label['lot'], CarbonImmutable::now()), $ctx);
+        $result = $this->process->handleManual($this->device(), new ScanEventData($boxCode, $order->ref, $item->code, $lot, CarbonImmutable::now()), $ctx);
 
         return match ($result->outcome) {
-            ScanOutcome::Accepted => new ManualBoxScan($order->ref, $item->code, $item->description, $label['lot'], $label['expiration'], $boxCode, $result, $testStandard),
+            ScanOutcome::Accepted => new ManualBoxScan($order->ref, $item->code, $item->description, $lot, CarbonImmutable::parse($batch->expiration_date->toDateString()), $boxCode, $result, $testStandard),
             ScanOutcome::Duplicate => throw ($result->palletCode !== null && $result->rejection === null
                 ? PalletRuleViolation::boxAlreadyRead($boxCode, $result->palletCode)
                 : PalletRuleViolation::boxHasRejectedRead($boxCode)),
             ScanOutcome::Rejected => throw PalletRuleViolation::boxRejected(mb_strtolower($result->rejection?->label() ?? 'regla no cumplida')),
         };
-    }
-
-    /**
-     * The order on the label, brought from SAP when it is not here yet. Only a
-     * released order of a finished product fills pallets.
-     */
-    private function order(string $ref, User $user, TraceContext $ctx): ProductionOrder
-    {
-        $order = ProductionOrder::query()->where('ref', $ref)->first();
-
-        if ($order === null) {
-            try {
-                $sapOrder = $this->sap->findProductionOrder($ref);
-            } catch (SapLookupFailed) {
-                throw PalletRuleViolation::sapUnavailable($ref);
-            }
-
-            if ($sapOrder === null) {
-                throw PalletRuleViolation::orderNotInSap($ref);
-            }
-
-            try {
-                $order = DB::transaction(fn () => $this->cache->store($sapOrder, $user, $ctx, TraceEventType::ProductionOrderConsulted));
-            } catch (BoxLabelRuleViolation $e) {
-                throw new PalletRuleViolation($e->getMessage());
-            }
-        }
-
-        if ($order->sap_status !== ProductionOrderStatus::Released->value || ! $order->is_open) {
-            throw PalletRuleViolation::orderNotReleased($order->ref, ProductionOrderStatus::tryFrom((string) $order->sap_status)?->label() ?? 'sin consultar');
-        }
-
-        return $order;
     }
 
     /**
