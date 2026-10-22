@@ -145,7 +145,7 @@ class ServiceLayerReceiptFlowTest extends TestCase
             self::URL."/Items('PT1350023')*" => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'InventoryUOM' => 'UNIDAD', 'SalesQtyPerPackUnit' => 24.0, 'SalesPackagingUnit' => 'CAJA']),
         ]);
 
-        $this->assertSame(0, Artisan::call('sap:sync-orders'));
+        $this->assertSame(0, Artisan::call('sap:sync-orders'), Artisan::output());
 
         $item = Item::query()->where('code', 'PT1350023')->sole();
         $this->assertSame(['24.000000', 'CAJA'], [$item->sales_qty_per_pack_unit, $item->sales_packaging_unit]);

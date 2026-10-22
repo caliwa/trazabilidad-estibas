@@ -42,9 +42,9 @@ class ServiceLayerClient
      * @throws ConnectionException
      * @throws ServiceLayerLoginFailed
      */
-    public function get(string $path, array $query = []): Response
+    public function get(string $path, array $query = [], int $pageSize = 0): Response
     {
-        return $this->send(fn (PendingRequest $http) => $http->get($this->url($path), $query));
+        return $this->send(fn (PendingRequest $http) => $this->paged($http, $pageSize)->get($this->url($path), $query));
     }
 
     /**
@@ -53,11 +53,11 @@ class ServiceLayerClient
      * @throws ConnectionException
      * @throws ServiceLayerLoginFailed
      */
-    public function getLink(string $link): Response
+    public function getLink(string $link, int $pageSize = 0): Response
     {
         $url = str_starts_with($link, 'http') ? $link : $this->url($link);
 
-        return $this->send(fn (PendingRequest $http) => $http->get($url));
+        return $this->send(fn (PendingRequest $http) => $this->paged($http, $pageSize)->get($url));
     }
 
     /**
@@ -124,6 +124,14 @@ class ServiceLayerClient
         }
 
         return $cookies;
+    }
+
+    /**
+     * Service Layer pages lists (20 rows by default); this asks for bigger pages.
+     */
+    private function paged(PendingRequest $http, int $pageSize): PendingRequest
+    {
+        return $pageSize > 0 ? $http->withHeaders(['Prefer' => "odata.maxpagesize={$pageSize}"]) : $http;
     }
 
     private function cookieHeader(): string

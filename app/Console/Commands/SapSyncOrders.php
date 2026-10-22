@@ -9,6 +9,7 @@ use App\Models\ProductionOrder;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
@@ -22,7 +23,19 @@ class SapSyncOrders extends Command
 {
     public function handle(SyncReleasedOrders $sync): int
     {
-        $result = $sync->handle(null, TraceContext::system(Origin::Console, (string) Str::uuid()));
+        // Same lock as the board's background run: never two syncs at once.
+        $lock = Cache::lock('orders:sync', 600);
+        if (! $lock->get()) {
+            $this->error('Ya hay otra actualización desde SAP en curso. Intenta en un momento.');
+
+            return self::FAILURE;
+        }
+
+        try {
+            $result = $sync->handle(null, TraceContext::system(Origin::Console, (string) Str::uuid()));
+        } finally {
+            $lock->release();
+        }
 
         if ($result->error !== null) {
             $this->error($result->error);

@@ -7,6 +7,7 @@ use App\Domain\Audits\Actions\SubmitBlindCount;
 use App\Domain\Orders\Actions\SyncReleasedOrders;
 use App\Domain\Orders\Enums\OrderStage;
 use App\Domain\Orders\OrderProgress;
+use App\Domain\Orders\OrderSyncStatus;
 use App\Domain\Pallets\PalletQr;
 use App\Domain\Shared\ActorType;
 use App\Domain\Shared\Origin;
@@ -17,6 +18,7 @@ use App\Integrations\Sap\Dto\SapProductionOrder;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
 use App\Integrations\Sap\Fake\FakeSapCatalog;
 use App\Integrations\Sap\Fake\FakeScenario;
+use App\Jobs\SyncReleasedOrdersFromSap;
 use App\Models\Pallet;
 use App\Models\ProductionOrder;
 use App\Models\TraceEvent;
@@ -28,6 +30,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\Concerns\BuildsReceipts;
@@ -233,6 +236,30 @@ class OrderBoardTest extends TestCase
         $this->assertNull($order->refresh()->ready_to_close_notified_at);
     }
 
+    public function test_the_button_runs_in_the_background_one_at_a_time(): void
+    {
+        Queue::fake();
+
+        Livewire::actingAs($this->admin)->test('pages::orders.index')->call('syncFromSap')->assertSet('waiting', true)->assertSee('Actualizando desde SAP');
+        Queue::assertPushedOn('sap', SyncReleasedOrdersFromSap::class);
+        $this->assertTrue(OrderSyncStatus::busy());
+
+        // A second click while it runs queues nothing more.
+        Livewire::actingAs($this->admin)->test('pages::orders.index')->call('syncFromSap');
+        Queue::assertPushed(SyncReleasedOrdersFromSap::class, 1);
+
+        // The job itself, with SAP down: the board is told, nothing changes.
+        $this->sap()->failNextLookups();
+        (new SyncReleasedOrdersFromSap($this->admin->id, (string) Str::uuid()))->handle(app(SyncReleasedOrders::class));
+        $this->assertFalse(OrderSyncStatus::busy());
+        $this->assertSame('failed', OrderSyncStatus::get()['state'] ?? null);
+        $this->assertSame(0, ProductionOrder::query()->count());
+
+        (new SyncReleasedOrdersFromSap($this->admin->id, (string) Str::uuid()))->handle(app(SyncReleasedOrders::class));
+        $this->assertSame(['done', 4], [OrderSyncStatus::get()['state'] ?? null, OrderSyncStatus::get()['released'] ?? null]);
+        $this->assertSame(Origin::Job, TraceEvent::query()->where('event', TraceEventType::ProductionOrderRefreshed->value)->latest('id')->first()?->origin);
+    }
+
     public function test_the_kpis_add_up_the_released_orders(): void
     {
         $this->sync();
@@ -266,7 +293,11 @@ class OrderBoardTest extends TestCase
     {
         $this->actingAs($this->admin)->get(route('orders.index'))->assertOk()->assertSee('No hay órdenes liberadas');
 
-        Livewire::actingAs($this->admin)->test('pages::orders.index')->call('syncFromSap')->assertSee('33128')->assertDontSee('33129');
+        // The button queues the work (sync queue in tests) and the poll shows the outcome.
+        Livewire::actingAs($this->admin)->test('pages::orders.index')
+            ->call('syncFromSap')->assertSet('waiting', true)
+            ->call('checkSync')->assertSet('waiting', false)
+            ->assertSee('33128')->assertDontSee('33129');
 
         $this->receive($this->order('33134'), 'L-1');
         ProductionOrder::factory()->create(['ref' => '66666', 'sap_status' => 'CERRADO', 'is_open' => false]);
