@@ -25,19 +25,17 @@ final class PalletQr
 
     /**
      * The token inside a scanned value, or null when it is not one of ours.
-     * Readers that act as keyboards may add spaces or a line break.
+     * Readers that act as keyboards may add spaces or a line break, type the
+     * ":" as another symbol when the keyboard layout differs (Ñ, ;, >) or send
+     * capitals with caps lock on: "TRZ1", any one separator and 32 hex digits.
      */
     public static function tokenFrom(string $scanned): ?string
     {
-        $scanned = trim($scanned);
-
-        if (! str_starts_with($scanned, self::PREFIX)) {
+        if (preg_match('/^\s*TRZ1\X([0-9a-f]{32})\s*$/iu', $scanned, $m) !== 1) {
             return null;
         }
 
-        $token = substr($scanned, strlen(self::PREFIX));
-
-        return preg_match('/^[a-f0-9]{32}$/', $token) === 1 ? $token : null;
+        return strtolower($m[1]);
     }
 
     public static function svg(Pallet $pallet, int $size = 220): string

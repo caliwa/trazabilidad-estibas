@@ -65,6 +65,46 @@ class PalletRuleViolation extends DomainException
         return new self('El código leído no corresponde a esta estiba.');
     }
 
+    public static function notABoxLabel(): self
+    {
+        return new self('Lo leído no es una etiqueta de caja de esta aplicación. Debe traer la OF, el PT, la descripción, el lote y el vencimiento.');
+    }
+
+    public static function orderNotInSap(string $ref): self
+    {
+        return new self("La OF {$ref} no existe en SAP o no es de un producto terminado (PT).");
+    }
+
+    public static function sapUnavailable(string $ref): self
+    {
+        return new self("No se pudo consultar la OF {$ref} en SAP. Intenta de nuevo en un momento.");
+    }
+
+    public static function orderNotReleased(string $ref, string $status): self
+    {
+        return new self("La OF {$ref} está «{$status}» en SAP. Solo se llenan estibas de órdenes liberadas.");
+    }
+
+    public static function boxItemMismatch(string $ref, string $expected, string $read): self
+    {
+        return new self("La caja dice {$read}, pero la OF {$ref} es del producto {$expected}.");
+    }
+
+    public static function lotWithoutLabels(string $lot, string $ref): self
+    {
+        return new self("El lote {$lot} no tiene etiquetas de caja generadas para la OF {$ref}. Solo se cuentan cajas con etiquetas de esta aplicación.");
+    }
+
+    public static function boxRejected(string $reason): self
+    {
+        return new self("La caja no se contó: {$reason}.");
+    }
+
+    public static function unknownPalletQr(): self
+    {
+        return new self('Lo leído no es el QR de una estiba de esta aplicación.');
+    }
+
     public static function eventNotRejected(): self
     {
         return new self('La lectura ya fue aceptada; no hay nada que reprocesar.');

@@ -67,6 +67,15 @@ new #[Title('Conteo ciego')] class extends Component {
         $this->scanned = '';
     }
 
+    /**
+     * The pallet QR read with the scanner field (hand reader or camera).
+     */
+    public function scanFrom(string $scanned, string $scanId): void
+    {
+        $this->scanned = mb_substr($scanned, 0, 200);
+        $this->scan(app(StartBlindCount::class));
+    }
+
     public function submit(SubmitBlindCount $submit): void
     {
         $this->validate(['counted' => ['required', 'integer', 'min:0', 'max:'.SubmitBlindCount::MAX_BOXES]], attributes: ['counted' => 'cajas contadas']);
@@ -127,10 +136,10 @@ new #[Title('Conteo ciego')] class extends Component {
         @endif
         <flux:button variant="primary" size="base" icon="qr-code" wire:click="next" class="w-full">Siguiente estiba</flux:button>
     @elseif ($pallet === null)
-        <form wire:submit="scan" class="flex flex-col gap-4">
-            <flux:input wire:model="scanned" label="Etiqueta de la estiba" placeholder="Lee el código QR" autofocus autocomplete="off" required />
-            <flux:button type="submit" variant="primary" size="base" icon="qr-code" wire:loading.attr="disabled" wire:target="scan" class="w-full">Buscar estiba</flux:button>
-        </form>
+        <div class="flex flex-col gap-4 rounded-xl border border-zinc-200 p-5 dark:border-zinc-700">
+            <x-scanner action="scanFrom" label="Etiqueta de la estiba" placeholder="Lee el QR de la etiqueta de la estiba" />
+            <div wire:loading wire:target="scanFrom" class="text-sm text-zinc-500">Buscando la estiba…</div>
+        </div>
     @else
         <div class="rounded-xl border border-zinc-200 p-5 dark:border-zinc-700">
             <div class="font-mono text-3xl font-semibold text-zinc-900 dark:text-white">{{ $pallet['code'] }}</div>

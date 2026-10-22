@@ -84,6 +84,41 @@ final class BoxLabelPayload
         ];
     }
 
+    /**
+     * Like decode(), for what a hand reader actually types: the line breaks
+     * may arrive as Enter (CR, LF or both), and with a keyboard layout that
+     * differs from the reader's the ":" and "/" may come out as other symbols.
+     * So the fields are taken by position and pattern, not by exact text: the
+     * order number from the first line, the lot as the last word of the
+     * fourth line, the expiration as dd?mm?yyyy with any separator.
+     *
+     * @return array{order: string, item: string, description: string, lot: string, expiration: CarbonImmutable}|null
+     */
+    public static function read(string $scanned): ?array
+    {
+        $lines = array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', trim($scanned)) ?: []), fn (string $l) => $l !== ''));
+
+        if (count($lines) < 5
+            || preg_match('/^OF\D{0,3}(\d{1,20})$/iu', $lines[0], $order) !== 1
+            || preg_match('/^Lote.*?(\S+)$/iu', $lines[3], $lot) !== 1
+            || preg_match('/(\d{2})\D(\d{2})\D(\d{4})/', $lines[4], $date) !== 1
+            || ! checkdate((int) $date[2], (int) $date[1], (int) $date[3])) {
+            return null;
+        }
+
+        // "Lote: 33128294" → the last word. If the separator came glued to it ("Lote:33128294",
+        // "LoteÑ33128294"), drop "Lote" and whatever is not a letter or digit before the code.
+        $lotCode = preg_replace('/^(Lote)?[^A-Za-z0-9]*/iu', '', $lot[1]) ?? $lot[1];
+
+        return [
+            'order' => $order[1],
+            'item' => $lines[1],
+            'description' => $lines[2],
+            'lot' => $lotCode,
+            'expiration' => CarbonImmutable::createFromDate((int) $date[3], (int) $date[2], (int) $date[1])->startOfDay(),
+        ];
+    }
+
     private static function clean(string $text): string
     {
         return trim(preg_replace('/\s+/', ' ', $text) ?? '');

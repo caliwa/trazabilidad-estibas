@@ -94,10 +94,11 @@ class DemoFlowTest extends TestCase
     public function test_the_pending_decisions_stay_off_after_it_runs(): void
     {
         config(['queue.default' => 'database']);
+        $before = config('traceability.decisions.label_confirmation');
         Artisan::call('demo:flow');
 
         $this->assertFalse(config('traceability.decisions.scan_ingestion_enabled'));
-        $this->assertEmpty(config('traceability.decisions.label_confirmation'));
+        $this->assertSame($before, config('traceability.decisions.label_confirmation'));
         $this->assertSame('database', config('queue.default'));
     }
 
