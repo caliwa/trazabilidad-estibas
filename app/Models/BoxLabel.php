@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $lot_code
  * @property int $sequence
  * @property string $code
+ * @property string|null $qr_token null on labels printed before the QR carried only the token
  * @property CarbonImmutable $created_at
  */
 class BoxLabel extends Model

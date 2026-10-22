@@ -291,8 +291,8 @@ new #[Title('Producción')] class extends Component {
         <div class="grid gap-4 rounded-xl border border-zinc-200 p-5 lg:grid-cols-2 dark:border-zinc-700">
             <div class="flex flex-col gap-3">
                 <flux:heading size="lg" level="2">Lectura manual de cajas</flux:heading>
-                <flux:text>Lee la etiqueta de cada caja. La OF se valida contra SAP, la caja suma a la estiba de esa OF y ese lote, y cada caja se cuenta una sola vez por su código.</flux:text>
-                <x-scanner action="scanBox" label="Etiqueta de la caja" placeholder="Lee el QR de la caja" multiline />
+                <flux:text>Lee el QR de cada caja. La aplicación busca esa caja, valida su OF y la suma a la estiba de esa OF y ese lote. Cada caja se cuenta una sola vez.</flux:text>
+                <x-scanner action="scanBox" label="Etiqueta de la caja" placeholder="Lee el QR de la caja" />
             </div>
             <div aria-live="polite">
                 @if ($boxError)

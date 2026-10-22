@@ -8,8 +8,9 @@ use Carbon\CarbonImmutable;
 
 /**
  * ZPL II for a 100 × 80 mm box label on a 203 dpi Zebra (8 dots per mm,
- * 800 × 640 dots). Every label carries its own box code (in the QR and
- * printed under it), so a batch is one ^XA…^XZ format per box.
+ * 800 × 640 dots). The QR carries only the box's opaque token (BoxQr);
+ * the text a person reads is printed beside it, with the box code under the
+ * QR. Every label is different, so a batch is one ^XA…^XZ format per box.
  *
  *   ┌────────────────────────────────────────┐
  *   │ OF 33128                     ┌──────┐  │
@@ -41,16 +42,19 @@ final class BoxLabelZpl
     private const ITF_HEIGHT = 140;
 
     /**
-     * One label per box code, in order.
+     * One label per box, in order.
      *
-     * @param  list<string>  $boxCodes
+     * @param  list<array{code: string, token: string}>  $boxes
      */
-    public static function renderBoxes(BoxLabelPayload $payload, CarbonImmutable $productionDate, array $boxCodes): string
+    public static function renderBoxes(BoxLabelPayload $payload, CarbonImmutable $productionDate, array $boxes): string
     {
-        return implode('', array_map(fn (string $code) => self::render($payload->withBox($code), $productionDate, 1), $boxCodes));
+        return implode('', array_map(fn (array $box) => self::render($payload->withBox($box['code']), $productionDate, BoxQr::payload($box['token'])), $boxes));
     }
 
-    public static function render(BoxLabelPayload $payload, CarbonImmutable $productionDate, int $copies): string
+    /**
+     * One label: the text of $payload and a QR with $qrContent.
+     */
+    public static function render(BoxLabelPayload $payload, CarbonImmutable $productionDate, string $qrContent): string
     {
         $f = fn (string $text) => self::field($text);
         [$order, $item, $description, $lot, $expires, $content] = array_slice($payload->lines(), 0, 6);
@@ -70,8 +74,8 @@ final class BoxLabelZpl
             '^FO30,222^A0N,34,34^FD'.$f($lot).'^FS',
             '^FO30,266^A0N,34,34^FD'.$f($expires).'^FS',
             '^FO30,310^FB'.$textWidth.',2,4,L^A0N,30,30^FD'.$f($content).'^FS',
-            // Right: the QR. Line breaks travel as hex (^FH) so each field is one line on the reader.
-            '^FO'.$qrX.',28^BQN,2,'.self::qrMagnification($payload->encode()).'^FH_^FDMA,'.self::hexField($payload->encode()).'^FS',
+            // Right: the QR with only the box token (^FH escapes anything ZPL would read as a command).
+            '^FO'.$qrX.',28^BQN,2,'.self::qrMagnification($qrContent).'^FH_^FDMA,'.self::hexField($qrContent).'^FS',
             // The box's own code under the QR, for a person to read.
             ...($payload->boxCode === null ? [] : ['^FO'.$qrX.',286^FB'.self::QR_BOX.',1,0,C^A0N,26,26^FDCaja '.$f($payload->boxCode).'^FS']),
             // Separator, then the ITF-14 centred with its digits (no bearer bars, as the business asked).
@@ -90,7 +94,7 @@ final class BoxLabelZpl
         }
 
         $lines[] = '^FO30,'.(self::HEIGHT_DOTS - 26).'^A0N,20,20^FDProd. '.$productionDate->format('d/m/Y').'^FS';
-        $lines[] = '^PQ'.$copies.',0,1,Y';
+        $lines[] = '^PQ1,0,1,Y';
         $lines[] = '^XZ';
 
         return implode("\n", $lines)."\n";

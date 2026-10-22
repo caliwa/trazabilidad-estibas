@@ -31,21 +31,17 @@ Es un módulo nuevo y aparte: no cambia la estación de producción, las estibas
 
 ## 4. Contenido del QR
 
-Al leer el QR, el lector escribe las mismas líneas que se leen en la etiqueta, una por línea:
+El QR lleva **solo el código único de la caja**, como el QR de la estiba:
 
 ```
-OF 33128
-PT1350023
-GELATINA OLIMPICA SIN SABOR 30 GR
-Lote: 33128294
-Vence: 20/10/2028
-Contenido: 24 UNIDAD por caja
-Caja: 33128294-0007
+TRZB:6f1c2b9e0d4a47c58e3b2a1f9c7d6e5b
 ```
 
-- El EAN-14 **no** va en el QR: va en su propio código de barras.
-- Los saltos de línea viajan como LF. Si un lector los convierte en CR LF, `BoxLabelPayload::decode()` lo lee igual.
-- **Cada etiqueta tiene su propio código de caja** en la última línea: `Caja: 33128294-0007` (lote + consecutivo de 4 dígitos, que sigue entre tandas del mismo lote). Va también impreso debajo del QR. Los códigos quedan en la tabla `box_labels`, que no admite cambios ni borrados. Con eso una caja se cuenta una sola vez en la lectura manual (ver `docs/lectura-manual.md`).
+- Cada etiqueta tiene su propio código opaco (32 caracteres al azar), guardado en `box_labels.qr_token`. Al leerlo, la aplicación busca la caja y de ahí saca la OF, el PT, el lote y el vencimiento.
+- El texto para las personas va impreso a la izquierda (OF, PT, descripción, lote, vence, contenido) y el código de caja legible, por ejemplo `Caja 33128294-0007`, debajo del QR. Ese texto no va dentro del QR.
+- El código de caja legible es lote + consecutivo de 4 dígitos, que sigue entre tandas del mismo lote. Con él una caja se cuenta una sola vez (ver `docs/lectura-manual.md`).
+- Un QR corto se imprime con módulos más grandes y se lee más fácil.
+- El EAN-14 va en su propio código de barras.
 
 ## 5. Etiqueta e impresión
 

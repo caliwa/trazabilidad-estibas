@@ -4,7 +4,7 @@ namespace Tests\Feature\Pallets;
 
 use App\Domain\BoxLabels\Actions\ConsultProductionOrder;
 use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
-use App\Domain\BoxLabels\BoxLabelPayload;
+use App\Domain\BoxLabels\BoxQr;
 use App\Domain\Pallets\Actions\ConfirmLabelByScan;
 use App\Domain\Pallets\Actions\PrintLabel;
 use App\Domain\Pallets\Actions\RegisterManualBoxScan;
@@ -18,9 +18,8 @@ use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
 use App\Enums\Role;
-use App\Integrations\Sap\Contracts\SapGateway;
-use App\Integrations\Sap\Fake\FakeSapGateway;
 use App\Models\BoxConversionFactor;
+use App\Models\BoxLabel;
 use App\Models\BoxLabelBatch;
 use App\Models\Pallet;
 use App\Models\PalletScanEvent;
@@ -72,10 +71,10 @@ class ManualBoxScanTest extends TestCase
         return TraceContext::forUser($user ?? $this->operator, Origin::Web, (string) Str::uuid());
     }
 
-    /** What the reader types for box number $n of the batch (each label has its own code). */
+    /** What the reader types for box number $n of the batch: only that box's token. */
     private function box(int $n): string
     {
-        return $this->batch->qr_payload."\nCaja: 33128293-".str_pad((string) $n, 4, '0', STR_PAD_LEFT);
+        return BoxQr::payload((string) BoxLabel::query()->where('box_label_batch_id', $this->batch->id)->where('sequence', $n)->value('qr_token'));
     }
 
     private function read(string $scanned, ?User $user = null): ManualBoxScan
@@ -133,21 +132,19 @@ class ManualBoxScanTest extends TestCase
 
     public function test_what_a_hand_reader_types_is_read_even_with_another_keyboard_layout(): void
     {
+        $token = fn (int $n) => substr($this->box($n), strlen(BoxQr::PREFIX));
         $variants = [
-            str_replace("\n", "\r\n", $this->box(1)),
-            str_replace(':', 'Ñ', $this->box(2)),
-            str_replace('/', '-', $this->box(3)),
-            str_replace(['Lote: ', 'Caja: '], ['Lote:', 'Caja:'], $this->box(4)),
-            // A US reader on a Spanish keyboard: "-" comes out as "'".
-            str_replace('33128293-0005', "33128293'0005", $this->box(5))."\n",
+            $this->box(1)."\r\n",
+            'TRZBÑ'.$token(2),
+            strtoupper($this->box(3)),
+            ' TRZB;'.$token(4).' ',
         ];
 
         foreach ($variants as $i => $variant) {
-            $scan = $this->read($variant);
-            $this->assertSame(['33128293', '33128293-000'.($i + 1)], [$scan->lotCode, $scan->boxCode]);
+            $this->assertSame('33128293-000'.($i + 1), $this->read($variant)->boxCode);
         }
 
-        $this->assertSame(5, PalletScanEvent::query()->count());
+        $this->assertSame(4, PalletScanEvent::query()->count());
     }
 
     public function test_a_box_is_counted_only_once_by_its_code(): void
@@ -170,46 +167,20 @@ class ManualBoxScanTest extends TestCase
         $this->assertSame(0, TraceEvent::query()->where('event', TraceEventType::ScanDuplicateMismatch->value)->count());
     }
 
-    public function test_labels_without_a_box_code_or_with_an_unknown_one_are_refused(): void
+    public function test_only_a_box_qr_printed_here_for_a_released_order_is_counted(): void
     {
-        $this->refused($this->batch->qr_payload, 'La etiqueta no tiene código de caja');
-        $this->refused($this->batch->qr_payload."\nCaja: 33128293-0999", 'El código de caja 33128293-0999 no corresponde a ninguna etiqueta generada para la OF 33128');
-        $this->assertSame(0, PalletScanEvent::query()->count());
-    }
+        $pallet = Pallet::factory()->palletized()->create();
 
-    public function test_the_of_on_the_label_is_validated_and_nothing_is_counted_when_it_fails(): void
-    {
-        $lines = explode("\n", $this->box(1));
-        $with = function (int $line, string $text) use ($lines): string {
-            $lines[$line] = $text;
+        $this->refused(BoxQr::payload(str_repeat('a', 32)), 'Ese QR no corresponde a ninguna caja generada en la aplicación');
+        $this->refused(PalletQr::payload($pallet), 'Leíste el QR de una estiba');
+        // The old label with the text inside the QR is not read any more.
+        $this->refused($this->batch->qr_payload."\nCaja: 33128293-0001", 'no es el QR de una caja');
+        $this->refused('cualquier cosa', 'no es el QR de una caja');
 
-            return implode("\n", $lines);
-        };
-
-        $this->refused('TRZ1:'.str_repeat('a', 32), 'no es una etiqueta de caja');
-        $this->refused($with(0, 'OF 99999'), 'La OF 99999 no existe en SAP');
-        $this->refused($with(0, 'OF 33129'), 'está «Planificado» en SAP');
-        $this->refused($with(1, 'PT1350019'), 'La caja dice PT1350019, pero la OF 33128 es del producto PT1350023');
-        $this->refused($with(3, 'Lote: 33128999'), 'El lote 33128999 no tiene etiquetas de caja generadas para la OF 33128');
+        ProductionOrder::query()->whereKey($this->order->id)->update(['sap_status' => 'CERRADO', 'is_open' => false]);
+        $this->refused($this->box(1), 'La OF 33128 está «Cerrado» en SAP');
 
         $this->assertSame(0, PalletScanEvent::query()->count());
-        $this->assertSame(0, Pallet::query()->count());
-    }
-
-    public function test_an_of_not_here_yet_is_brought_from_sap_by_its_number(): void
-    {
-        $this->assertNull(ProductionOrder::query()->where('ref', '33131')->first());
-        $lines = explode("\n", $this->box(1));
-        $lines[0] = 'OF 33131';
-        $lines[1] = 'PT1350019';
-
-        // No box labels for that order yet, so the box is refused, but the order was looked up and stored.
-        $this->refused(implode("\n", $lines), 'no tiene etiquetas de caja generadas para la OF 33131');
-        $this->assertSame(34131, ProductionOrder::query()->where('ref', '33131')->value('sap_doc_entry'));
-
-        $this->sap()->failNextLookups();
-        $lines[0] = 'OF 33132';
-        $this->refused(implode("\n", $lines), 'No se pudo consultar la OF 33132 en SAP');
     }
 
     public function test_only_people_who_operate_the_station_read_boxes(): void
@@ -250,7 +221,7 @@ class ManualBoxScanTest extends TestCase
             ->assertSee('Estándar de prueba')
             ->call('scanBox', 'cualquier cosa', (string) Str::uuid())
             ->assertSee('Caja no contada')
-            ->assertSee('no es una etiqueta de caja')
+            ->assertSee('no es el QR de una caja')
             ->call('scanBox', $this->box(1), (string) Str::uuid())
             ->assertSee('ya fue leída');
 
@@ -276,22 +247,15 @@ class ManualBoxScanTest extends TestCase
             ->assertDontSee((string) $pallet->boxes_count.' cajas');
     }
 
-    public function test_the_box_payload_reader(): void
+    public function test_the_box_qr_carries_only_the_token(): void
     {
-        $read = BoxLabelPayload::read("OF 33128\nPT1350023\nGELATINA\nLote: 33128293\nVence: 20/10/2028\nContenido: 24 UNIDAD por caja\nCaja: 33128293-0042");
-        $this->assertSame(['33128', 'PT1350023', '33128293', '2028-10-20', '33128293-0042'], [$read['order'] ?? null, $read['item'] ?? null, $read['lot'] ?? null, $read['expiration']->toDateString(), $read['box'] ?? null]);
-        $this->assertNull(BoxLabelPayload::read("OF 33128\nPT1350023\nGELATINA\nLote: 33128293\nVence: 20/10/2028\nContenido: 24 UNIDAD por caja")['box'] ?? null);
-
-        $this->assertNull(BoxLabelPayload::read("OF 33128\nPT1350023\nGELATINA\nLote: 33128293"));
-        $this->assertNull(BoxLabelPayload::read("OF 33128\nPT1350023\nGELATINA\nLote: 33128293\nVence: 31/02/2028"));
-        $this->assertNull(BoxLabelPayload::read("Orden\nPT1350023\nGELATINA\nLote: 33128293\nVence: 20/10/2028"));
-    }
-
-    private function sap(): FakeSapGateway
-    {
-        $sap = app(SapGateway::class);
-        $this->assertInstanceOf(FakeSapGateway::class, $sap);
-
-        return $sap;
+        $token = BoxQr::newToken();
+        $this->assertSame('TRZB:'.$token, BoxQr::payload($token));
+        $this->assertSame($token, BoxQr::tokenFrom('trzb-'.strtoupper($token)."\n"));
+        $this->assertNull(BoxQr::tokenFrom('TRZ1:'.$token));
+        $this->assertNull(BoxQr::tokenFrom('TRZB:'.substr($token, 1)));
+        $this->assertNull(BoxQr::tokenFrom("TRZB:{$token}' OR 1=1"));
+        $this->assertSame(32, strlen((string) BoxLabel::query()->value('qr_token')));
+        $this->assertStringContainsString('^FDMA,'.$this->box(1).'^FS', $this->batch->zpl);
     }
 }

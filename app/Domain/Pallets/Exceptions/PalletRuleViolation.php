@@ -67,17 +67,7 @@ class PalletRuleViolation extends DomainException
 
     public static function notABoxLabel(): self
     {
-        return new self('Lo leído no es una etiqueta de caja de esta aplicación. Debe traer la OF, el PT, la descripción, el lote y el vencimiento.');
-    }
-
-    public static function orderNotInSap(string $ref): self
-    {
-        return new self("La OF {$ref} no existe en SAP o no es de un producto terminado (PT).");
-    }
-
-    public static function sapUnavailable(string $ref): self
-    {
-        return new self("No se pudo consultar la OF {$ref} en SAP. Intenta de nuevo en un momento.");
+        return new self('Lo leído no es el QR de una caja de esta aplicación.');
     }
 
     public static function orderNotReleased(string $ref, string $status): self
@@ -90,19 +80,14 @@ class PalletRuleViolation extends DomainException
         return new self("La caja dice {$read}, pero la OF {$ref} es del producto {$expected}.");
     }
 
-    public static function lotWithoutLabels(string $lot, string $ref): self
+    public static function unknownBoxQr(): self
     {
-        return new self("El lote {$lot} no tiene etiquetas de caja generadas para la OF {$ref}. Solo se cuentan cajas con etiquetas de esta aplicación.");
+        return new self('Ese QR no corresponde a ninguna caja generada en la aplicación. Si es una etiqueta impresa antes de este cambio, hay que reimprimir ese lote.');
     }
 
-    public static function boxLabelWithoutCode(): self
+    public static function palletQrInBoxField(): self
     {
-        return new self('La etiqueta no tiene código de caja: es de antes de que cada caja tuviera su propio código. Hay que reimprimir las etiquetas de ese lote.');
-    }
-
-    public static function unknownBoxCode(string $code, string $ref): self
-    {
-        return new self("El código de caja {$code} no corresponde a ninguna etiqueta generada para la OF {$ref}.");
+        return new self('Leíste el QR de una estiba. Aquí va el QR de una caja.');
     }
 
     public static function boxAlreadyRead(string $code, string $palletCode): self

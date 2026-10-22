@@ -7,6 +7,7 @@ use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
 use App\Domain\BoxLabels\BoxLabelPayload;
 use App\Domain\BoxLabels\BoxLabelZpl;
 use App\Domain\BoxLabels\BoxLot;
+use App\Domain\BoxLabels\BoxQr;
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
 use App\Domain\BoxLabels\Itf14;
 use App\Domain\Shared\Origin;
@@ -195,28 +196,32 @@ class BoxLabelsTest extends TestCase
     public function test_the_zpl_is_a_10_by_8_cm_label_printed_as_many_times_as_asked(): void
     {
         $batch = $this->generate($this->ready(), 25);
-        $first = $batch->qr_payload."\nCaja: 33128293-0001";
+        $tokens = BoxLabel::query()->where('box_label_batch_id', $batch->id)->orderBy('sequence')->pluck('qr_token')->all();
+        $first = BoxQr::payload((string) $tokens[0]);
 
         $this->assertStringStartsWith("^XA\n", $batch->zpl);
         $this->assertStringEndsWith("^XZ\n", $batch->zpl);
         $this->assertStringContainsString('^PW800', $batch->zpl);
         $this->assertStringContainsString('^LL640', $batch->zpl);
         $this->assertStringContainsString('^CI28', $batch->zpl);
-        // QR with each line break sent as hex, sized to fit its 250-dot box.
+        // The QR carries only the box token (like the pallet QR), sized to fit its 250-dot box.
         $magnification = BoxLabelZpl::qrMagnification($first);
         $this->assertGreaterThanOrEqual(4, $magnification);
-        $this->assertStringContainsString('^BQN,2,'.$magnification.'^FH_^FDMA,'.str_replace("\n", '_0A', $first).'^FS', $batch->zpl);
+        $this->assertStringContainsString('^BQN,2,'.$magnification.'^FH_^FDMA,'.$first.'^FS', $batch->zpl);
+        $this->assertStringNotContainsString('^FDMA,OF 33128', $batch->zpl);
         // EAN-14 as ITF-14: check digit already in the data, digits underneath, no bearer-bar box.
         $this->assertStringContainsString('^BY4,2.5^B2N,140,N,N,N^FD'.$batch->barcode.'^FS', $batch->zpl);
         $this->assertSame(25, substr_count($batch->zpl, '^GB'), 'Solo la línea separadora de cada etiqueta, sin recuadro alrededor del código');
         $this->assertStringContainsString('^FD'.Itf14::readable($batch->barcode).'^FS', $batch->zpl);
         $this->assertStringContainsString('^FDGELATINA OLIMPICA SIN SABOR 30 GR^FS', $batch->zpl);
         $this->assertStringContainsString('^FDContenido: 24 UNIDAD por caja^FS', $batch->zpl);
-        // One label per box, each with its own code in the QR and printed under it.
+        // One label per box: its own token in the QR and its box code printed under it.
         $this->assertSame(25, substr_count($batch->zpl, '^XA'));
         $this->assertSame(25, substr_count($batch->zpl, '^PQ1,0,1,Y'));
+        $this->assertSame(25, count(array_unique($tokens)));
         $this->assertStringContainsString('^FDCaja 33128293-0001^FS', $batch->zpl);
-        $this->assertStringContainsString('_0ACaja: 33128293-0025^FS', $batch->zpl);
+        $this->assertStringContainsString('^FDCaja 33128293-0025^FS', $batch->zpl);
+        $this->assertStringContainsString('^FDMA,'.BoxQr::payload((string) $tokens[24]).'^FS', $batch->zpl);
     }
 
     public function test_every_box_label_has_its_own_code_continuing_the_lot(): void
@@ -240,13 +245,13 @@ class BoxLabelsTest extends TestCase
     {
         $payload = new BoxLabelPayload('1', 'PT^X', 'DESCRIPCION ^XZ^XA~JA_X', '1', null, '1001', FakeSapCatalog::barcode('PT1'), CarbonImmutable::parse('2027-01-01'));
 
-        $zpl = BoxLabelZpl::render($payload, CarbonImmutable::parse('2026-01-01'), 1);
+        $zpl = BoxLabelZpl::render($payload, CarbonImmutable::parse('2026-01-01'), 'TRZB:a_b^XZ~JA');
 
         $this->assertSame(1, substr_count($zpl, '^XZ'));
         $this->assertSame(1, substr_count($zpl, '^XA'));
         $this->assertStringNotContainsString('~JA', $zpl);
         // Inside the QR (^FH_), a literal underscore must not start a hex escape.
-        $this->assertStringContainsString('JA_5FX', $zpl);
+        $this->assertStringContainsString('^FDMA,TRZB:a_5Fb', $zpl);
     }
 
     public function test_the_expiration_comes_from_the_shelf_life_or_is_typed_and_must_be_after_production(): void
@@ -367,7 +372,10 @@ class BoxLabelsTest extends TestCase
             ->call('generate');
 
         $batch = BoxLabelBatch::sole();
-        $page->assertSee('Descargar ZPL (12 etiquetas)')->assertSee($batch->qr_payload)->assertSee(Itf14::readable($batch->barcode));
+        $page->assertSee('Descargar ZPL (12 etiquetas)')
+            ->assertSee(BoxQr::payload((string) BoxLabel::query()->where('box_label_batch_id', $batch->id)->orderBy('sequence')->value('qr_token')))
+            ->assertSee('Caja 33128293-0001')
+            ->assertSee(Itf14::readable($batch->barcode));
 
         $response = $this->actingAs($this->operator)->get(route('box-labels.zpl', $batch));
         $response->assertOk()->assertHeader('Content-Disposition', 'attachment; filename="OF33128-lote33128293-12cajas.zpl"');
