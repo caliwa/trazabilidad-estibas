@@ -191,7 +191,9 @@ new #[Title('Recibos de producción')] class extends Component {
 
     <div class="grid gap-6 lg:grid-cols-3">
         <div class="flex flex-col gap-4 lg:col-span-2">
-            <flux:select wire:model.live="orderId" label="Orden de producción" placeholder="Elige una orden">
+            {{-- A real empty option, not Flux's disabled placeholder: with that one the browser showed the first order as chosen while none was, and picking it changed nothing. --}}
+            <flux:select wire:model.live="orderId" label="Orden de producción">
+                <flux:select.option value="">Elige una orden</flux:select.option>
                 @foreach ($this->orders as $order)
                     <flux:select.option :value="$order->id">{{ $order->ref }} · {{ $order->item->code }} {{ $order->item->description }} ({{ $order->eligible_count }})</flux:select.option>
                 @endforeach
