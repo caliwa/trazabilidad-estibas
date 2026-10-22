@@ -107,7 +107,7 @@ class ProductionStationTest extends TestCase
 
         Livewire::actingAs($this->operator)->test('pages::production.station')
             ->assertSee('Confirmación de etiqueta pendiente (DP-03)')
-            ->assertSee('Recepción de lecturas apagada (DP-01)')
+            ->assertSee('Sensor automático apagado (DP-01)')
             ->assertDontSeeHtml('wire:click="askConfirmLabel');
     }
 

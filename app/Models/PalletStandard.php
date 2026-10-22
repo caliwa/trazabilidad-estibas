@@ -29,6 +29,9 @@ class PalletStandard extends Model
     /** @use HasFactory<PalletStandardFactory> */
     use HasFactory;
 
+    /** sap_source_key of the test standard used while the real one is loaded in SAP. */
+    public const TEST_SOURCE = 'PRUEBA';
+
     /**
      * @return array<string, string>
      */

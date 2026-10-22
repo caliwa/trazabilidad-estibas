@@ -61,6 +61,21 @@ class ProcessScanEvent
             throw new ScanIngestionDisabled;
         }
 
+        return $this->process($device, $data, $ctx);
+    }
+
+    /**
+     * A box read by a person with a hand reader at the production station
+     * (RegisterManualBoxScan). Same counting rules; it does not depend on the
+     * sensor switch (DP-01), which is about the automatic line sensor.
+     */
+    public function handleManual(Device $device, ScanEventData $data, TraceContext $ctx): ScanResult
+    {
+        return $this->process($device, $data, $ctx);
+    }
+
+    private function process(Device $device, ScanEventData $data, TraceContext $ctx): ScanResult
+    {
         $existing = $this->find($device, $data->externalEventId);
 
         if ($existing !== null && ($existing->processing_status === ScanEventStatus::Accepted || $existing->payload_hash !== $data->payloadHash)) {

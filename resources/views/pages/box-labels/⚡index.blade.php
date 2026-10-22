@@ -14,6 +14,7 @@ use App\Enums\Permission;
 use App\Integrations\Sap\Dto\Quantity;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
 use App\Models\BoxConversionFactor;
+use App\Models\BoxLabel;
 use App\Models\BoxLabelBatch;
 use App\Models\ProductionOrder;
 use App\Support\Correlation\CorrelationId;
@@ -182,7 +183,12 @@ new #[Title('Etiquetas de caja')] class extends Component {
     $max = $this->maxLabels();
     $printed = $this->printedLabels();
     $tz = config('app.timezone');
-    $shownPayload = $this->batch?->qr_payload ?? $preview?->encode();
+    // The first label: every label adds its own box code as the last line.
+    $boxCodes = $this->batch === null ? [] : BoxLabel::query()->where('box_label_batch_id', $this->batch->id)->orderBy('sequence')->pluck('code')->all();
+    $nextBox = $preview === null ? null : BoxLot::boxCode($preview->lotCode, (int) BoxLabel::query()->where('production_order_id', $order->id)->where('lot_code', $preview->lotCode)->max('sequence') + 1);
+    $shownPayload = $this->batch !== null
+        ? $this->batch->qr_payload.($boxCodes === [] ? '' : "\nCaja: ".$boxCodes[0])
+        : $preview?->withBox((string) $nextBox)->encode();
 @endphp
 
 <section class="flex w-full flex-col gap-6">
@@ -274,7 +280,10 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                 <div class="text-sm">Vence: <b>{{ $data['expiration'] ?? '' }}</b></div>
                                 <div>Contenido: <b>{{ $data['content'] ?? '' }}</b></div>
                             </div>
-                            <div class="w-[38%] shrink-0 [&_svg]:h-auto [&_svg]:w-full">{!! BoxLabelQr::svg($shownPayload) !!}</div>
+                            <div class="w-[38%] shrink-0 text-center [&_svg]:h-auto [&_svg]:w-full">
+                                {!! BoxLabelQr::svg($shownPayload) !!}
+                                @if ($data['box'] ?? null)<div class="text-xs font-semibold">Caja {{ $data['box'] }}</div>@endif
+                            </div>
                         </div>
                         <div class="mt-2 border-t-2 border-zinc-800 pt-2">
                             @if (Itf14::isValid($ean))
@@ -284,7 +293,10 @@ new #[Title('Etiquetas de caja')] class extends Component {
                             @endif
                         </div>
                     </div>
-                    <flux:text class="text-xs">Lo que escribe el lector al leer el QR:</flux:text>
+                    <flux:text class="text-xs">
+                        Lo que escribe el lector al leer el QR de la primera etiqueta.
+                        @if (count($boxCodes) > 1) Cada etiqueta tiene su propio código de caja: de {{ $boxCodes[0] }} a {{ $boxCodes[count($boxCodes) - 1] }}.@else Cada etiqueta lleva su propio código de caja.@endif
+                    </flux:text>
                     <pre class="rounded bg-zinc-100 p-2 font-mono text-xs dark:bg-zinc-800">{{ $shownPayload }}</pre>
                     @if ($this->batch)
                         <div>

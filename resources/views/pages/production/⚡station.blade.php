@@ -1,6 +1,8 @@
 <?php
 
 use App\Domain\Pallets\Actions\CloseManually;
+use App\Domain\Pallets\Actions\ConfirmLabelByScan;
+use App\Domain\Pallets\Actions\RegisterManualBoxScan;
 use App\Domain\Pallets\Actions\ConfirmLabeled;
 use App\Domain\Pallets\Actions\ConfirmPalletized;
 use App\Domain\Pallets\Actions\PrintLabel;
@@ -13,6 +15,7 @@ use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Enums\Permission;
 use App\Models\Pallet;
+use App\Models\PalletStandard;
 use App\Models\PalletScanEvent;
 use App\Support\Correlation\CorrelationId;
 use Flux\Flux;
@@ -24,9 +27,11 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /**
- * Production station: open pallets filling up, pallets waiting to be
- * palletized and labeled, and recent rejected reads. Every button calls a
- * use case that checks permission and state again on the server.
+ * Production station: manual reading of box labels (each read fills the
+ * pallet of its order and lot), open pallets filling up, pallets waiting to
+ * be palletized and labeled, confirming the label by reading it, and recent
+ * rejected reads. Every action calls a use case that checks permission and
+ * state again on the server.
  */
 new #[Title('Producción')] class extends Component {
     public function boot(): void
@@ -49,6 +54,23 @@ new #[Title('Producción')] class extends Component {
 
     public string $scannedQr = '';
 
+    /**
+     * Last box read by hand: what the label said and where the box went.
+     *
+     * @var array{order: string, item: string, description: string, lot: string, box: string, expiration: string, pallet: ?string, boxes: ?int, standard: ?int, closed: bool, test_standard: bool}|null
+     */
+    #[Locked]
+    public ?array $lastBox = null;
+
+    #[Locked]
+    public ?string $boxError = null;
+
+    #[Locked]
+    public ?string $labelScanMessage = null;
+
+    #[Locked]
+    public bool $labelScanOk = false;
+
     private function context(): TraceContext
     {
         return TraceContext::forUser(Auth::user(), Origin::Web, app(CorrelationId::class)->get(), request()->ip());
@@ -60,7 +82,7 @@ new #[Title('Producción')] class extends Component {
     #[Computed]
     public function open(): Collection
     {
-        return Pallet::query()->with('item:id,description')->where('physical_status', PhysicalStatus::Stacking)->orderBy('started_at')->get();
+        return Pallet::query()->with(['item:id,description', 'standard:id,sap_source_key'])->where('physical_status', PhysicalStatus::Stacking)->orderBy('started_at')->get();
     }
 
     /**
@@ -100,6 +122,57 @@ new #[Title('Producción')] class extends Component {
     public function rejectionLabel(?string $reason): string
     {
         return ScanRejection::tryFrom((string) $reason)?->label() ?? (string) $reason;
+    }
+
+    /**
+     * A box label read with the hand reader (or the camera).
+     */
+    public function scanBox(string $scanned, ?string $scanId = null): void
+    {
+        $this->boxError = null;
+
+        try {
+            // The box code inside the QR is the read's id; the page's own id is not needed here.
+            $scan = app(RegisterManualBoxScan::class)->handle(Auth::user(), $scanned, $this->context());
+        } catch (PalletRuleViolation $e) {
+            $this->boxError = $e->getMessage();
+            $this->lastBox = null;
+
+            return;
+        } finally {
+            unset($this->open, $this->pending);
+        }
+
+        $this->lastBox = [
+            'order' => $scan->orderRef,
+            'item' => $scan->itemCode,
+            'description' => $scan->itemDescription,
+            'lot' => $scan->lotCode,
+            'box' => $scan->boxCode,
+            'expiration' => $scan->expiration->format('d/m/Y'),
+            'pallet' => $scan->result->palletCode,
+            'boxes' => $scan->result->boxesCount,
+            'standard' => $scan->result->standard,
+            'closed' => $scan->result->palletClosed,
+            'test_standard' => $scan->testStandard,
+        ];
+    }
+
+    /**
+     * The QR of the label already stuck on a pallet, read to confirm it is applied.
+     */
+    public function scanLabel(string $scanned, string $scanId): void
+    {
+        try {
+            $pallet = app(ConfirmLabelByScan::class)->handle(Auth::user(), $scanned, $this->context());
+            $this->labelScanOk = true;
+            $this->labelScanMessage = "Etiqueta de la estiba {$pallet->pallet_code} confirmada. Ya se puede pedir su recibo.";
+        } catch (PalletRuleViolation $e) {
+            $this->labelScanOk = false;
+            $this->labelScanMessage = $e->getMessage();
+        } finally {
+            unset($this->pending);
+        }
     }
 
     public function askClose(int $palletId): void
@@ -210,9 +283,54 @@ new #[Title('Producción')] class extends Component {
             <flux:subheading>Estibas en proceso y por despachar a paletizado</flux:subheading>
         </div>
         @if (! config('traceability.decisions.scan_ingestion_enabled'))
-            <flux:badge color="amber" icon="exclamation-triangle" size="lg">Recepción de lecturas apagada (DP-01)</flux:badge>
+            <flux:badge color="amber" icon="exclamation-triangle" size="lg">Sensor automático apagado (DP-01): usa la lectura manual</flux:badge>
         @endif
     </div>
+
+    @can('pallets.operate')
+        <div class="grid gap-4 rounded-xl border border-zinc-200 p-5 lg:grid-cols-2 dark:border-zinc-700">
+            <div class="flex flex-col gap-3">
+                <flux:heading size="lg" level="2">Lectura manual de cajas</flux:heading>
+                <flux:text>Lee la etiqueta de cada caja. La OF se valida contra SAP, la caja suma a la estiba de esa OF y ese lote, y cada caja se cuenta una sola vez por su código.</flux:text>
+                <x-scanner action="scanBox" label="Etiqueta de la caja" placeholder="Lee el QR de la caja" multiline />
+            </div>
+            <div aria-live="polite">
+                @if ($boxError)
+                    <div role="alert" class="flex h-full flex-col justify-center gap-1 rounded-xl border border-red-300 bg-red-50 p-5 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+                        <div class="text-lg font-semibold">Caja no contada</div>
+                        <div>{{ $boxError }}</div>
+                    </div>
+                @elseif ($lastBox)
+                    @php($percent = $lastBox['standard'] ? min(100, intdiv(($lastBox['boxes'] ?? 0) * 100, $lastBox['standard'])) : 0)
+                    <div class="flex h-full flex-col gap-3 rounded-xl border border-emerald-300 bg-emerald-50 p-5 dark:border-emerald-800 dark:bg-emerald-950">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-lg font-semibold text-zinc-900 dark:text-white">Caja contada</span>
+                            @if ($lastBox['test_standard'])<flux:badge color="amber" size="sm">Estándar de prueba</flux:badge>@endif
+                        </div>
+                        <dl class="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1 text-sm">
+                            <dt class="text-zinc-500">OF</dt><dd class="font-mono font-semibold">{{ $lastBox['order'] }}</dd>
+                            <dt class="text-zinc-500">Producto</dt><dd>{{ $lastBox['item'] }} · {{ $lastBox['description'] }}</dd>
+                            <dt class="text-zinc-500">Lote</dt><dd class="font-mono">{{ $lastBox['lot'] }}</dd>
+                            <dt class="text-zinc-500">Caja</dt><dd class="font-mono">{{ $lastBox['box'] }}</dd>
+                            <dt class="text-zinc-500">Vence</dt><dd>{{ $lastBox['expiration'] }}</dd>
+                        </dl>
+                        @if ($lastBox['pallet'])
+                            <div>
+                                <div class="flex items-baseline justify-between">
+                                    <span class="font-mono text-xl font-semibold">{{ $lastBox['pallet'] }}</span>
+                                    <span class="text-3xl font-bold tabular-nums">{{ $lastBox['boxes'] }}<span class="text-lg font-normal text-zinc-500"> / {{ $lastBox['standard'] }}</span></span>
+                                </div>
+                                <div class="mt-2 h-3 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"><div class="h-full bg-emerald-600" style="width: {{ $percent }}%"></div></div>
+                                @if ($lastBox['closed'])<div class="mt-2 font-semibold text-emerald-800 dark:text-emerald-200">Estiba completa y cerrada. La siguiente caja abre una estiba nueva.</div>@endif
+                            </div>
+                        @endif
+                    </div>
+                @else
+                    <div class="flex h-full items-center justify-center rounded-xl border border-dashed border-zinc-300 p-5 text-center text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">Aquí verás la OF, el lote y cómo va la estiba con cada caja leída.</div>
+                @endif
+            </div>
+        </div>
+    @endcan
 
     <div>
         <flux:heading size="lg" level="2" class="mb-3">En estibado</flux:heading>
@@ -228,6 +346,7 @@ new #[Title('Producción')] class extends Component {
                                 <div class="font-mono text-2xl font-semibold text-zinc-900 dark:text-white">{{ $pallet->pallet_code }}</div>
                                 <div class="text-sm text-zinc-600 dark:text-zinc-300">{{ $pallet->item_code }} · {{ $pallet->item->description }}</div>
                                 <div class="text-sm text-zinc-500 dark:text-zinc-400">Orden {{ $pallet->production_order_ref }} · Lote {{ $pallet->lot_code }}</div>
+                                @if ($pallet->standard?->sap_source_key === PalletStandard::TEST_SOURCE)<flux:badge color="amber" size="sm" class="mt-1">Estándar de prueba</flux:badge>@endif
                             </div>
                         </div>
                         <div>
@@ -247,6 +366,23 @@ new #[Title('Producción')] class extends Component {
             </div>
         @endif
     </div>
+
+    @if ($this->labelMode() === LabelConfirmation::Scan)
+        @can('pallets.label')
+            <div class="grid gap-4 rounded-xl border border-zinc-200 p-5 lg:grid-cols-2 dark:border-zinc-700">
+                <div class="flex flex-col gap-3">
+                    <flux:heading size="lg" level="2">Confirmar etiqueta pegada</flux:heading>
+                    <flux:text>Después de pegar la etiqueta en la estiba paletizada, lee su QR. Con eso queda etiquetada.</flux:text>
+                    <x-scanner action="scanLabel" label="QR de la estiba" placeholder="Lee el QR de la etiqueta de la estiba" />
+                </div>
+                <div aria-live="polite">
+                    @if ($labelScanMessage)
+                        <div @class(['flex h-full items-center rounded-xl border p-5', 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200' => $labelScanOk, 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200' => ! $labelScanOk]) role="status">{{ $labelScanMessage }}</div>
+                    @endif
+                </div>
+            </div>
+        @endcan
+    @endif
 
     <div>
         <flux:heading size="lg" level="2" class="mb-3">Por paletizar y etiquetar</flux:heading>

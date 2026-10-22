@@ -165,7 +165,7 @@ class PalletizeAndLabelTest extends TestCase
         $other = Pallet::factory()->palletized()->create();
         $this->print($pallet);
 
-        foreach ([null, '', PalletQr::payload($other), $pallet->qr_token, PalletQr::PREFIX.strtoupper($pallet->qr_token), PalletQr::PREFIX.$pallet->qr_token."' OR 1=1"] as $tampered) {
+        foreach ([null, '', PalletQr::payload($other), $pallet->qr_token, 'TRZ2:'.$pallet->qr_token, PalletQr::PREFIX.substr($pallet->qr_token, 1), PalletQr::PREFIX.$pallet->qr_token."' OR 1=1"] as $tampered) {
             try {
                 $this->confirm($pallet, $tampered);
                 $this->fail('Debía rechazar '.var_export($tampered, true));

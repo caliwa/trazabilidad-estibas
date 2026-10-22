@@ -17,6 +17,13 @@ return [
     // A blind count left open longer than this is cancelled so the pallet can be counted again.
     'count_timeout_minutes' => (int) env('TRACE_COUNT_TIMEOUT_MINUTES', 60),
 
+    /*
+    | Boxes per pallet for a product that has no pallet standard yet, used by
+    | the manual box reads at the production station while the real standard
+    | is loaded in SAP. The standard it creates is marked PRUEBA. 0 turns it off.
+    */
+    'test_pallet_boxes' => (int) env('TRACE_TEST_PALLET_BOXES', 40),
+
     // Scan events accepted per device per minute before answering 429.
     'scan_rate_per_minute' => (int) env('TRACE_SCAN_RATE_PER_MINUTE', 300),
 
@@ -29,9 +36,9 @@ return [
         // DP-01: sensor event id, its uniqueness scope and late events.
         'scan_ingestion_enabled' => (bool) env('TRACE_SCAN_INGESTION_ENABLED', false),
 
-        // DP-03: how the label is confirmed as applied. null = not decided.
-        // Expected values once approved: "print", "button" or "scan".
-        'label_confirmation' => env('TRACE_LABEL_CONFIRMATION'),
+        // DP-03: how the label is confirmed as applied: "print", "button" or "scan".
+        // Decided: the QR of the label stuck on the pallet is read ("scan").
+        'label_confirmation' => env('TRACE_LABEL_CONFIRMATION', 'scan'),
 
         // DP-04: how discrepancies are resolved. Both off until the policy is approved.
         // A reaudit is a second blind count by someone who has not counted that pallet.
