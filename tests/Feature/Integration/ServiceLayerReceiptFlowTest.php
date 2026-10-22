@@ -2,13 +2,18 @@
 
 namespace Tests\Feature\Integration;
 
+use App\Domain\Integration\ConversionFactors;
+use App\Domain\Integration\Enums\MasterStatus;
 use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
+use App\Domain\Shared\TraceEventType;
 use App\Enums\Role;
 use App\Integrations\Sap\Contracts\SapGateway;
+use App\Models\BoxConversionFactor;
 use App\Models\Item;
 use App\Models\Pallet;
 use App\Models\ProductionOrder;
+use App\Models\TraceEvent;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -145,6 +150,47 @@ class ServiceLayerReceiptFlowTest extends TestCase
         $item = Item::query()->where('code', 'PT1350023')->sole();
         $this->assertSame(['24.000000', 'CAJA'], [$item->sales_qty_per_pack_unit, $item->sales_packaging_unit]);
         $this->assertSame(41659, ProductionOrder::query()->where('ref', '33128')->value('sap_doc_entry'));
+    }
+
+    public function test_sales_qty_per_pack_unit_becomes_the_versioned_units_per_box(): void
+    {
+        $units = null;
+        Http::fake(function (Request $r) use (&$units) {
+            return match (true) {
+                str_ends_with($r->url(), '/Login') => Http::response(['SessionId' => 's1'], 200),
+                str_contains($r->url(), '/ProductionOrders?') => Http::response(['value' => [[
+                    'AbsoluteEntry' => 41659, 'DocumentNumber' => 33128, 'ProductionOrderStatus' => 'boposReleased', 'ItemNo' => 'PT1350023', 'PlannedQuantity' => 800, 'Warehouse' => '04',
+                ]]]),
+                default => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA', 'InventoryUOM' => 'UNIDAD', 'SalesQtyPerPackUnit' => $units, 'SalesPackagingUnit' => 'CAJA']),
+            };
+        });
+        $answers = [24.0, 24.0, 12.0, 0.0, null];
+        $sync = function () use (&$answers, &$units): void {
+            $units = array_shift($answers);
+            $this->assertSame(0, Artisan::call('sap:sync-orders'));
+        };
+        $item = fn () => Item::query()->where('code', 'PT1350023')->sole();
+        $factors = fn () => BoxConversionFactor::query()->where('item_id', $item()->id)->orderBy('version')->get()
+            ->map(fn (BoxConversionFactor $f) => [$f->version, $f->units_per_box, $f->status])->all();
+
+        $sync();
+        $this->assertEquals([[1, '24.000000', MasterStatus::Current]], $factors());
+        $this->assertSame('24.000000', app(ConversionFactors::class)->current($item()->id, now())?->units_per_box);
+
+        // Same value: no new version.
+        $sync();
+        $this->assertCount(1, $factors());
+
+        // SAP changed it: a new current version, the old one kept as superseded.
+        $sync();
+        $this->assertEquals([[1, '24.000000', MasterStatus::Superseded], [2, '12.000000', MasterStatus::Current]], $factors());
+        $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::MastersSynced->value)->where('subject_id', $item()->id)->whereNotNull('from_state')->count());
+
+        // Zero or empty in SAP: the current factor stays.
+        $sync();
+        $sync();
+        $this->assertSame('12.000000', app(ConversionFactors::class)->current($item()->id, now())?->units_per_box);
+        $this->assertCount(2, $factors());
     }
 
     public function test_sap_rejecting_the_receipt_fails_it_and_frees_the_pallet(): void

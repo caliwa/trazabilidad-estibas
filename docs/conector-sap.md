@@ -112,6 +112,10 @@ Solo se traen OF de producto terminado: las que tienen un `ItemNo` que empieza p
 
 De `ProductionOrders` se usan: `AbsoluteEntry` (DocEntry), `DocumentNumber`, `ProductionOrderStatus`, `ProductionOrderType`, `ItemNo`, `PlannedQuantity`, `Warehouse`, `Priority`, `PostingDate`, `StartDate`, `DueDate` y `ProductionOrderOrigin`. Del producto (`Items`): `ItemName`, `BarCode`, `InventoryUOM`, `SalesQtyPerPackUnit` y `SalesPackagingUnit`. Los dos últimos se guardan en el maestro de productos (`items.sales_qty_per_pack_unit` e `items.sales_packaging_unit`) cada vez que se sincroniza una OF.
 
+**Unidades por caja (DP-02).** `SalesQtyPerPackUnit` son las unidades que lleva una caja del PT. Al sincronizar, ese valor queda como el factor de conversión vigente del producto (`box_conversion_factors`). De ahí salen el límite de etiquetas de caja y la cantidad de los recibos (cajas × unidades por caja).
+- Si cambia en SAP, se crea una versión nueva y la anterior queda como reemplazada. Las etiquetas y los recibos que ya la usaron conservan la suya, y el cambio queda en la bitácora.
+- Si en SAP está vacío o en cero, el factor vigente no se toca y no se inventa uno.
+
 | Estado en SAP | En la aplicación |
 |---|---|
 | `boposPlanned` | Planificado |

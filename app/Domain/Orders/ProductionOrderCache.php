@@ -3,15 +3,18 @@
 namespace App\Domain\Orders;
 
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
+use App\Domain\Integration\Enums\MasterStatus;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
 use App\Integrations\Sap\Dto\SapProductionOrder;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
+use App\Models\BoxConversionFactor;
 use App\Models\Item;
 use App\Models\Pallet;
 use App\Models\ProductionOrder;
 use App\Models\User;
 use App\Services\TraceLogger;
+use App\Support\Quantities;
 
 /**
  * Local copy of a production order and its product as SAP reports them.
@@ -42,6 +45,8 @@ final class ProductionOrderCache
             'active' => true,
             'synced_at' => now(),
         ])->save();
+
+        $this->syncUnitsPerBox($item, $sapOrder, $ctx);
 
         $order = ProductionOrder::query()->where('ref', $sapOrder->docNum)->lockForUpdate()->first() ?? new ProductionOrder;
 
@@ -95,5 +100,49 @@ final class ProductionOrderCache
         $this->trace->record($ctx, $event, $order, context: $header);
 
         return $order;
+    }
+
+    /**
+     * Items.SalesQtyPerPackUnit is the number of units in a box: it becomes
+     * the item's current conversion factor (DP-02). A new value supersedes
+     * the old version, which stays for the labels and receipts that used it.
+     * When SAP has no value (empty or zero) the current factor is left as it is.
+     */
+    private function syncUnitsPerBox(Item $item, SapProductionOrder $sapOrder, TraceContext $ctx): void
+    {
+        $units = $sapOrder->itemSalesQtyPerPackUnit;
+
+        if ($units === null || Quantities::toMicro($units) <= 0) {
+            return;
+        }
+
+        $current = BoxConversionFactor::query()->where('item_id', $item->id)->where('status', MasterStatus::Current)->lockForUpdate()->first();
+
+        if ($current !== null && Quantities::toMicro($current->units_per_box) === Quantities::toMicro($units)) {
+            $current->forceFill(['synced_at' => now()])->save();
+
+            return;
+        }
+
+        $current?->forceFill(['status' => MasterStatus::Superseded, 'valid_to' => now(), 'synced_at' => now()])->save();
+
+        $factor = new BoxConversionFactor;
+        $factor->forceFill([
+            'item_id' => $item->id,
+            'version' => (int) BoxConversionFactor::query()->where('item_id', $item->id)->max('version') + 1,
+            'units_per_box' => $units,
+            'sap_uom_code' => $sapOrder->itemSalesPackagingUnit === null ? null : mb_substr($sapOrder->itemSalesPackagingUnit, 0, 20),
+            'sap_source_key' => 'Items.SalesQtyPerPackUnit',
+            'status' => MasterStatus::Current,
+            // Valid from now on; created_at records when. No valid_from, so superseding it later
+            // (valid_to) can never fall on the same instant and break the validity check.
+            'synced_at' => now(),
+        ])->save();
+
+        $this->trace->record($ctx, TraceEventType::MastersSynced, $item,
+            from: $current === null ? null : ['units_per_box' => $current->units_per_box, 'version' => $current->version],
+            to: ['units_per_box' => $factor->units_per_box, 'version' => $factor->version],
+            context: ['source' => 'Items.SalesQtyPerPackUnit', 'packaging_unit' => $sapOrder->itemSalesPackagingUnit],
+        );
     }
 }
