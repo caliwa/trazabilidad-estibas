@@ -51,6 +51,22 @@ class ReceiptsPageTest extends TestCase
             ->assertSee('200');
     }
 
+    public function test_the_order_list_starts_on_a_real_empty_option(): void
+    {
+        $pallets = $this->labeledPallets(['L-1']);
+
+        // A disabled placeholder made the browser show the first order as chosen while none was:
+        // picking it fired nothing and the button stayed off. The empty option must be selectable.
+        $page = Livewire::actingAs($this->admin)->test('pages::receipts.index');
+        $this->assertMatchesRegularExpression('/<option\s+value=""[^>]*>Elige una orden<\/option>/', $page->html());
+        $this->assertStringNotContainsString('class="placeholder"', $page->html());
+
+        $page->set('orderId', $pallets[0]->production_order_id)
+            ->set('orderId', '')
+            ->assertSet('orderId', null)
+            ->assertSet('selected', []);
+    }
+
     public function test_requesting_from_the_page_never_waits_for_sap_and_lists_the_result(): void
     {
         Queue::fake();
