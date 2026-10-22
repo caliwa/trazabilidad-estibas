@@ -40,21 +40,9 @@ SAP_RECEIPT_COSTING_CODE3=ANTIOQUI
 **Probar la conexión** (solo lectura):
 
 ```bash
-php artisan sap:check          # revisa la red, inicia sesión y lista las OF liberadas
+php artisan sap:check          # inicia sesión y lista las OF liberadas
 php artisan sap:check 33128    # consulta una OF
-php artisan sap:sync-orders    # trae y guarda todas las OF liberadas
 ```
-
-`sap:check` primero revisa la red: que la URL sea válida, que el nombre se resuelva, si hay un proxy en el camino y que el puerto acepte conexión. Si algo de eso falla, lo dice y no intenta iniciar sesión.
-
-**"cURL error 28: Connection timed out"** quiere decir que el servidor de la aplicación no logra abrir conexión con el host y el puerto de Service Layer. No es un problema de usuario ni de clave. Revisar:
-
-- Que el servidor donde corre la aplicación esté en la misma red o VPN que SAP. Si funciona desde Postman en otro equipo, no significa que funcione desde este servidor.
-- Que el firewall de SAP permita la IP de este servidor en el puerto de Service Layer (normalmente 50000 con https).
-- Que la URL tenga el puerto correcto y termine en `/b1s/v1`.
-- Si hay `HTTPS_PROXY` en el entorno y SAP está en la red interna, agregar el host de SAP a `NO_PROXY`.
-- Si la aplicación corre en Docker, `localhost` es el contenedor, no el servidor de SAP.
-- `SAP_SL_CONNECT_TIMEOUT` (10 s por defecto) es cuánto se espera para abrir la conexión.
 
 ## 3. Recibo de producción
 

@@ -52,7 +52,6 @@ return [
         'password' => env('SAP_PASSWORD_'.strtoupper((string) env('SAP_ENVIRONMENT', 'DEV'))),
         'verify_tls' => (bool) env('SAP_SL_VERIFY_TLS', true),
         'timeout_seconds' => (int) env('SAP_SL_TIMEOUT', 30),
-        'connect_timeout_seconds' => (int) env('SAP_SL_CONNECT_TIMEOUT', 10),
     ],
 
     /*
