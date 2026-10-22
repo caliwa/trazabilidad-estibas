@@ -15,7 +15,11 @@ use Carbon\CarbonImmutable;
  *   Lote: 33128294
  *   Vence: 20/10/2028
  *   Contenido: 24 UNIDAD por caja
+ *   Caja: 33128294-0007
  *
+ * The last line is the box's own code, different on every label, so a box
+ * can be counted only once. The batch keeps the first six lines; each label
+ * adds its code (withBox()).
  * The EAN goes in its own barcode, not in the QR.
  */
 final class BoxLabelPayload
@@ -29,7 +33,16 @@ final class BoxLabelPayload
         public readonly string $lotCode,
         public readonly string $barcode,
         public readonly CarbonImmutable $expirationDate,
+        public readonly ?string $boxCode = null,
     ) {}
+
+    /**
+     * The same label with this box's code.
+     */
+    public function withBox(string $boxCode): self
+    {
+        return new self($this->orderRef, $this->itemCode, $this->itemDescription, $this->unitsPerBox, $this->uomName, $this->lotCode, $this->barcode, $this->expirationDate, $boxCode);
+    }
 
     public function content(): string
     {
@@ -41,14 +54,20 @@ final class BoxLabelPayload
      */
     public function lines(): array
     {
-        return array_map(fn (string $line) => self::clean($line), [
+        $lines = [
             'OF '.$this->orderRef,
             $this->itemCode,
             $this->itemDescription,
             'Lote: '.$this->lotCode,
             'Vence: '.$this->expirationDate->format('d/m/Y'),
             'Contenido: '.$this->content(),
-        ]);
+        ];
+
+        if ($this->boxCode !== null) {
+            $lines[] = 'Caja: '.$this->boxCode;
+        }
+
+        return array_map(fn (string $line) => self::clean($line), $lines);
     }
 
     public function encode(): string
@@ -60,17 +79,18 @@ final class BoxLabelPayload
      * The fields of a scanned box QR, or null when it is not one of ours.
      * Readers may turn the line breaks into CR LF.
      *
-     * @return array{order: string, item: string, description: string, lot: string, expiration: string, content: string}|null
+     * @return array{order: string, item: string, description: string, lot: string, expiration: string, content: string, box: ?string}|null
      */
     public static function decode(string $scanned): ?array
     {
         $lines = preg_split('/\r\n|\r|\n/', trim($scanned)) ?: [];
 
-        if (count($lines) !== 6
+        if (! in_array(count($lines), [6, 7], true)
             || ! str_starts_with($lines[0], 'OF ')
             || ! str_starts_with($lines[3], 'Lote: ')
             || preg_match('#^Vence: \d{2}/\d{2}/\d{4}$#', $lines[4]) !== 1
-            || ! str_starts_with($lines[5], 'Contenido: ')) {
+            || ! str_starts_with($lines[5], 'Contenido: ')
+            || (isset($lines[6]) && ! str_starts_with($lines[6], 'Caja: '))) {
             return null;
         }
 
@@ -81,6 +101,7 @@ final class BoxLabelPayload
             'lot' => substr($lines[3], 6),
             'expiration' => substr($lines[4], 7),
             'content' => substr($lines[5], 11),
+            'box' => isset($lines[6]) ? substr($lines[6], 6) : null,
         ];
     }
 
@@ -92,7 +113,10 @@ final class BoxLabelPayload
      * order number from the first line, the lot as the last word of the
      * fourth line, the expiration as dd?mm?yyyy with any separator.
      *
-     * @return array{order: string, item: string, description: string, lot: string, expiration: CarbonImmutable}|null
+     * The box code comes from a line "Caja: <code>" anywhere after the fifth
+     * (null on labels printed before box codes existed).
+     *
+     * @return array{order: string, item: string, description: string, lot: string, expiration: CarbonImmutable, box: ?string}|null
      */
     public static function read(string $scanned): ?array
     {
@@ -110,12 +134,21 @@ final class BoxLabelPayload
         // "LoteÑ33128294"), drop "Lote" and whatever is not a letter or digit before the code.
         $lotCode = preg_replace('/^(Lote)?[^A-Za-z0-9]*/iu', '', $lot[1]) ?? $lot[1];
 
+        $box = null;
+        foreach (array_slice($lines, 5) as $line) {
+            // Any separator between lot and sequence: a reader on another keyboard layout may type "-" as "'" or "?".
+            if (preg_match('/^Caja.*?([A-Za-z0-9]+)[^A-Za-z0-9](\d{4,})$/iu', $line, $m) === 1) {
+                $box = $m[1].'-'.$m[2];
+            }
+        }
+
         return [
             'order' => $order[1],
             'item' => $lines[1],
             'description' => $lines[2],
             'lot' => $lotCode,
             'expiration' => CarbonImmutable::createFromDate((int) $date[3], (int) $date[2], (int) $date[1])->startOfDay(),
+            'box' => $box,
         ];
     }
 

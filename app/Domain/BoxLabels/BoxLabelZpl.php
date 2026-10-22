@@ -8,8 +8,8 @@ use Carbon\CarbonImmutable;
 
 /**
  * ZPL II for a 100 × 80 mm box label on a 203 dpi Zebra (8 dots per mm,
- * 800 × 640 dots). All the copies of a batch are identical, so the label is
- * sent once with ^PQ and the printer repeats it.
+ * 800 × 640 dots). Every label carries its own box code (in the QR and
+ * printed under it), so a batch is one ^XA…^XZ format per box.
  *
  *   ┌────────────────────────────────────────┐
  *   │ OF 33128                     ┌──────┐  │
@@ -40,10 +40,20 @@ final class BoxLabelZpl
 
     private const ITF_HEIGHT = 140;
 
+    /**
+     * One label per box code, in order.
+     *
+     * @param  list<string>  $boxCodes
+     */
+    public static function renderBoxes(BoxLabelPayload $payload, CarbonImmutable $productionDate, array $boxCodes): string
+    {
+        return implode('', array_map(fn (string $code) => self::render($payload->withBox($code), $productionDate, 1), $boxCodes));
+    }
+
     public static function render(BoxLabelPayload $payload, CarbonImmutable $productionDate, int $copies): string
     {
         $f = fn (string $text) => self::field($text);
-        [$order, $item, $description, $lot, $expires, $content] = $payload->lines();
+        [$order, $item, $description, $lot, $expires, $content] = array_slice($payload->lines(), 0, 6);
         $qrX = self::WIDTH_DOTS - 30 - self::QR_BOX;
         $textWidth = $qrX - 50;
 
@@ -62,6 +72,8 @@ final class BoxLabelZpl
             '^FO30,310^FB'.$textWidth.',2,4,L^A0N,30,30^FD'.$f($content).'^FS',
             // Right: the QR. Line breaks travel as hex (^FH) so each field is one line on the reader.
             '^FO'.$qrX.',28^BQN,2,'.self::qrMagnification($payload->encode()).'^FH_^FDMA,'.self::hexField($payload->encode()).'^FS',
+            // The box's own code under the QR, for a person to read.
+            ...($payload->boxCode === null ? [] : ['^FO'.$qrX.',286^FB'.self::QR_BOX.',1,0,C^A0N,26,26^FDCaja '.$f($payload->boxCode).'^FS']),
             // Separator, then the ITF-14 centred with its digits (no bearer bars, as the business asked).
             '^FO30,388^GB740,3,3^FS',
         ];

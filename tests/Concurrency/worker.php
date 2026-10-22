@@ -13,6 +13,7 @@ use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
 use App\Domain\Pallets\Actions\CloseManually;
 use App\Domain\Pallets\Actions\ProcessScanEvent;
+use App\Domain\Pallets\Actions\RegisterManualBoxScan;
 use App\Domain\Pallets\Data\ScanEventData;
 use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Domain\Pallets\Exceptions\PalletRuleViolation;
@@ -83,6 +84,19 @@ if ($job['mode'] === 'scan') {
         $summary['rejected']++;
     } catch (Throwable $e) {
         $summary['errors'][] = get_class($e).': '.Str::limit($e->getMessage(), 300);
+    }
+} elseif ($job['mode'] === 'manual_box') {
+    $user = User::query()->findOrFail($job['user_id']);
+
+    foreach ($job['events'] ?? [] as $scanned) {
+        try {
+            $app->make(RegisterManualBoxScan::class)->handle($user, $scanned, TraceContext::forUser($user, Origin::Job, (string) Str::uuid()));
+            $summary['accepted']++;
+        } catch (PalletRuleViolation) {
+            $summary['rejected']++;
+        } catch (Throwable $e) {
+            $summary['errors'][] = get_class($e).': '.Str::limit($e->getMessage(), 300);
+        }
     }
 } elseif ($job['mode'] === 'transfer') {
     $user = User::query()->findOrFail($job['user_id']);

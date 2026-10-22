@@ -15,6 +15,7 @@ use App\Enums\Permission;
 use App\Integrations\Sap\Dto\Quantity;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
 use App\Models\BoxConversionFactor;
+use App\Models\BoxLabel;
 use App\Models\BoxLabelBatch;
 use App\Models\Item;
 use App\Models\ProductionOrder;
@@ -105,6 +106,10 @@ class GenerateBoxLabels
                 expirationDate: $expirationDate,
             );
 
+            // Box codes continue the lot's sequence across batches (the order row is locked).
+            $first = (int) BoxLabel::query()->where('production_order_id', $order->id)->where('lot_code', $lotCode)->max('sequence') + 1;
+            $codes = array_map(fn (int $n) => BoxLot::boxCode($lotCode, $n), range($first, $first + $labels - 1));
+
             $batch = new BoxLabelBatch;
             $batch->forceFill([
                 'production_order_id' => $order->id,
@@ -120,13 +125,25 @@ class GenerateBoxLabels
                 'uom_name' => $payload->uomName,
                 'barcode' => $payload->barcode,
                 'labels' => $labels,
+                // The six lines every label of the batch shares; each label adds "Caja: <code>".
                 'qr_payload' => $payload->encode(),
-                'zpl' => BoxLabelZpl::render($payload, $productionDate, $labels),
+                'zpl' => BoxLabelZpl::renderBoxes($payload, $productionDate, $codes),
                 'generated_by' => $user->id,
                 'generated_at' => now(),
             ])->save();
 
+            foreach ($codes as $i => $code) {
+                (new BoxLabel)->forceFill([
+                    'box_label_batch_id' => $batch->id,
+                    'production_order_id' => $order->id,
+                    'lot_code' => $lotCode,
+                    'sequence' => $first + $i,
+                    'code' => $code,
+                ])->save();
+            }
+
             $this->trace->record($ctx, TraceEventType::BoxLabelsGenerated, $order, context: [
+                'box_codes' => [$codes[0], $codes[count($codes) - 1]],
                 'box_label_batch_id' => $batch->id,
                 'labels' => $labels,
                 'lot_code' => $payload->lotCode,

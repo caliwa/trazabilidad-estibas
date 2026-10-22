@@ -11,7 +11,7 @@ El prompt pide distinguir cuatro niveles. Este es el estado real:
 | Nivel | Estado |
 |---|---|
 | **Terminado funcionalmente** | Sí, para todo lo que no depende de una decisión pendiente. Lo que depende de DP-01, DP-03 y DP-04 está implementado y **apagado**. DP-08 no está implementado |
-| **Probado en entorno simulado** | Sí. 361 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
+| **Probado en entorno simulado** | Sí. 364 pruebas contra PostgreSQL 16 real y el simulador de SAP (`FakeSapGateway`), incluidas pruebas con procesos paralelos |
 | **Probado en integración** | No. El conector de Service Layer para recibos y OF existe y está probado con respuestas simuladas, pero no se ha corrido contra el SAP DEV (no hay acceso desde esta sesión). La transferencia 04 → 05 no está conectada. Tampoco se probó con sensores, lectores ni impresoras reales |
 | **Validado en SAP real** | No |
 
@@ -225,7 +225,7 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 |---|---|
 | Cada caja leída llena la estiba de su OF y lote y la cierra en el estándar (de prueba si no hay real) | `ManualBoxScanTest::test_each_box_read_fills_the_pallet_of_its_order_and_lot_with_the_test_standard`, `ManualBoxScanTest::test_a_real_pallet_standard_is_used_when_there_is_one` |
 | La OF se valida (liberada, PT y lote con etiquetas) y se trae de SAP si no está; si falla no se cuenta nada | `ManualBoxScanTest::test_the_of_on_the_label_is_validated_and_nothing_is_counted_when_it_fails`, `ManualBoxScanTest::test_an_of_not_here_yet_is_brought_from_sap_by_its_number` |
-| Un reintento o un lector que dispara dos veces no cuenta dos veces | `ManualBoxScanTest::test_a_retried_request_or_a_reader_firing_twice_is_not_counted_twice` |
+| Cada etiqueta tiene su código de caja; una caja se cuenta una sola vez, también en paralelo | `ManualBoxScanTest::test_a_box_is_counted_only_once_by_its_code`, `ManualBoxScanTest::test_labels_without_a_box_code_or_with_an_unknown_one_are_refused`, `ManualBoxScanConcurrencyTest::test_parallel_reads_of_the_same_box_count_it_once`, `BoxLabelsTest::test_every_box_label_has_its_own_code_continuing_the_lot` |
 | Lectores con otra distribución de teclado | `ManualBoxScanTest::test_what_a_hand_reader_types_is_read_even_with_another_keyboard_layout`, `ManualBoxScanTest::test_the_box_payload_reader` |
 | Etiqueta confirmada leyendo el QR de la estiba | `ManualBoxScanTest::test_the_label_stuck_on_a_pallet_is_confirmed_by_reading_it` |
 | Pantallas de la estación y del conteo ciego con escáner; permisos | `ManualBoxScanTest::test_the_station_shows_each_read_and_why_a_box_was_not_counted`, `ManualBoxScanTest::test_the_blind_count_finds_the_pallet_with_the_scanner`, `ManualBoxScanTest::test_only_people_who_operate_the_station_read_boxes` |
@@ -325,7 +325,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 PHP 8.3.6 y PostgreSQL 16.15, en la sesión de la Fase 7:
 
 ```
-php artisan test             → 361 pruebas, 361 pasan (con la lectura manual de cajas)
+php artisan test             → 364 pruebas, 364 pasan (con código único por caja)
 phpstan analyse (nivel 7)    → 0 errores
 pint --test                  → pasa
 composer audit               → sin avisos

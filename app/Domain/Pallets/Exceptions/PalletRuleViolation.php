@@ -95,6 +95,26 @@ class PalletRuleViolation extends DomainException
         return new self("El lote {$lot} no tiene etiquetas de caja generadas para la OF {$ref}. Solo se cuentan cajas con etiquetas de esta aplicación.");
     }
 
+    public static function boxLabelWithoutCode(): self
+    {
+        return new self('La etiqueta no tiene código de caja: es de antes de que cada caja tuviera su propio código. Hay que reimprimir las etiquetas de ese lote.');
+    }
+
+    public static function unknownBoxCode(string $code, string $ref): self
+    {
+        return new self("El código de caja {$code} no corresponde a ninguna etiqueta generada para la OF {$ref}.");
+    }
+
+    public static function boxAlreadyRead(string $code, string $palletCode): self
+    {
+        return new self("La caja {$code} ya fue leída y está en la estiba {$palletCode}. No se cuenta otra vez.");
+    }
+
+    public static function boxHasRejectedRead(string $code): self
+    {
+        return new self("La caja {$code} tiene una lectura rechazada. Revísala en Lecturas rechazadas y reprocésala desde ahí.");
+    }
+
     public static function boxRejected(string $reason): self
     {
         return new self("La caja no se contó: {$reason}.");

@@ -16,10 +16,9 @@ final readonly class ManualBoxScan
         public string $itemDescription,
         public string $lotCode,
         public CarbonImmutable $expiration,
+        public string $boxCode,
         public ScanResult $result,
         /** True when the pallet standard is the test value (no real one loaded yet). */
         public bool $testStandard = false,
-        /** The same read came twice in a row from a reader that fired twice: not counted again. */
-        public bool $repeated = false,
     ) {}
 }

@@ -14,18 +14,19 @@ Las tres usan el mismo campo de escáner:
 
 ## 2. Lectura de una caja
 
-El QR de la caja trae la OF, el PT, la descripción, el lote, el vencimiento y el contenido. Al leerlo:
+El QR de la caja trae la OF, el PT, la descripción, el lote, el vencimiento, el contenido y el código de la caja. Al leerlo:
 
 1. **OF:** se busca la orden por su número. Si todavía no está en la aplicación, se trae de SAP en ese momento. Tiene que estar **liberada**.
 2. **PT:** el producto de la caja tiene que ser el de la OF.
-3. **Lote:** tiene que tener etiquetas de caja generadas en la aplicación para esa OF. No se cuentan cajas con etiquetas que no salieron de aquí.
+3. **Lote y caja:** el lote tiene que tener etiquetas de caja generadas en la aplicación para esa OF, y el código de caja tiene que ser uno de esas etiquetas. No se cuentan cajas con etiquetas que no salieron de aquí.
 4. **Estiba:** la caja suma a la estiba abierta de esa OF, ese PT y ese lote. Si no hay una, se abre. Al llegar al estándar se cierra sola y la siguiente caja abre otra. Son las mismas reglas que con el sensor.
 
 La pantalla muestra lo leído (OF, producto, lote, vence) y cómo va la estiba (cajas / estándar). Si la caja no se cuenta, dice por qué.
 
-**Lecturas repetidas:** todas las cajas de un lote tienen el mismo QR, así que no hay forma de distinguir una caja de la siguiente. Para no contar de más:
-- cada lectura viaja con un identificador propio, y un reintento de la red no cuenta dos veces;
-- si el mismo texto llega dos veces en menos de un segundo, se toma como el lector disparando dos veces y se avisa "Lectura repetida".
+**Cada caja se cuenta una sola vez.** Cada etiqueta tiene su propio código de caja (lote + consecutivo, por ejemplo `33128293-0007`), en la última línea del QR (`Caja: 33128293-0007`) e impreso debajo del QR.
+- El código tiene que ser uno que la aplicación generó para esa OF y ese lote.
+- El código de caja es el identificador de la lectura y la base de datos lo acepta una sola vez. Leer la misma caja otra vez, un reintento de la red o un lector que dispara dos veces, aunque sea desde dos estaciones al mismo tiempo, no cuenta de nuevo. La pantalla dice "La caja … ya fue leída y está en la estiba …".
+- Las etiquetas impresas antes de los códigos de caja no se aceptan: hay que reimprimir ese lote.
 
 **Lectores con otra distribución de teclado:** si el lector escribe ":" o "/" como otros símbolos (Ñ, -, ;), o manda los saltos de línea como Enter, la lectura igual se entiende. Lo mismo para el QR de la estiba con mayúsculas o con otro separador después de `TRZ1`.
 
@@ -43,11 +44,13 @@ Si el producto ya tiene un estándar, se usa ese.
 
 ## 5. Pruebas
 
-`ManualBoxScanTest` (11):
+`ManualBoxScanTest` (12) y `ManualBoxScanConcurrencyTest` (10 procesos leyendo la misma caja a la vez: cuenta una). Al cambiar el identificador de la lectura por uno aleatorio, las dos pruebas de doble lectura fallan.
+
+`ManualBoxScanTest`:
 - cajas que llenan y cierran la estiba con el estándar de prueba;
 - estándar real cuando existe;
 - lecturas con otra distribución de teclado;
-- reintentos y lector que dispara dos veces;
+- una caja se cuenta una sola vez por su código; etiquetas sin código o con un código desconocido;
 - validación de OF, PT y lote sin contar nada cuando falla;
 - OF traída de SAP por su número;
 - permisos;

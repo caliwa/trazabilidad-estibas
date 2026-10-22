@@ -40,11 +40,12 @@ GELATINA OLIMPICA SIN SABOR 30 GR
 Lote: 33128294
 Vence: 20/10/2028
 Contenido: 24 UNIDAD por caja
+Caja: 33128294-0007
 ```
 
 - El EAN-14 **no** va en el QR: va en su propio código de barras.
 - Los saltos de línea viajan como LF. Si un lector los convierte en CR LF, `BoxLabelPayload::decode()` lo lee igual.
-- **Todas las cajas de una misma OF, lote y fecha llevan el mismo QR**, como se definió. El QR dice qué hay en la caja, no cuál caja es. Por eso, cuando un sensor lea las cajas en la línea, el identificador único de cada lectura lo sigue poniendo el sensor (DP-01).
+- **Cada etiqueta tiene su propio código de caja** en la última línea: `Caja: 33128294-0007` (lote + consecutivo de 4 dígitos, que sigue entre tandas del mismo lote). Va también impreso debajo del QR. Los códigos quedan en la tabla `box_labels`, que no admite cambios ni borrados. Con eso una caja se cuenta una sola vez en la lectura manual (ver `docs/lectura-manual.md`).
 
 ## 5. Etiqueta e impresión
 
@@ -77,7 +78,7 @@ ZPL II para una Zebra de 203 dpi: 800 × 640 puntos, es decir 100 × 80 mm.
 
 **Otros detalles de impresión:**
 
-- **Copias:** como todas son iguales, se manda una etiqueta con `^PQ` y la impresora la repite.
+- **Una etiqueta por caja:** como cada una lleva su código, el ZPL trae un formato `^XA…^XZ` por caja (no una sola etiqueta repetida con `^PQ`).
 - **Caracteres:** con `^CI28` salen bien la Ñ y las tildes.
 - **Saltos de línea del QR:** van en hexadecimal (`^FH`).
 - **Texto desde SAP:** cualquier `^` o `~` se quita, para que una descripción no pueda meter comandos en la impresora.
@@ -88,7 +89,7 @@ ZPL II para una Zebra de 203 dpi: 800 × 640 puntos, es decir 100 × 80 mm.
 
 | Prueba | Qué demuestra |
 |---|---|
-| `BoxLabelsTest` (18) | Consulta y guardado del encabezado; rechazo de OF inexistentes, planificadas, cerradas o canceladas, sin guardar nada; SAP sin respuesta; reconsulta que conserva la vida útil; cambio de producto con estibas; regla del lote; el QR con las líneas de la etiqueta y el EAN-14 aparte; ZPL con QR e ITF-14; dígito de control y patrón ITF-14 contra el ejemplo de GS1; EAN-13 o dígito de control erróneo rechazados; texto de SAP que intenta meter comandos; vencimiento; un solo vencimiento por lote; límite acumulado por OF; datos que faltan; tanda inmutable; permisos; pantalla completa con la descarga |
+| `BoxLabelsTest` (19) | Cada etiqueta con su código de caja; consulta y guardado del encabezado; rechazo de OF inexistentes, planificadas, cerradas o canceladas, sin guardar nada; SAP sin respuesta; reconsulta que conserva la vida útil; cambio de producto con estibas; regla del lote; el QR con las líneas de la etiqueta y el EAN-14 aparte; ZPL con QR e ITF-14; dígito de control y patrón ITF-14 contra el ejemplo de GS1; EAN-13 o dígito de control erróneo rechazados; texto de SAP que intenta meter comandos; vencimiento; un solo vencimiento por lote; límite acumulado por OF; datos que faltan; tanda inmutable; permisos; pantalla completa con la descarga |
 | `BoxLabelConcurrencyTest` | 12 tandas en paralelo sobre la misma OF nunca pasan de 34. Sin el bloqueo de la fila, la prueba falló 4 de 5 veces |
 
 Además, desde una captura de la vista previa en el navegador, zxing-cpp leyó el QR (las seis líneas exactas) y el ITF-14 (`12000013500233`). El ZPL no se pudo dibujar con un renderizador externo porque el servicio está bloqueado en esta sesión; las medidas se revisaron a mano.

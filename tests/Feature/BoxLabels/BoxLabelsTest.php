@@ -20,6 +20,7 @@ use App\Integrations\Sap\Enums\ProductionOrderStatus;
 use App\Integrations\Sap\Fake\FakeSapCatalog;
 use App\Integrations\Sap\Fake\FakeSapGateway;
 use App\Models\BoxConversionFactor;
+use App\Models\BoxLabel;
 use App\Models\BoxLabelBatch;
 use App\Models\Item;
 use App\Models\Pallet;
@@ -185,8 +186,8 @@ class BoxLabelsTest extends TestCase
         $this->assertSame(FakeSapCatalog::barcode('PT1350023'), $batch->barcode);
         $this->assertStringNotContainsString($batch->barcode, $batch->qr_payload);
         $this->assertSame(
-            ['order' => '33128', 'item' => 'PT1350023', 'description' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'lot' => '33128293', 'expiration' => '20/10/2027', 'content' => '24 UNIDAD por caja'],
-            BoxLabelPayload::decode(str_replace("\n", "\r\n", $batch->qr_payload)),
+            ['order' => '33128', 'item' => 'PT1350023', 'description' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'lot' => '33128293', 'expiration' => '20/10/2027', 'content' => '24 UNIDAD por caja', 'box' => '33128293-0001'],
+            BoxLabelPayload::decode(str_replace("\n", "\r\n", $batch->qr_payload."\nCaja: 33128293-0001")),
         );
         $this->assertSame(TraceEventType::BoxLabelsGenerated->value, TraceEvent::query()->latest('id')->value('event'));
     }
@@ -194,6 +195,7 @@ class BoxLabelsTest extends TestCase
     public function test_the_zpl_is_a_10_by_8_cm_label_printed_as_many_times_as_asked(): void
     {
         $batch = $this->generate($this->ready(), 25);
+        $first = $batch->qr_payload."\nCaja: 33128293-0001";
 
         $this->assertStringStartsWith("^XA\n", $batch->zpl);
         $this->assertStringEndsWith("^XZ\n", $batch->zpl);
@@ -201,17 +203,37 @@ class BoxLabelsTest extends TestCase
         $this->assertStringContainsString('^LL640', $batch->zpl);
         $this->assertStringContainsString('^CI28', $batch->zpl);
         // QR with each line break sent as hex, sized to fit its 250-dot box.
-        $magnification = BoxLabelZpl::qrMagnification($batch->qr_payload);
+        $magnification = BoxLabelZpl::qrMagnification($first);
         $this->assertGreaterThanOrEqual(4, $magnification);
-        $this->assertStringContainsString('^BQN,2,'.$magnification.'^FH_^FDMA,'.str_replace("\n", '_0A', $batch->qr_payload).'^FS', $batch->zpl);
+        $this->assertStringContainsString('^BQN,2,'.$magnification.'^FH_^FDMA,'.str_replace("\n", '_0A', $first).'^FS', $batch->zpl);
         // EAN-14 as ITF-14: check digit already in the data, digits underneath, no bearer-bar box.
         $this->assertStringContainsString('^BY4,2.5^B2N,140,N,N,N^FD'.$batch->barcode.'^FS', $batch->zpl);
-        $this->assertSame(1, substr_count($batch->zpl, '^GB'), 'Solo la línea separadora, sin recuadro alrededor del código');
+        $this->assertSame(25, substr_count($batch->zpl, '^GB'), 'Solo la línea separadora de cada etiqueta, sin recuadro alrededor del código');
         $this->assertStringContainsString('^FD'.Itf14::readable($batch->barcode).'^FS', $batch->zpl);
         $this->assertStringContainsString('^FDGELATINA OLIMPICA SIN SABOR 30 GR^FS', $batch->zpl);
         $this->assertStringContainsString('^FDContenido: 24 UNIDAD por caja^FS', $batch->zpl);
-        $this->assertStringContainsString('^PQ25,0,1,Y', $batch->zpl);
-        $this->assertSame(1, substr_count($batch->zpl, '^XA'));
+        // One label per box, each with its own code in the QR and printed under it.
+        $this->assertSame(25, substr_count($batch->zpl, '^XA'));
+        $this->assertSame(25, substr_count($batch->zpl, '^PQ1,0,1,Y'));
+        $this->assertStringContainsString('^FDCaja 33128293-0001^FS', $batch->zpl);
+        $this->assertStringContainsString('_0ACaja: 33128293-0025^FS', $batch->zpl);
+    }
+
+    public function test_every_box_label_has_its_own_code_continuing_the_lot(): void
+    {
+        $order = $this->ready();
+        $first = $this->generate($order, 3);
+        $second = $this->generate($order, 2);
+
+        $this->assertSame(
+            ['33128293-0001', '33128293-0002', '33128293-0003', '33128293-0004', '33128293-0005'],
+            BoxLabel::query()->orderBy('id')->pluck('code')->all(),
+        );
+        $this->assertSame([3, 2], [BoxLabel::query()->where('box_label_batch_id', $first->id)->count(), BoxLabel::query()->where('box_label_batch_id', $second->id)->count()]);
+
+        // Evidence: a printed box code never changes or disappears.
+        $this->expectException(QueryException::class);
+        BoxLabel::query()->whereKey(BoxLabel::query()->value('id'))->update(['code' => 'X']);
     }
 
     public function test_text_from_sap_can_never_inject_zpl_commands(): void

@@ -9,23 +9,26 @@ use App\Domain\Orders\ProductionOrderCache;
 use App\Domain\Pallets\Data\ManualBoxScan;
 use App\Domain\Pallets\Data\ScanEventData;
 use App\Domain\Pallets\Data\ScanOutcome;
-use App\Domain\Pallets\Data\ScanResult;
+use App\Domain\Pallets\Enums\ScanEventStatus;
+use App\Domain\Pallets\Enums\ScanRejection;
 use App\Domain\Pallets\Exceptions\PalletRuleViolation;
+use App\Domain\Pallets\ScanMasterResolver;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
 use App\Enums\Permission;
 use App\Integrations\Sap\Contracts\SapGateway;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
 use App\Integrations\Sap\Exceptions\SapLookupFailed;
+use App\Models\BoxLabel;
 use App\Models\BoxLabelBatch;
 use App\Models\Device;
 use App\Models\Item;
+use App\Models\PalletScanEvent;
 use App\Models\PalletStandard;
 use App\Models\ProductionOrder;
 use App\Models\User;
 use App\Services\TraceLogger;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -41,34 +44,30 @@ use Illuminate\Support\Str;
  * pallet of that order + product + lot, which closes when it reaches the
  * standard.
  *
- * Every box of a lot carries the same QR, so a read cannot be told apart
- * from the next box. The page sends a fresh id per read (a retried request
- * is not counted twice) and the same text read again within a second by
- * the same person is taken as the reader firing twice.
+ * Every label has its own box code (last line of the QR). It must be one
+ * this application printed for that order and lot, and it is the read's
+ * event id: the database accepts a box code once, so reading the same box
+ * again, a retried request or a reader firing twice never counts twice.
+ * Labels printed before box codes existed are refused.
  */
 class RegisterManualBoxScan
 {
     public const DEVICE_CODE = 'LECTOR-MANUAL';
 
-    /** Two identical reads closer than this are one read fired twice. */
-    private const REPEAT_SECONDS = 1;
-
     public function __construct(
         private readonly ProcessScanEvent $process,
+        private readonly ScanMasterResolver $masters,
         private readonly SapGateway $sap,
         private readonly ProductionOrderCache $cache,
         private readonly TraceLogger $trace,
     ) {}
 
-    public function handle(User $user, string $scanned, string $scanId, TraceContext $ctx): ManualBoxScan
+    public function handle(User $user, string $scanned, TraceContext $ctx): ManualBoxScan
     {
         Gate::forUser($user)->authorize(Permission::PalletsOperate->value);
 
-        if (! Str::isUuid($scanId)) {
-            throw new \InvalidArgumentException('Identificador de lectura inválido.');
-        }
-
         $label = BoxLabelPayload::read($scanned) ?? throw PalletRuleViolation::notABoxLabel();
+        $boxCode = $label['box'] ?? throw PalletRuleViolation::boxLabelWithoutCode();
         $order = $this->order($label['order'], $user, $ctx);
         $item = Item::query()->findOrFail($order->item_id);
 
@@ -80,21 +79,35 @@ class RegisterManualBoxScan
             throw PalletRuleViolation::lotWithoutLabels($label['lot'], $order->ref);
         }
 
+        if (! BoxLabel::query()->where('code', $boxCode)->where('production_order_id', $order->id)->where('lot_code', $label['lot'])->exists()) {
+            throw PalletRuleViolation::unknownBoxCode($boxCode, $order->ref);
+        }
+
+        // Already read: said plainly, without sending it to be counted (that would log a reused-id alarm).
+        $previous = PalletScanEvent::query()->with('pallet:id,pallet_code')->where('device_id', $this->device()->id)->where('external_event_id', $boxCode)->first();
+        if ($previous !== null) {
+            throw $previous->processing_status === ScanEventStatus::Accepted && $previous->pallet !== null
+                ? PalletRuleViolation::boxAlreadyRead($boxCode, $previous->pallet->pallet_code)
+                : PalletRuleViolation::boxHasRejectedRead($boxCode);
+        }
+
         $testStandard = $this->ensureStandard($item, $ctx);
 
-        $scan = fn (ScanResult $result, bool $repeated = false) => new ManualBoxScan($order->ref, $item->code, $item->description, $label['lot'], $label['expiration'], $result, $testStandard, $repeated);
-
-        if (! Cache::add('manual-scan:'.$user->id.':'.hash('sha256', trim($scanned)), true, self::REPEAT_SECONDS)) {
-            return $scan(new ScanResult(ScanOutcome::Duplicate), repeated: true);
+        // Checked before counting so a refused box leaves no rejected read under its code.
+        $rejection = $this->masters->resolve(new ScanEventData($boxCode, $order->ref, $item->code, $label['lot'], CarbonImmutable::now()), now());
+        if ($rejection instanceof ScanRejection) {
+            throw PalletRuleViolation::boxRejected(mb_strtolower($rejection->label()));
         }
 
-        $result = $this->process->handleManual($this->device(), new ScanEventData($scanId, $order->ref, $item->code, $label['lot'], CarbonImmutable::now()), $ctx);
+        $result = $this->process->handleManual($this->device(), new ScanEventData($boxCode, $order->ref, $item->code, $label['lot'], CarbonImmutable::now()), $ctx);
 
-        if ($result->outcome === ScanOutcome::Rejected) {
-            throw PalletRuleViolation::boxRejected(mb_strtolower($result->rejection?->label() ?? 'regla no cumplida'));
-        }
-
-        return $scan($result);
+        return match ($result->outcome) {
+            ScanOutcome::Accepted => new ManualBoxScan($order->ref, $item->code, $item->description, $label['lot'], $label['expiration'], $boxCode, $result, $testStandard),
+            ScanOutcome::Duplicate => throw ($result->palletCode !== null && $result->rejection === null
+                ? PalletRuleViolation::boxAlreadyRead($boxCode, $result->palletCode)
+                : PalletRuleViolation::boxHasRejectedRead($boxCode)),
+            ScanOutcome::Rejected => throw PalletRuleViolation::boxRejected(mb_strtolower($result->rejection?->label() ?? 'regla no cumplida')),
+        };
     }
 
     /**

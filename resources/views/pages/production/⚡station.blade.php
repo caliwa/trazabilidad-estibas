@@ -57,7 +57,7 @@ new #[Title('Producción')] class extends Component {
     /**
      * Last box read by hand: what the label said and where the box went.
      *
-     * @var array{order: string, item: string, description: string, lot: string, expiration: string, pallet: ?string, boxes: ?int, standard: ?int, closed: bool, test_standard: bool, repeated: bool}|null
+     * @var array{order: string, item: string, description: string, lot: string, box: string, expiration: string, pallet: ?string, boxes: ?int, standard: ?int, closed: bool, test_standard: bool}|null
      */
     #[Locked]
     public ?array $lastBox = null;
@@ -127,12 +127,13 @@ new #[Title('Producción')] class extends Component {
     /**
      * A box label read with the hand reader (or the camera).
      */
-    public function scanBox(string $scanned, string $scanId): void
+    public function scanBox(string $scanned, ?string $scanId = null): void
     {
         $this->boxError = null;
 
         try {
-            $scan = app(RegisterManualBoxScan::class)->handle(Auth::user(), $scanned, $scanId, $this->context());
+            // The box code inside the QR is the read's id; the page's own id is not needed here.
+            $scan = app(RegisterManualBoxScan::class)->handle(Auth::user(), $scanned, $this->context());
         } catch (PalletRuleViolation $e) {
             $this->boxError = $e->getMessage();
             $this->lastBox = null;
@@ -147,13 +148,13 @@ new #[Title('Producción')] class extends Component {
             'item' => $scan->itemCode,
             'description' => $scan->itemDescription,
             'lot' => $scan->lotCode,
+            'box' => $scan->boxCode,
             'expiration' => $scan->expiration->format('d/m/Y'),
             'pallet' => $scan->result->palletCode,
             'boxes' => $scan->result->boxesCount,
             'standard' => $scan->result->standard,
             'closed' => $scan->result->palletClosed,
             'test_standard' => $scan->testStandard,
-            'repeated' => $scan->repeated,
         ];
     }
 
@@ -290,7 +291,7 @@ new #[Title('Producción')] class extends Component {
         <div class="grid gap-4 rounded-xl border border-zinc-200 p-5 lg:grid-cols-2 dark:border-zinc-700">
             <div class="flex flex-col gap-3">
                 <flux:heading size="lg" level="2">Lectura manual de cajas</flux:heading>
-                <flux:text>Lee la etiqueta de cada caja. La OF de la etiqueta se valida contra SAP y la caja suma a la estiba de esa OF y ese lote.</flux:text>
+                <flux:text>Lee la etiqueta de cada caja. La OF se valida contra SAP, la caja suma a la estiba de esa OF y ese lote, y cada caja se cuenta una sola vez por su código.</flux:text>
                 <x-scanner action="scanBox" label="Etiqueta de la caja" placeholder="Lee el QR de la caja" multiline />
             </div>
             <div aria-live="polite">
@@ -301,15 +302,16 @@ new #[Title('Producción')] class extends Component {
                     </div>
                 @elseif ($lastBox)
                     @php($percent = $lastBox['standard'] ? min(100, intdiv(($lastBox['boxes'] ?? 0) * 100, $lastBox['standard'])) : 0)
-                    <div @class(['flex h-full flex-col gap-3 rounded-xl border p-5', 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950' => ! $lastBox['repeated'], 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950' => $lastBox['repeated']])>
+                    <div class="flex h-full flex-col gap-3 rounded-xl border border-emerald-300 bg-emerald-50 p-5 dark:border-emerald-800 dark:bg-emerald-950">
                         <div class="flex flex-wrap items-center gap-2">
-                            <span class="text-lg font-semibold text-zinc-900 dark:text-white">{{ $lastBox['repeated'] ? 'Lectura repetida: no se contó otra vez' : 'Caja contada' }}</span>
+                            <span class="text-lg font-semibold text-zinc-900 dark:text-white">Caja contada</span>
                             @if ($lastBox['test_standard'])<flux:badge color="amber" size="sm">Estándar de prueba</flux:badge>@endif
                         </div>
                         <dl class="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1 text-sm">
                             <dt class="text-zinc-500">OF</dt><dd class="font-mono font-semibold">{{ $lastBox['order'] }}</dd>
                             <dt class="text-zinc-500">Producto</dt><dd>{{ $lastBox['item'] }} · {{ $lastBox['description'] }}</dd>
                             <dt class="text-zinc-500">Lote</dt><dd class="font-mono">{{ $lastBox['lot'] }}</dd>
+                            <dt class="text-zinc-500">Caja</dt><dd class="font-mono">{{ $lastBox['box'] }}</dd>
                             <dt class="text-zinc-500">Vence</dt><dd>{{ $lastBox['expiration'] }}</dd>
                         </dl>
                         @if ($lastBox['pallet'])
