@@ -77,7 +77,9 @@ class ReceiptsPageTest extends TestCase
             ->call('selectAll')
             ->set('documents', 'per_pallet')
             ->call('request')
-            ->assertSee('Solicitado');
+            ->assertSee('Solicitado')
+            ->assertSet('orderId', null)
+            ->assertDontSee('Esta orden no tiene estibas etiquetadas por recibir');
 
         $this->assertSame(2, ProductionReceipt::where('status', SapDocumentStatus::Requested)->count());
         $this->assertSame(0, $this->sap()->receiptWriteCalls());

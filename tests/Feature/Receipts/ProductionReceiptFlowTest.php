@@ -305,8 +305,19 @@ class ProductionReceiptFlowTest extends TestCase
 
         $this->assertSame(SapDocumentStatus::PendingReconciliation, $receipt->refresh()->status);
         $this->assertSame('consulta_fallida', $receipt->reconciliation['last_result']);
+        $this->assertSame('Consulta a SAP sin respuesta (simulador).', $receipt->reconciliation['last_error']);
         $this->assertSame(1, $this->sap()->receiptWriteCalls());
         $this->assertSame(AttemptOutcome::QueryFailed, IntegrationAttempt::latest('id')->first()?->outcome);
+    }
+
+    public function test_a_created_receipt_that_cannot_be_read_back_says_why(): void
+    {
+        $this->sap()->failNextLookups();
+        [$receipt] = $this->requestReceipts($this->admin, $this->labeledPallets(['L-1']));
+
+        $receipt->refresh();
+        $this->assertSame(SapDocumentStatus::PendingReconciliation, $receipt->status);
+        $this->assertSame('SAP respondió creado pero no se pudo verificar el documento: Consulta a SAP sin respuesta (simulador).', $receipt->last_error_message);
     }
 
     public function test_resending_stops_at_the_attempt_limit(): void
