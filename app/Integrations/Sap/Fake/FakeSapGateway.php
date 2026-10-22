@@ -166,7 +166,10 @@ class FakeSapGateway implements SapGateway
             throw new SapLookupFailed('Consulta a SAP sin respuesta (simulador).');
         }
 
-        return $this->productionOrders[trim($docNum)] ?? null;
+        $order = $this->productionOrders[trim($docNum)] ?? null;
+
+        // Like the real connector: only finished products.
+        return $order !== null && $this->isFinishedProduct($order) ? $order : null;
     }
 
     public function releasedProductionOrders(): array
@@ -177,7 +180,12 @@ class FakeSapGateway implements SapGateway
             throw new SapLookupFailed('Consulta a SAP sin respuesta (simulador).');
         }
 
-        return array_values(array_filter($this->productionOrders, fn (SapProductionOrder $o) => $o->status === ProductionOrderStatus::Released));
+        return array_values(array_filter($this->productionOrders, fn (SapProductionOrder $o) => $o->status === ProductionOrderStatus::Released && $this->isFinishedProduct($o)));
+    }
+
+    private function isFinishedProduct(SapProductionOrder $order): bool
+    {
+        return str_starts_with($order->itemCode, config()->string('sap.order_item_prefix'));
     }
 
     /**

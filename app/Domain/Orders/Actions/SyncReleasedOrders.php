@@ -35,9 +35,14 @@ class SyncReleasedOrders
         private readonly OrderClosureWatch $closure,
     ) {}
 
-    public function handle(User $user, TraceContext $ctx): SyncResult
+    /**
+     * $user is who pressed the button; null for the console command (sap:sync-orders).
+     */
+    public function handle(?User $user, TraceContext $ctx): SyncResult
     {
-        Gate::forUser($user)->authorize(Permission::OrdersView->value);
+        if ($user !== null) {
+            Gate::forUser($user)->authorize(Permission::OrdersView->value);
+        }
 
         try {
             $released = $this->sap->releasedProductionOrders();

@@ -7,8 +7,8 @@
 | Iniciar sesión | `POST /Login` | Conectado |
 | Crear recibo de producción | `POST /InventoryGenEntries` | Conectado |
 | Buscar un recibo después de un timeout | `GET /InventoryGenEntries?$filter=<campo de correlación> eq '<uuid>'` y luego `GET /InventoryGenEntries(<DocEntry>)` | Conectado |
-| Consultar una OF | `GET /ProductionOrders?$filter=DocumentNumber eq <n>` y el producto en `GET /Items('<código>')` | Conectado |
-| Traer todas las OF liberadas (tablero de OF) | `GET /ProductionOrders?$filter=ProductionOrderStatus eq 'boposReleased'`, siguiendo `odata.nextLink` | Conectado |
+| Consultar una OF | `GET /ProductionOrders?$filter=DocumentNumber eq <n> and startswith(ItemNo,'PT')` y el producto en `GET /Items('<código>')` | Conectado |
+| Traer todas las OF liberadas (tablero de OF, `sap:sync-orders`) | `GET /ProductionOrders?$filter=ProductionOrderStatus eq 'boposReleased' and startswith(ItemNo,'PT')`, siguiendo `odata.nextLink` | Conectado |
 | Transferencia 04 → 05 | | **No conectada.** Se rechaza sin enviar nada |
 
 Nada de esto se ha corrido contra el SAP DEV todavía: esta sesión no tiene acceso a esa red. Todo está probado con respuestas simuladas de Service Layer (`Http::fake`).
@@ -42,6 +42,7 @@ SAP_RECEIPT_COSTING_CODE3=ANTIOQUI
 ```bash
 php artisan sap:check          # inicia sesión y lista las OF liberadas
 php artisan sap:check 33128    # consulta una OF
+php artisan sap:sync-orders    # trae y guarda todas las OF liberadas
 ```
 
 ## 3. Recibo de producción
@@ -107,7 +108,13 @@ Sin un campo que lleve el `request_uuid`, después de un timeout no hay forma se
 
 ## 5. Orden de fabricación
 
-De `ProductionOrders` se usan: `AbsoluteEntry` (DocEntry), `DocumentNumber`, `ProductionOrderStatus`, `ProductionOrderType`, `ItemNo`, `PlannedQuantity`, `Warehouse`, `Priority`, `PostingDate`, `StartDate`, `DueDate` y `ProductionOrderOrigin`. Del producto (`Items`): `ItemName`, `BarCode` e `InventoryUOM`.
+Solo se traen OF de producto terminado: las que tienen un `ItemNo` que empieza por `PT` (configurable con `SAP_ORDER_ITEM_PREFIX`). Una OF de otro producto se trata como si SAP no la tuviera.
+
+De `ProductionOrders` se usan: `AbsoluteEntry` (DocEntry), `DocumentNumber`, `ProductionOrderStatus`, `ProductionOrderType`, `ItemNo`, `PlannedQuantity`, `Warehouse`, `Priority`, `PostingDate`, `StartDate`, `DueDate` y `ProductionOrderOrigin`. Del producto (`Items`): `ItemName`, `BarCode`, `InventoryUOM`, `SalesQtyPerPackUnit` y `SalesPackagingUnit`. Los dos últimos se guardan en el maestro de productos (`items.sales_qty_per_pack_unit` e `items.sales_packaging_unit`) cada vez que se sincroniza una OF.
+
+**Unidades por caja (DP-02).** `SalesQtyPerPackUnit` son las unidades que lleva una caja del PT. Al sincronizar, ese valor queda como el factor de conversión vigente del producto (`box_conversion_factors`). De ahí salen el límite de etiquetas de caja y la cantidad de los recibos (cajas × unidades por caja).
+- Si cambia en SAP, se crea una versión nueva y la anterior queda como reemplazada. Las etiquetas y los recibos que ya la usaron conservan la suya, y el cambio queda en la bitácora.
+- Si en SAP está vacío o en cero, el factor vigente no se toca y no se inventa uno.
 
 | Estado en SAP | En la aplicación |
 |---|---|

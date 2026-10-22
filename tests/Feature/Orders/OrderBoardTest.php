@@ -8,6 +8,7 @@ use App\Domain\Orders\Actions\SyncReleasedOrders;
 use App\Domain\Orders\Enums\OrderStage;
 use App\Domain\Orders\OrderProgress;
 use App\Domain\Pallets\PalletQr;
+use App\Domain\Shared\ActorType;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
@@ -25,6 +26,7 @@ use App\Queries\OrderBoardQuery;
 use App\Queries\OrderProgressQuery;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -98,6 +100,17 @@ class OrderBoardTest extends TestCase
         $this->assertSame('800.000000', $this->order('33128')->planned_quantity);
         $this->assertSame('GELATINA OLIMPICA SIN SABOR 30 GR', $this->order('33128')->item->description);
         $this->assertSame(4, TraceEvent::query()->where('event', TraceEventType::ProductionOrderRefreshed->value)->count());
+    }
+
+    public function test_the_console_command_brings_the_released_orders_without_a_user(): void
+    {
+        $this->assertSame(0, Artisan::call('sap:sync-orders'));
+        $output = Artisan::output();
+
+        $this->assertStringContainsString('SAP tiene 4 órdenes de fabricación liberadas', $output);
+        $this->assertStringContainsString('GELATINA OLIMPICA SIN SABOR 30 GR', $output);
+        $this->assertNull($this->order('33128')->consulted_by);
+        $this->assertSame(ActorType::System, TraceEvent::query()->where('event', TraceEventType::ProductionOrderRefreshed->value)->first()?->actor_type);
     }
 
     public function test_an_order_closed_in_sap_leaves_the_board_on_the_next_sync(): void

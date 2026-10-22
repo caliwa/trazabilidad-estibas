@@ -62,6 +62,12 @@ return [
     | must exist in SAP (a user field on the receipt header, alphanumeric
     | 36). If it does not, SAP rejects the receipt and nothing is created.
     */
+    /*
+    | Production orders are only brought for finished products: the ones
+    | whose item code (ItemNo) starts with this prefix.
+    */
+    'order_item_prefix' => env('SAP_ORDER_ITEM_PREFIX', 'PT'),
+
     'receipt' => [
         'correlation_field' => env('SAP_RECEIPT_CORRELATION_FIELD', 'U_TRZ_UUID'),
         'costing_code' => env('SAP_RECEIPT_COSTING_CODE', 'PCC'),

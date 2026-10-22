@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Product master (local read cache of SAP).
+ *
+ * @property string|null $sales_qty_per_pack_unit Items.SalesQtyPerPackUnit
+ * @property string|null $sales_packaging_unit Items.SalesPackagingUnit
  */
 class Item extends Model
 {

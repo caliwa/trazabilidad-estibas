@@ -79,6 +79,7 @@ class AppServiceProvider extends ServiceProvider
                         'costing_code2' => config('sap.receipt.costing_code2'),
                         'costing_code3' => config('sap.receipt.costing_code3'),
                     ],
+                    config()->string('sap.order_item_prefix'),
                 );
             }
 

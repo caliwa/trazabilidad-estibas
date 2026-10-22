@@ -249,10 +249,13 @@ class ServiceLayerGatewayTest extends TestCase
                 'ItemNo' => 'PT1350023', 'PlannedQuantity' => 800.0, 'Warehouse' => '04', 'Priority' => 100,
                 'PostingDate' => '2026-02-17T00:00:00Z', 'StartDate' => '2026-02-17T00:00:00Z', 'DueDate' => '2026-02-24T00:00:00Z', 'ProductionOrderOrigin' => 'bopooManual',
             ]]]),
-            self::URL."/Items('PT1350023')*" => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'BarCode' => '12000013500233', 'InventoryUOM' => 'UNIDAD']),
+            self::URL."/Items('PT1350023')*" => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'BarCode' => '12000013500233', 'InventoryUOM' => 'UNIDAD', 'SalesQtyPerPackUnit' => 24.0, 'SalesPackagingUnit' => 'CAJA']),
         ]));
 
         $order = $this->gateway()->findProductionOrder('33128');
+        $this->assertSame(['24', 'CAJA'], [$order?->itemSalesQtyPerPackUnit, $order?->itemSalesPackagingUnit]);
+        Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), "\$filter=DocumentNumber eq 33128 and startswith(ItemNo,'PT')"));
+        Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), "Items('PT1350023')") && str_contains(urldecode($r->url()), 'SalesQtyPerPackUnit,SalesPackagingUnit'));
 
         $this->assertNotNull($order);
         $this->assertSame(
@@ -275,7 +278,7 @@ class ServiceLayerGatewayTest extends TestCase
         $orders = $this->gateway()->releasedProductionOrders();
 
         $this->assertSame(['1', '2', '3'], array_map(fn ($o) => $o->docNum, $orders));
-        Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), "\$filter=ProductionOrderStatus eq 'boposReleased'"));
+        Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), "\$filter=ProductionOrderStatus eq 'boposReleased' and startswith(ItemNo,'PT')"));
         // The product is read once for the three orders.
         $this->assertCount(1, array_filter(Http::recorded()->all(), fn (array $pair) => str_contains($pair[0]->url(), 'Items(')));
     }
