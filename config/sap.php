@@ -68,6 +68,14 @@ return [
     */
     'order_item_prefix' => env('SAP_ORDER_ITEM_PREFIX', 'PT'),
 
+    /*
+    | Items.BarCode holds the unit's EAN-13. The box label prints an EAN-14
+    | made from it: this indicator digit (1 to 8), the first 12 digits of the
+    | EAN-13 and a new check digit. A code that already has 14 digits is used
+    | as it is.
+    */
+    'box_gtin_indicator' => (int) env('SAP_BOX_GTIN_INDICATOR', 1),
+
     'receipt' => [
         'correlation_field' => env('SAP_RECEIPT_CORRELATION_FIELD', 'U_TRZ_UUID'),
         'costing_code' => env('SAP_RECEIPT_COSTING_CODE', 'PCC'),

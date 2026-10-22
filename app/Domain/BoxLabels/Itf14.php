@@ -35,6 +35,37 @@ final class Itf14
     }
 
     /**
+     * The box's EAN-14 from the code SAP has for the product.
+     *
+     * A valid EAN-14 is used as it is. A valid EAN-13 (the unit's code) becomes
+     * the box code the GS1 way: the indicator digit, the first 12 digits of the
+     * EAN-13 and a new check digit (7700304364725 with indicator 1 is
+     * 17700304364722). Anything else is null: no label with a wrong code.
+     */
+    public static function forBox(?string $barcode, int $indicator = 1): ?string
+    {
+        $barcode = trim((string) $barcode);
+
+        if (self::isValid($barcode)) {
+            return $barcode;
+        }
+
+        if ($indicator < 1 || $indicator > 8 || preg_match('/^\d{13}$/', $barcode) !== 1 || self::checkDigit(substr($barcode, 0, 12)) !== (int) $barcode[12]) {
+            return null;
+        }
+
+        $body = $indicator.substr($barcode, 0, 12);
+
+        return $body.self::checkDigit($body);
+    }
+
+    /** Indicator digit for box codes made from an EAN-13 (SAP_BOX_GTIN_INDICATOR, 1 by default). */
+    public static function indicator(): int
+    {
+        return config()->integer('sap.box_gtin_indicator');
+    }
+
+    /**
      * Human readable form, as printed under the bars: 1 20 00013 50023 6.
      */
     public static function readable(string $code): string

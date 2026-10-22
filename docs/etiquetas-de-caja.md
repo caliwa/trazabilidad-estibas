@@ -71,7 +71,8 @@ ZPL II para una Zebra de 203 dpi: 800 × 640 puntos, es decir 100 × 80 mm.
 
 - **Barras:** entrelazado 2 de 5 con relación ancho/angosto de 2.5. La barra angosta mide 4 puntos (0.5 mm), por encima del mínimo GS1 de 0.495 mm. Alto de 17.5 mm.
 - **Alrededor:** sin barras portadoras (sin recuadro), como lo pidió el negocio. Se dejan las zonas de silencio de 10 barras angostas a cada lado, que son indispensables para la lectura. GS1 recomienda las barras portadoras en cajas corrugadas para evitar lecturas parciales: si el lector de la línea falla, se vuelven a poner.
-- **Validación:** el código tiene que traer 14 dígitos con el dígito de control correcto. Si viene de 13 dígitos o con el dígito de control mal, no se generan etiquetas, porque lo impreso no coincidiría con el código. El dígito de control lo manda el sistema y la Zebra no le agrega otro.
+- **De dónde sale:** SAP guarda en `Items.BarCode` el EAN-13 de la unidad. El EAN-14 de la caja se arma como indica GS1: el dígito indicador **1**, los 12 primeros dígitos del EAN-13 y un dígito de control nuevo. Por ejemplo, 7700304364725 da 17700304364722. El indicador se cambia con `SAP_BOX_GTIN_INDICATOR` (de 1 a 8). Si SAP ya trae un código de 14 dígitos válido, se usa tal cual.
+- **Validación:** si el código de SAP no es un EAN-13 ni un EAN-14 válido (largo o dígito de control mal), no se generan etiquetas, porque lo impreso no coincidiría con el código. El dígito de control lo manda el sistema y la Zebra no le agrega otro.
 - **Texto bajo las barras:** `1 20 00013 50023 3`, agrupado como se acostumbra.
 
 **Otros detalles de impresión:**
@@ -101,7 +102,6 @@ Además, desde una captura de la vista previa en el navegador, zxing-cpp leyó e
 
 - **Conector SAP real (DP-09).** La consulta corre contra el simulador. El contrato (`SapGateway::findProductionOrder`) ya define qué datos hacen falta. Qué propiedades de Service Layer los traen se decide al escribir el conector, con acceso a SAP.
 - **Simulador.** Responde con los 40 PT reales y siete órdenes de ejemplo (33128 a 33134) basadas en la 33128 que mandaste. Los EAN-14 del simulador **no son reales**: llevan indicador 1 y prefijo 200, que es de uso interno.
-- **De dónde sale el EAN-14 en SAP.** Supuse que SAP guarda el GTIN-14 de la caja tal cual. Si SAP guarda el EAN-13 de la unidad y el de la caja se arma con un dígito indicador, hay que definir ese dígito y dónde se guarda.
 - **Unidades por caja.** Salen de `Items.SalesQtyPerPackUnit` en SAP, que se guarda como factor de conversión al consultar o sincronizar la OF. Sin factor vigente no se generan etiquetas.
 - **Vida útil.** No viene de SAP. Es un campo local por producto (`items.shelf_life_days`). Si está vacío, el operario escribe el vencimiento. Falta definir quién la carga y de dónde sale.
 - **Cantidad planificada.** Supuse que está en la misma unidad de inventario que usa el factor de conversión, como en los recibos. Si SAP la diera en cajas, el límite cambia.

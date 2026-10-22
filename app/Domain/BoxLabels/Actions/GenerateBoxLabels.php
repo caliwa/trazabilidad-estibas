@@ -63,9 +63,8 @@ class GenerateBoxLabels
                 throw BoxLabelRuleViolation::noBarcode($item->code);
             }
 
-            if (! Itf14::isValid((string) $item->barcode)) {
-                throw BoxLabelRuleViolation::invalidBarcode($item->code, (string) $item->barcode);
-            }
+            $boxCode = Itf14::forBox($item->barcode, Itf14::indicator())
+                ?? throw BoxLabelRuleViolation::invalidBarcode($item->code, (string) $item->barcode);
 
             $factor = BoxConversionFactor::query()->where('item_id', $item->id)->where('status', MasterStatus::Current)->first();
 
@@ -102,7 +101,7 @@ class GenerateBoxLabels
                 unitsPerBox: (new Quantity((string) $factor->units_per_box))->display(),
                 uomName: $order->uom_name ?? $item->inventory_uom,
                 lotCode: $lotCode,
-                barcode: (string) $item->barcode,
+                barcode: $boxCode,
                 expirationDate: $expirationDate,
             );
 

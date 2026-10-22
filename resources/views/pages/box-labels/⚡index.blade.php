@@ -105,7 +105,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
         $production = $this->date($this->productionDate);
         $expiration = $this->date($this->expirationDate);
 
-        if ($this->order === null || $this->factor === null || blank($this->order->item->barcode) || $production === null || $expiration === null) {
+        if ($this->order === null || $this->factor === null || Itf14::forBox($this->order->item->barcode, Itf14::indicator()) === null || $production === null || $expiration === null) {
             return null;
         }
 
@@ -116,7 +116,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
             unitsPerBox: (new Quantity((string) $this->factor->units_per_box))->display(),
             uomName: $this->order->uom_name ?? $this->order->item->inventory_uom,
             lotCode: BoxLot::code($this->order->ref, $production),
-            barcode: (string) $this->order->item->barcode,
+            barcode: (string) Itf14::forBox($this->order->item->barcode, Itf14::indicator()),
             expirationDate: $expiration,
         );
     }
@@ -237,8 +237,11 @@ new #[Title('Etiquetas de caja')] class extends Component {
                 <dl class="grid grid-cols-2 gap-2 text-sm">
                     <dt class="text-zinc-500">Unidades por caja</dt>
                     <dd class="font-medium">{{ $this->factor ? (new Quantity((string) $this->factor->units_per_box))->display().' '.($order->uom_name ?? $order->item->inventory_uom) : 'Sin definir (DP-02)' }}</dd>
-                    <dt class="text-zinc-500">Código EAN-14</dt>
-                    <dd class="font-mono font-medium">{{ $order->item->barcode ?? 'Sin código en SAP' }}</dd>
+                    <dt class="text-zinc-500">Código EAN-14 de la caja</dt>
+                    <dd class="font-mono font-medium">
+                        {{ Itf14::forBox($order->item->barcode, Itf14::indicator()) ?? ($order->item->barcode ? 'Código no válido' : 'Sin código en SAP') }}
+                        @if ($order->item->barcode && strlen(trim($order->item->barcode)) === 13)<div class="text-xs font-normal text-zinc-500">Desde el EAN-13 de SAP {{ $order->item->barcode }}</div>@endif
+                    </dd>
                     <dt class="text-zinc-500">Etiquetas generadas</dt>
                     <dd class="font-medium tabular-nums">{{ $printed }}{{ $max === null ? '' : ' de '.$max }}</dd>
                 </dl>
@@ -259,7 +262,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                 <flux:heading size="lg" level="2">{{ $this->batch ? 'Etiquetas generadas' : 'Vista previa' }}</flux:heading>
                 @if ($shownPayload !== null)
                     @php($data = BoxLabelPayload::decode($shownPayload))
-                    @php($ean = $this->batch?->barcode ?? (string) $order->item->barcode)
+                    @php($ean = $this->batch?->barcode ?? (string) Itf14::forBox($order->item->barcode, Itf14::indicator()))
                     {{-- 10 × 8 cm at screen scale, same layout as the ZPL: text and QR on top, ITF-14 below. --}}
                     <div class="flex aspect-[10/8] w-full max-w-md flex-col rounded-md border-2 border-zinc-800 bg-white p-4 text-black">
                         <div class="flex flex-1 justify-between gap-3">

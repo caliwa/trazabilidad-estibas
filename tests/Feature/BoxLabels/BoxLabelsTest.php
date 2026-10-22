@@ -277,16 +277,36 @@ class BoxLabelsTest extends TestCase
         Item::query()->whereKey($order->item_id)->update(['barcode' => null]);
         $this->expectViolation(fn () => $this->generate($order, 1, expiration: '2027-01-01'), 'no tiene código EAN-14');
 
-        // 13 digits (an EAN-13) or a wrong check digit is not a box EAN-14.
-        foreach (['2000013500236', '12000013500234'] as $wrong) {
+        // A wrong check digit (13 or 14 digits) or any other length is refused.
+        foreach (['2000013500237', '12000013500234', '123456'] as $wrong) {
             Item::query()->whereKey($order->item_id)->update(['barcode' => $wrong]);
-            $this->expectViolation(fn () => $this->generate($order, 1, expiration: '2027-01-01'), 'no es un EAN-14 (GTIN-14) válido');
+            $this->expectViolation(fn () => $this->generate($order, 1, expiration: '2027-01-01'), 'no es un EAN-13 ni un EAN-14 válido');
         }
 
         Item::query()->whereKey($order->item_id)->update(['barcode' => FakeSapCatalog::barcode('PT1350023')]);
         $this->expectViolation(fn () => $this->generate($order, 1, production: '2026-10-21', expiration: '2027-01-01'), 'no puede ser futura');
 
         $this->assertSame(0, BoxLabelBatch::count());
+    }
+
+    public function test_the_box_ean14_is_made_from_the_unit_ean13_sap_has(): void
+    {
+        // GS1: indicator 1, the first 12 digits of the EAN-13 and a new check digit.
+        $this->assertSame('17700304364722', Itf14::forBox('7700304364725'));
+        $this->assertSame('27700304364729', Itf14::forBox('7700304364725', 2));
+        $this->assertSame('12000013500233', Itf14::forBox('12000013500233'));
+        $this->assertNull(Itf14::forBox('7700304364726'));
+        $this->assertNull(Itf14::forBox('7700304364725', 0));
+        $this->assertNull(Itf14::forBox(null));
+
+        $order = $this->ready();
+        Item::query()->whereKey($order->item_id)->update(['barcode' => '7700304364725']);
+
+        $batch = $this->generate($order, 1);
+
+        $this->assertSame('17700304364722', $batch->barcode);
+        $this->assertStringContainsString('^FD17700304364722^FS', $batch->zpl);
+        $this->assertStringContainsString('1 77 00304 36472 2', $batch->zpl);
     }
 
     public function test_a_generated_batch_is_evidence_and_never_changes(): void
