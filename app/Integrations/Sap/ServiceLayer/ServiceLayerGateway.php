@@ -26,7 +26,8 @@ use InvalidArgumentException;
  *    lot against the production order (BaseType 202), with its batch and
  *    dates; found again by the correlation field carrying the request_uuid;
  *  - production orders: ProductionOrders, one by number or all released,
- *    with the product from Items.
+ *    only for finished products (ItemNo starting with "PT"), with the
+ *    product from Items.
  *
  * Not connected yet: stock transfers 04 → 05. They are refused, so nothing
  * is ever sent with an unverified payload.
@@ -50,6 +51,7 @@ class ServiceLayerGateway implements SapGateway
     public function __construct(
         private readonly ServiceLayerClient $client,
         private readonly array $receipt,
+        private readonly string $itemPrefix = 'PT',
     ) {
         // It goes into an OData filter: only a plain field name is accepted.
         if (preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,49}$/', $receipt['correlation_field']) !== 1) {
@@ -147,7 +149,7 @@ class ServiceLayerGateway implements SapGateway
         }
 
         $response = $this->read(fn () => $this->client->get('ProductionOrders', [
-            '$filter' => "DocumentNumber eq {$docNum}",
+            '$filter' => "DocumentNumber eq {$docNum} and {$this->itemFilter()}",
             '$select' => self::ORDER_FIELDS,
         ]));
 
@@ -170,7 +172,7 @@ class ServiceLayerGateway implements SapGateway
         $orders = [];
         $items = [];
         $response = $this->read(fn () => $this->client->get('ProductionOrders', [
-            '$filter' => "ProductionOrderStatus eq 'boposReleased'",
+            '$filter' => "ProductionOrderStatus eq 'boposReleased' and {$this->itemFilter()}",
             '$select' => self::ORDER_FIELDS,
             '$orderby' => 'AbsoluteEntry',
         ]));
@@ -361,6 +363,8 @@ class ServiceLayerGateway implements SapGateway
             linkedTo: null,
             itemBarcode: $barcode,
             itemInventoryUom: $uom,
+            itemSalesQtyPerPackUnit: isset($item['SalesQtyPerPackUnit']) && is_numeric($item['SalesQtyPerPackUnit']) ? $this->decimal((float) $item['SalesQtyPerPackUnit']) : null,
+            itemSalesPackagingUnit: isset($item['SalesPackagingUnit']) && is_string($item['SalesPackagingUnit']) && $item['SalesPackagingUnit'] !== '' ? $item['SalesPackagingUnit'] : null,
         );
     }
 
@@ -369,7 +373,7 @@ class ServiceLayerGateway implements SapGateway
      */
     private function item(string $itemCode): array
     {
-        $response = $this->read(fn () => $this->client->get("Items('{$this->literal($itemCode)}')", ['$select' => 'ItemCode,ItemName,BarCode,InventoryUOM']));
+        $response = $this->read(fn () => $this->client->get("Items('{$this->literal($itemCode)}')", ['$select' => 'ItemCode,ItemName,BarCode,InventoryUOM,SalesQtyPerPackUnit,SalesPackagingUnit']));
 
         return (array) $response->json();
     }
@@ -409,9 +413,23 @@ class ServiceLayerGateway implements SapGateway
             throw new SapLookupFailed('Service Layer respondió una cantidad no válida: '.json_encode($value));
         }
 
-        $text = rtrim(rtrim(number_format((float) $value, 6, '.', ''), '0'), '.');
+        return new Quantity($this->decimal((float) $value));
+    }
 
-        return new Quantity($text);
+    private function decimal(float $value): string
+    {
+        $text = rtrim(rtrim(number_format($value, 6, '.', ''), '0'), '.');
+
+        return $text === '' || $text === '-0' ? '0' : $text;
+    }
+
+    /**
+     * Only finished products: production orders whose item code starts with the
+     * configured prefix (SAP_ORDER_ITEM_PREFIX, "PT").
+     */
+    private function itemFilter(): string
+    {
+        return "startswith(ItemNo,'{$this->literal($this->itemPrefix)}')";
     }
 
     private function number(Quantity $quantity): int|float

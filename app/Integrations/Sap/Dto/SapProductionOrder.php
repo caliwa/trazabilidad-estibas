@@ -32,5 +32,8 @@ final readonly class SapProductionOrder
         // Item master data the box label needs.
         public ?string $itemBarcode,
         public ?string $itemInventoryUom,
+        // Sales packaging of the product (Items.SalesQtyPerPackUnit, exact decimal, and Items.SalesPackagingUnit).
+        public ?string $itemSalesQtyPerPackUnit = null,
+        public ?string $itemSalesPackagingUnit = null,
     ) {}
 }

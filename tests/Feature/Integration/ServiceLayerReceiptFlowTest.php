@@ -6,11 +6,13 @@ use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Enums\Role;
 use App\Integrations\Sap\Contracts\SapGateway;
+use App\Models\Item;
 use App\Models\Pallet;
 use App\Models\ProductionOrder;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Tests\Concerns\BuildsReceipts;
 use Tests\Concerns\CreatesUsers;
@@ -126,6 +128,23 @@ class ServiceLayerReceiptFlowTest extends TestCase
         $this->assertTrue($receipt->reconciliation['mismatch']);
         $this->assertStringContainsString('Fecha de vencimiento distinta', $receipt->reconciliation['differences'][0]);
         $this->assertNull($receipt->sap_doc_entry);
+    }
+
+    public function test_syncing_orders_stores_the_product_sales_packaging(): void
+    {
+        Http::fake([
+            self::URL.'/Login' => Http::response(['SessionId' => 's1'], 200),
+            self::URL.'/ProductionOrders?*' => Http::response(['value' => [[
+                'AbsoluteEntry' => 41659, 'DocumentNumber' => 33128, 'ProductionOrderStatus' => 'boposReleased', 'ItemNo' => 'PT1350023', 'PlannedQuantity' => 800, 'Warehouse' => '04',
+            ]]]),
+            self::URL."/Items('PT1350023')*" => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'InventoryUOM' => 'UNIDAD', 'SalesQtyPerPackUnit' => 24.0, 'SalesPackagingUnit' => 'CAJA']),
+        ]);
+
+        $this->assertSame(0, Artisan::call('sap:sync-orders'));
+
+        $item = Item::query()->where('code', 'PT1350023')->sole();
+        $this->assertSame(['24.000000', 'CAJA'], [$item->sales_qty_per_pack_unit, $item->sales_packaging_unit]);
+        $this->assertSame(41659, ProductionOrder::query()->where('ref', '33128')->value('sap_doc_entry'));
     }
 
     public function test_sap_rejecting_the_receipt_fails_it_and_frees_the_pallet(): void

@@ -37,6 +37,8 @@ final class ProductionOrderCache
             'description' => mb_substr($sapOrder->itemDescription, 0, 200),
             'inventory_uom' => $sapOrder->itemInventoryUom ?? $item->inventory_uom,
             'barcode' => $sapOrder->itemBarcode,
+            'sales_qty_per_pack_unit' => $sapOrder->itemSalesQtyPerPackUnit,
+            'sales_packaging_unit' => $sapOrder->itemSalesPackagingUnit === null ? null : mb_substr($sapOrder->itemSalesPackagingUnit, 0, 30),
             'active' => true,
             'synced_at' => now(),
         ])->save();
