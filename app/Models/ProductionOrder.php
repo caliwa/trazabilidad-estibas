@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable|null $start_date
  * @property CarbonImmutable|null $due_date
  * @property CarbonImmutable|null $ready_to_close_notified_at
+ * @property CarbonImmutable|null $sap_closed_at
  */
 class ProductionOrder extends Model
 {
@@ -36,6 +37,7 @@ class ProductionOrder extends Model
             'sap_header' => 'array',
             'consulted_at' => 'datetime',
             'ready_to_close_notified_at' => 'datetime',
+            'sap_closed_at' => 'datetime',
         ];
     }
 

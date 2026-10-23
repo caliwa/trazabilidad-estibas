@@ -314,4 +314,50 @@ class OrderBoardTest extends TestCase
             ->set('stage', '')->set('search', 'olimpica')
             ->assertSee('GELATINA OLIMPICA')->assertDontSee('GELATINA MERCALDAS');
     }
+
+    private function closeInSap(string $ref): void
+    {
+        $sapOrder = FakeSapCatalog::productionOrders()[$ref];
+        $this->sap()->putProductionOrder(new SapProductionOrder(...[...get_object_vars($sapOrder), 'status' => ProductionOrderStatus::Closed]));
+    }
+
+    public function test_an_order_that_reached_ready_to_close_and_was_closed_in_sap_shows_as_closed_in_sap(): void
+    {
+        Notification::fake();
+        $this->travelTo('2026-10-23 09:00');
+        $this->sync();
+        $order = $this->order('33128');
+        $this->receive($order, 'L-1');
+        $this->transferToCedi($this->receive($order, 'L-2'));
+        $this->assertNotNull($order->refresh()->ready_to_close_notified_at);
+
+        // 33128 went through the process here; 33131 is closed in SAP without having reached it.
+        $this->closeInSap('33128');
+        $this->closeInSap('33131');
+        $this->travelTo('2026-10-24 15:00');
+        $this->sync();
+
+        $board = app(OrderBoardQuery::class);
+        $refs = fn (string $stage = '') => $board->rows(stage: $stage)->map(fn (array $r) => $r['order']->ref)->all();
+        $this->assertNotContains('33128', $refs());
+        $this->assertSame(['33128'], $refs(OrderStage::Closed->value));
+        $this->assertSame(OrderStage::Closed, $board->rows(stage: OrderStage::Closed->value)->sole()['progress']->stage());
+        $this->assertSame(1, $board->kpis()['closed']);
+        $this->assertSame('2026-10-24 15:00', $order->refresh()->sap_closed_at?->format('Y-m-d H:i'));
+        $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::ProductionOrderClosedInSap->value)->where('subject_id', $order->id)->count());
+
+        // A later refresh keeps the date it was first seen closed, and does not trace it again.
+        $this->travelTo('2026-10-25 08:00');
+        $this->sync();
+        $this->assertSame('2026-10-24 15:00', $order->refresh()->sap_closed_at?->format('Y-m-d H:i'));
+        $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::ProductionOrderClosedInSap->value)->where('subject_id', $order->id)->count());
+
+        Livewire::actingAs($this->admin)->test('pages::orders.index')
+            ->assertSee('Cerradas en SAP')
+            ->set('stage', OrderStage::Closed->value)
+            ->assertSee('33128')
+            ->assertSee('Cerrada en SAP')
+            ->assertSee('el 24/10/2026')
+            ->assertDontSee('33131');
+    }
 }

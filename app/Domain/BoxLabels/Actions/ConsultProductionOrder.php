@@ -3,29 +3,21 @@
 namespace App\Domain\BoxLabels\Actions;
 
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
-use App\Domain\Orders\ProductionOrderCache;
-use App\Domain\Shared\TraceContext;
-use App\Domain\Shared\TraceEventType;
 use App\Enums\Permission;
-use App\Integrations\Sap\Contracts\SapGateway;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
-use App\Integrations\Sap\Exceptions\SapLookupFailed;
 use App\Models\ProductionOrder;
 use App\Models\User;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Looks a production order up in SAP by its number. When it exists and is
- * released, its header and its product are stored locally (production
- * orders and items are read caches of SAP) and the order is returned.
- * Anything else is refused with the reason, and nothing is stored.
+ * Looks a production order up by its number in this application's copy of
+ * SAP, kept up to date by the order board's refresh ("Actualizar desde SAP"
+ * or sap:sync-orders). It never calls SAP. Only a released order is
+ * returned; anything else is refused with the reason.
  */
 class ConsultProductionOrder
 {
-    public function __construct(private readonly SapGateway $sap, private readonly ProductionOrderCache $cache) {}
-
-    public function handle(User $user, string $docNum, TraceContext $ctx): ProductionOrder
+    public function handle(User $user, string $docNum): ProductionOrder
     {
         Gate::forUser($user)->authorize(Permission::BoxLabelsPrint->value);
 
@@ -35,20 +27,15 @@ class ConsultProductionOrder
             throw BoxLabelRuleViolation::invalidNumber();
         }
 
-        try {
-            $sapOrder = $this->sap->findProductionOrder($docNum);
-        } catch (SapLookupFailed) {
-            throw BoxLabelRuleViolation::sapUnavailable();
+        $order = ProductionOrder::query()->with('item')->where('ref', $docNum)->first()
+            ?? throw BoxLabelRuleViolation::notSynced($docNum);
+
+        if ($order->sap_status !== ProductionOrderStatus::Released->value) {
+            $status = ProductionOrderStatus::tryFrom((string) $order->sap_status)?->label() ?? (string) $order->sap_status;
+
+            throw BoxLabelRuleViolation::notReleased($docNum, $status);
         }
 
-        if ($sapOrder === null) {
-            throw BoxLabelRuleViolation::notFound($docNum);
-        }
-
-        if ($sapOrder->status !== ProductionOrderStatus::Released) {
-            throw BoxLabelRuleViolation::notReleased($docNum, $sapOrder->status->label());
-        }
-
-        return DB::transaction(fn () => $this->cache->store($sapOrder, $user, $ctx, TraceEventType::ProductionOrderConsulted));
+        return $order;
     }
 }

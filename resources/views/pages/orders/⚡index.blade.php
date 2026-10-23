@@ -133,7 +133,7 @@ new #[Title('Tablero de OF')] class extends Component {
     @endif
 
     {{-- KPIs --}}
-    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <div class="rounded-xl border border-zinc-200 p-5 dark:border-zinc-700">
             <div class="text-sm text-zinc-500 dark:text-zinc-400">OF liberadas</div>
             <div class="mt-1 text-4xl font-semibold tabular-nums">{{ $kpis['orders'] }}</div>
@@ -158,6 +158,11 @@ new #[Title('Tablero de OF')] class extends Component {
             <div class="mt-1 text-4xl font-semibold tabular-nums">{{ $kpis['ready'] + $kpis['over'] }}</div>
             <div class="mt-2 text-xs text-zinc-500">{{ $kpis['in_cedi'] }} ya completas en CEDI @if ($kpis['over'] > 0)· <span class="text-red-600">{{ $kpis['over'] }} con sobreproducción</span>@endif</div>
         </div>
+        <button type="button" wire:click="$set('stage', '{{ OrderStage::Closed->value }}')" class="rounded-xl border border-zinc-200 p-5 text-start hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-white/5">
+            <div class="text-sm text-zinc-500 dark:text-zinc-400">Cerradas en SAP</div>
+            <div class="mt-1 text-4xl font-semibold tabular-nums">{{ $kpis['closed'] }}</div>
+            <div class="mt-2 text-xs text-zinc-500">Pasaron por la aplicación y ya se cerraron en SAP</div>
+        </button>
     </div>
 
     @if ($kpis['pending_in_sap'] > 0)
@@ -168,13 +173,19 @@ new #[Title('Tablero de OF')] class extends Component {
         <flux:input wire:model.live.debounce.400ms="search" label="Buscar" placeholder="OF, código o descripción" clearable />
         <flux:select wire:model.live="stage" label="Estado">
             <flux:select.option value="">Todos</flux:select.option>
-            @foreach ([OrderStage::NoProgress, OrderStage::InProgress, OrderStage::ReadyToClose, OrderStage::OverProduced] as $s)<flux:select.option :value="$s->value">{{ $s->label() }}</flux:select.option>@endforeach
+            @foreach ([OrderStage::NoProgress, OrderStage::InProgress, OrderStage::ReadyToClose, OrderStage::OverProduced, OrderStage::Closed] as $s)<flux:select.option :value="$s->value">{{ $s->label() }}</flux:select.option>@endforeach
         </flux:select>
     </div>
 
     <div wire:loading.class="opacity-60" class="transition-opacity">
         @if ($this->rows->isEmpty())
-            <div class="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">No hay órdenes liberadas con esos filtros. Usa «Actualizar desde SAP» para traerlas.</div>
+            <div class="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">
+                @if ($stage === OrderStage::Closed->value)
+                    Todavía no hay órdenes cerradas en SAP que hayan pasado por la aplicación. Se ven aquí cuando una OF que llegó a «Lista para cerrar» se cierra en SAP y se actualiza el tablero.
+                @else
+                    No hay órdenes liberadas con esos filtros. Usa «Actualizar desde SAP» para traerlas.
+                @endif
+            </div>
         @else
             <flux:table>
                 <flux:table.columns>
@@ -187,7 +198,7 @@ new #[Title('Tablero de OF')] class extends Component {
                 </flux:table.columns>
                 <flux:table.rows>
                     @foreach ($this->rows as ['order' => $order, 'progress' => $p])
-                        @php($stage = $p->stage())
+                        @php($rowStage = $p->stage())
                         <flux:table.row :key="$order->id">
                             <flux:table.cell>
                                 <span class="font-mono font-semibold">{{ $order->ref }}</span>
@@ -205,8 +216,9 @@ new #[Title('Tablero de OF')] class extends Component {
                                 </flux:table.cell>
                             @endforeach
                             <flux:table.cell>
-                                <flux:badge size="sm" :color="$stage->color()">{{ $stage->label() }}</flux:badge>
-                                @if ($stage->closable() && $p->allInCedi())<div class="mt-1"><flux:badge size="sm" color="violet">Completa en CEDI</flux:badge></div>@endif
+                                <flux:badge size="sm" :color="$rowStage->color()">{{ $rowStage->label() }}</flux:badge>
+                                @if ($rowStage === OrderStage::Closed && $order->sap_closed_at)<div class="mt-1 text-xs text-zinc-500">el {{ $order->sap_closed_at->timezone(config('app.timezone'))->format('d/m/Y') }}</div>@endif
+                                @if ($rowStage->closable() && $p->allInCedi())<div class="mt-1"><flux:badge size="sm" color="violet">Completa en CEDI</flux:badge></div>@endif
                                 @if ($p->pendingInSap > 0)<div class="mt-1 text-xs text-amber-700 dark:text-amber-400">Pendiente de conciliar en SAP</div>@endif
                             </flux:table.cell>
                         </flux:table.row>

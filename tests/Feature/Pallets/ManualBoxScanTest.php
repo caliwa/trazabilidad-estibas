@@ -5,6 +5,7 @@ namespace Tests\Feature\Pallets;
 use App\Domain\BoxLabels\Actions\ConsultProductionOrder;
 use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
 use App\Domain\BoxLabels\BoxQr;
+use App\Domain\Orders\Actions\SyncReleasedOrders;
 use App\Domain\Pallets\Actions\ConfirmLabelByScan;
 use App\Domain\Pallets\Actions\PrintLabel;
 use App\Domain\Pallets\Actions\RegisterManualBoxScan;
@@ -61,7 +62,8 @@ class ManualBoxScanTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00'));
 
         // OF 33128 (released in the simulator) with 24 units per box and one batch of labels.
-        $this->order = app(ConsultProductionOrder::class)->handle($this->operator, '33128', $this->ctx());
+        app(SyncReleasedOrders::class)->handle(null, $this->ctx());
+        $this->order = app(ConsultProductionOrder::class)->handle($this->operator, '33128');
         BoxConversionFactor::factory()->create(['item_id' => $this->order->item_id, 'units_per_box' => '24']);
         $this->batch = app(GenerateBoxLabels::class)->handle($this->operator, $this->order->id, 10, CarbonImmutable::parse('2026-10-20'), CarbonImmutable::parse('2028-10-20'), $this->ctx());
     }

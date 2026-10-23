@@ -261,9 +261,11 @@ class DemoFlow extends Command
             $item->forceFill(['description' => $description, 'inventory_uom' => 'UNIDAD', 'barcode' => FakeSapCatalog::barcode($code), 'shelf_life_days' => 730, 'active' => true, 'synced_at' => now()])->save();
         }
 
+        // The board's refresh brings the released orders; box labels then find them here.
+        app(SyncReleasedOrders::class)->handle(null, $this->web($consultant));
         $consult = app(ConsultProductionOrder::class);
         $order = function (string $docNum, ?int $boxes, string $units) use ($consult, $consultant): ProductionOrder {
-            $order = $consult->handle($consultant, $docNum, $this->web($consultant));
+            $order = $consult->handle($consultant, $docNum);
 
             if ($boxes !== null) {
                 (new PalletStandard)->forceFill(['item_id' => $order->item_id, 'version' => 1, 'boxes_per_pallet' => $boxes, 'sap_source_key' => 'DEMO', 'status' => MasterStatus::Current, 'synced_at' => now()])->save();
