@@ -9,7 +9,7 @@ En el CEDI, el operario lee el QR de la estiba, cuenta las cajas y registra lo q
 - **3 oportunidades por conteo** (`TRACE_COUNT_TRIES`). Si el número no coincide, la pantalla dice "El conteo no coincide, vuelve a contar" y cuántas oportunidades quedan. Nunca dice si sobran o faltan cajas, ni cuántas son.
 - **Cada número queda guardado** en `pallet_audit_tries`, el correcto y los equivocados, y no se puede cambiar. En la bitácora queda un evento `audit.retry` por cada intento fallido. En `/discrepancies` el supervisor ve los números de cada oportunidad (por ejemplo "38 · 39 · 38").
 - **Cancelar no da oportunidades nuevas.** Las 3 son por estiba en cada ronda (el primer conteo, o cada reconteo habilitado), aunque alguien cancele y vuelva a empezar, sea la misma persona u otra.
-- **Reconteo.** En `/discrepancies` el supervisor de producción (o el administrador de trazabilidad) da "Habilitar reconteo" con un motivo. El caso pasa a "Reconteo habilitado". El nuevo conteo lo hace **otro operario**, que no haya contado esa estiba, y tiene sus propias 3 oportunidades. Quien contó la estiba no puede habilitar su reconteo.
+- **Reconteo.** En `/discrepancies` el supervisor de producción (o el administrador de trazabilidad) da "Habilitar reconteo" con un motivo. El caso pasa a "Reconteo habilitado". El nuevo conteo lo puede hacer **el mismo operario u otro**, y tiene sus propias 3 oportunidades. Quien contó la estiba no puede habilitar su reconteo.
 - **Rol "Supervisor de producción"** (`production_supervisor`): ve las discrepancias y habilita el reconteo (`discrepancies.resolve`). También ve el tablero de OF, las estibas y la bitácora. No cuenta.
 
 ## 2. Pantallas
@@ -31,7 +31,7 @@ En el CEDI, el operario lee el QR de la estiba, cuenta las cajas y registra lo q
 | RF-16: discrepancia bloquea el traslado | ídem, más `test_closing_a_case_needs_an_approved_action...` |
 | RF-17: novedades para revisión administrativa | `DiscrepanciesPageTest` (3) |
 | RN-14: sin ajustes automáticos | `test_closing_a_case_needs_an_approved_action_a_different_person_and_never_adjusts_anything` |
-| El operario no resuelve su propia discrepancia | ídem, más `test_an_authorized_reaudit_by_another_operator...` (la reauditoría la hace otra persona) |
+| El operario no resuelve su propia discrepancia | ídem, más `AuthorizeReaudit` rechaza a quien contó la estiba (no habilita su propio reconteo) |
 | Permisos en el servidor | `test_people_without_the_permissions_are_refused_on_the_server`, `test_no_other_screen_or_endpoint_shows_quantities_to_the_operator` |
 | Conteos simultáneos o abandonados | `test_a_count_belongs_to_whoever_started_it`, `test_cancelling_or_expiring_a_count_frees_the_pallet` |
 | Hasta 3 oportunidades antes de la discrepancia | `test_a_wrong_number_gets_another_try_and_a_right_one_still_approves`, `test_three_wrong_tries_open_the_discrepancy`, `test_cancelling_and_starting_again_gives_no_new_tries`, `test_the_tries_limit_comes_from_the_configuration` |
@@ -54,10 +54,9 @@ El prompt pide que la protección cubra la interfaz, el estado de Livewire, las 
 - **Una sola persona por conteo.** Si el mismo operario vuelve a leer la etiqueta, retoma su conteo. Si lo intenta otra persona, se le rechaza. Un conteo abierto más de `TRACE_COUNT_TIMEOUT_MINUTES` (60) se cancela solo con `audits:expire-counts`, que corre cada 5 minutos.
 - **Conteo registrado es evidencia.** No se puede cambiar (trigger de la Fase 1). Para corregir hay que hacer otro conteo.
 - **DP-04, aprobada la reauditoría.** El negocio aprobó que el supervisor habilite un reconteo. Cerrar con acción sigue apagado. Hay dos interruptores:
-  - `TRACE_DISCREPANCY_REAUDIT_ENABLED` (encendido por defecto): el supervisor habilita un segundo conteo ciego, que debe hacer alguien que no haya contado esa estiba. Si coincide, el caso se cierra (`REAUDITORIA_COINCIDE`) y la estiba queda lista. Si vuelve a diferir, se cierra ese caso (`REAUDITORIA_DIFIERE`) y se abre uno nuevo.
+  - `TRACE_DISCREPANCY_REAUDIT_ENABLED` (encendido por defecto): el supervisor habilita un segundo conteo ciego, que puede hacer el mismo operario u otro. Si coincide, el caso se cierra (`REAUDITORIA_COINCIDE`) y la estiba queda lista. Si vuelve a diferir, se cierra ese caso (`REAUDITORIA_DIFIERE`) y se abre uno nuevo.
   - `TRACE_DISCREPANCY_CLOSE_ACTIONS`: lista de acciones con las que un administrador puede cerrar un caso, con notas y referencia. **Cerrar un caso no desbloquea la estiba ni ajusta nada**: el ajuste de inventario, si hace falta, lo hace en SAP quien corresponda, y la referencia del documento queda en la evidencia. Qué pasa después con esa estiba (reauditar, rechazar, devolver) es DP-04 y DP-08.
 
-  Mi recomendación sigue igual: reauditoría obligatoria por otra persona antes de cualquier otra acción.
 - **Segregación.** Ni quien contó ni quien contó antes la estiba puede autorizar la reauditoría ni cerrar el caso, aunque tenga el permiso.
 - **Traslado automático.** Un conteo aprobado deja la estiba en LISTO. Crear el traslado solo es de la Fase 6.
 
