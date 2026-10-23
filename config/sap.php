@@ -83,4 +83,16 @@ return [
         'costing_code3' => env('SAP_RECEIPT_COSTING_CODE3', 'ANTIOQUI'),
     ],
 
+    /*
+    | Stock transfer 04 → 05 (StockTransfers). Always the same business
+    | partner and distribution rules; the warehouses come from
+    | sap.warehouses.
+    */
+    'transfer' => [
+        'card_code' => env('SAP_TRANSFER_CARD_CODE', 'P811022882'),
+        'distribution_rule' => env('SAP_TRANSFER_DISTRIBUTION_RULE', 'PCC'),
+        'distribution_rule2' => env('SAP_TRANSFER_DISTRIBUTION_RULE2', 'PRODUCCI'),
+        'distribution_rule3' => env('SAP_TRANSFER_DISTRIBUTION_RULE3', 'ANTIOQUI'),
+    ],
+
 ];

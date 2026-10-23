@@ -63,7 +63,7 @@ El prompt pide distinguir cuatro niveles. Este es el estado real:
 | RN-14 | Discrepancias sin ajuste automático | `BlindCountTest::test_closing_a_case_needs_an_approved_action_a_different_person_and_never_adjusts_anything` |
 | RN-15 | No retroceder estados confirmados | `PalletInvariantsTest::test_confirmed_states_cannot_go_back`, `StateTransitionsMatchDatabaseTest::test_enum_and_database_agree_on_every_pair` |
 | RN-16 | Sin secretos en logs | `RedactorTest::test_secret_keys_are_masked_at_any_depth_and_the_rest_is_kept`, `TraceEventsTest::test_context_and_log_lines_never_carry_secrets`, `HardeningTest::test_log_lines_are_json_with_the_correlation_id_and_no_secrets` |
-| RN-17 | Nada pendiente por suposición | `ServiceLayerGatewayTest::test_transfers_are_not_connected_and_never_send_anything`, `BlindCountTest::test_a_discrepancy_blocks_new_counts_until_dp04_allows_a_reaudit`, `HealthAndPreflightTest::test_preflight_fails_on_an_unsafe_configuration` |
+| RN-17 | Nada pendiente por suposición | `ServiceLayerTransferFlowTest::test_a_transfer_without_an_answer_stays_pending_and_is_never_resent`, `BlindCountTest::test_a_discrepancy_blocks_new_counts_until_dp04_allows_a_reaudit`, `HealthAndPreflightTest::test_preflight_fails_on_an_unsafe_configuration` |
 | RN-18 | Toda regla con prueba | Este informe y `ComplianceReportTest::test_every_test_cited_in_the_report_exists` |
 
 ## 4. Criterios de aceptación
@@ -216,8 +216,9 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | Recibo encontrado por correlación y leído lote por lote; "no existe" nunca se confunde con "no se pudo preguntar" | `ServiceLayerGatewayTest::test_a_receipt_is_found_by_its_correlation_and_read_lot_by_lot`, `ServiceLayerGatewayTest::test_not_found_is_null_and_not_knowing_is_never_null` |
 | OF desde ProductionOrders, una y todas las liberadas con paginación | `ServiceLayerGatewayTest::test_a_production_order_is_read_from_production_orders_with_its_product`, `ServiceLayerGatewayTest::test_the_released_orders_follow_every_page_in_big_pages_and_read_products_in_groups`, `ServiceLayerGatewayTest::test_an_unknown_order_status_or_an_unreachable_sap_is_never_taken_as_an_answer` |
 | Flujo completo: crear, comparar lo que SAP respondió y confirmar con su DocEntry y DocNum sin campo de correlación; respuesta sin líneas leída por DocEntry; conciliar por el DocEntry que SAP dio; fechas distintas no se confirman; rechazo libera la estiba | `ServiceLayerReceiptFlowTest::test_a_receipt_is_confirmed_with_the_document_sap_answers`, `ServiceLayerReceiptFlowTest::test_an_answer_without_lines_is_read_back_by_its_doc_entry`, `ServiceLayerReceiptFlowTest::test_reconciling_a_created_receipt_reads_it_by_the_doc_entry_sap_gave`, `ServiceLayerReceiptFlowTest::test_a_receipt_with_other_batch_dates_in_sap_is_never_confirmed`, `ServiceLayerReceiptFlowTest::test_sap_rejecting_the_receipt_fails_it_and_frees_the_pallet` |
+| El traslado 04 → 05 va a StockTransfers con el socio y las normas de reparto fijos de la configuración; cada respuesta se clasifica como en el recibo; se lee por DocEntry y nunca por una correlación que no existe | `ServiceLayerGatewayTest::test_the_transfer_goes_as_stock_transfers_with_the_fixed_partner_and_distribution_rules`, `ServiceLayerGatewayTest::test_the_transfer_partner_and_distribution_rules_come_from_the_configuration`, `ServiceLayerGatewayTest::test_each_transfer_answer_is_classified_like_the_receipt`, `ServiceLayerGatewayTest::test_a_transfer_is_read_by_its_doc_entry_and_never_by_a_correlation` |
+| Un traslado fallido se reintenta y queda confirmado con el documento de SAP; otra cantidad en SAP no se confirma; sin respuesta queda pendiente y no se reenvía | `ServiceLayerTransferFlowTest::test_a_failed_transfer_retried_goes_to_stock_transfers_and_is_confirmed`, `ServiceLayerTransferFlowTest::test_a_transfer_that_sap_moved_with_another_quantity_is_never_confirmed`, `ServiceLayerTransferFlowTest::test_a_transfer_without_an_answer_stays_pending_and_is_never_resent` |
 | Credenciales obligatorias y nunca en logs ni salidas | `ServiceLayerGatewayTest::test_credentials_are_required_and_never_logged`, `ServiceLayerGatewayTest::test_the_check_command_reads_the_released_orders` |
-| La transferencia no está conectada y no envía nada | `ServiceLayerGatewayTest::test_transfers_are_not_connected_and_never_send_anything` |
 
 ### Lectura manual de cajas y escáner
 
@@ -300,7 +301,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 | DP-06 | Cierre de órdenes en SAP con recibos parciales | Se revisa la copia local | Depende de cómo opere SAP |
 | DP-07 | Etiqueta física | Etiqueta HTML 100 × 150 mm | Depende de la impresora |
 | DP-08 | Reversión de documentos y estibas devueltas | No implementado | Sí, para operar devoluciones |
-| DP-09 | Acceso a SAP, correlación, almacenes | Conector de recibos y OF escrito; falta probarlo en DEV, crear el campo de correlación y conectar la transferencia | Sí |
+| DP-09 | Acceso a SAP, correlación, almacenes | Recibos y OF probados contra SAP DEV; traslado 04 → 05 conectado (StockTransfers), falta probarlo en DEV; falta crear los campos de correlación | Sí |
 
 ## 10. Definición de terminado
 

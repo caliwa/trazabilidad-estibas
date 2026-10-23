@@ -10,7 +10,8 @@
 | Buscar un recibo después de un timeout | `GET /InventoryGenEntries?$filter=<campo de correlación> eq '<uuid>'` y luego `GET /InventoryGenEntries(<DocEntry>)` | Conectado, pero **necesita el campo de correlación** (ver sección 4) |
 | Consultar una OF | `GET /ProductionOrders?$filter=DocumentNumber eq <n> and startswith(ItemNo,'PT')` y el producto en `GET /Items('<código>')` | Conectado |
 | Traer todas las OF liberadas (tablero de OF, `sap:sync-orders`) | `GET /ProductionOrders?$filter=ProductionOrderStatus eq 'boposReleased' and startswith(ItemNo,'PT')` con `Prefer: odata.maxpagesize=500`, siguiendo `odata.nextLink`; productos con `GET /Items?$filter=ItemCode eq '…' or …` de a 20 | Conectado |
-| Transferencia 04 → 05 | | **No conectada.** Se rechaza sin enviar nada |
+| Traslado de stock 04 → 05 | `POST /StockTransfers` | Conectado |
+| Leer un traslado que SAP dijo haber creado | `GET /StockTransfers(<DocEntry>)` | Conectado |
 
 Ya se creó un recibo real en el SAP DEV. Ahí se vio que el campo `U_TRZ_UUID` no existe: SAP creó el recibo igual, pero la consulta por ese campo responde 400 (`Property 'U_TRZ_UUID' of 'Document'is invalid`). Las pruebas automáticas usan respuestas simuladas de Service Layer (`Http::fake`).
 
@@ -31,7 +32,13 @@ SAP_RECEIPT_CORRELATION_FIELD=U_TRZ_UUID
 SAP_RECEIPT_COSTING_CODE=PCC
 SAP_RECEIPT_COSTING_CODE2=PRODUCCI
 SAP_RECEIPT_COSTING_CODE3=ANTIOQUI
+SAP_TRANSFER_CARD_CODE=P811022882
+SAP_TRANSFER_DISTRIBUTION_RULE=PCC
+SAP_TRANSFER_DISTRIBUTION_RULE2=PRODUCCI
+SAP_TRANSFER_DISTRIBUTION_RULE3=ANTIOQUI
 ```
+
+Los valores de arriba ya son los de por defecto: no hace falta escribirlos salvo que cambien. Los almacenes del traslado salen de `SAP_TRANSFER_FROM_WAREHOUSE` (04) y `SAP_TRANSFER_TO_WAREHOUSE` (05).
 
 - `SAP_ENVIRONMENT` elige el juego de credenciales: con `DEV` se leen las variables que terminan en `_DEV`. Para producción se agregan las `_PRD` (o el sufijo que usen) y se cambia `SAP_ENVIRONMENT`.
 - `SAP_API_URL_<ENV>` es la raíz de Service Layer, terminada en `/b1s/v1`.
@@ -103,6 +110,36 @@ Cuando SAP responde 201 (creado), la respuesta trae el recibo completo. Ese docu
 - **Conciliar** un recibo que SAP ya había dado por creado lo lee por ese DocEntry, guardado en el intento de envío. No usa el campo de correlación.
 - Si la consulta falla, el detalle del recibo muestra el mensaje de SAP.
 
+## 3b. Traslado de stock 04 → 05
+
+Lo pide el conteo ciego aprobado, o el botón "Reintentar traslado" del detalle de la estiba si el anterior falló. Se envía así, con los datos del JSON que compartieron:
+
+```json
+{
+  "DocDate": "<fecha del día>",
+  "FromWarehouse": "04",
+  "ToWarehouse": "05",
+  "CardCode": "P811022882",
+  "StockTransferLines": [
+    {
+      "ItemCode": "<producto>",
+      "Quantity": <unidades del lote>,
+      "FromWarehouseCode": "04",
+      "WarehouseCode": "05",
+      "DistributionRule": "PCC",
+      "DistributionRule2": "PRODUCCI",
+      "DistributionRule3": "ANTIOQUI",
+      "BatchNumbers": [{ "BatchNumber": "<lote>", "Quantity": <unidades>, "BaseLineNumber": <número de la línea> }]
+    }
+  ]
+}
+```
+
+- Una línea por producto y lote. Si van varias estibas del mismo lote, se suman en una línea.
+- **Fijos:** almacenes 04 y 05, el socio `P811022882` y las tres normas de reparto. Vienen de la configuración (sección 2).
+- **Respuesta:** igual que el recibo. Con un 201 se compara lo que SAP respondió (producto, lote, cantidad, almacén de destino y de origen) y se confirma con su DocEntry y DocNum. Si la respuesta no trae las líneas, se lee con `GET /StockTransfers(<DocEntry>)`. Un 4xx claro deja el traslado fallido, con el mensaje de SAP, y la estiba lista para reintentar. Timeout o 5xx: pendiente de conciliación.
+- **Sin campo de correlación.** El traslado no lleva un campo con el `request_uuid`. Si SAP no responde, no hay forma de saber si se creó: queda pendiente, la conciliación lo dice y nunca se reenvía solo, para no mover el stock dos veces. Alguien lo revisa en SAP.
+
 ## 4. Campo de correlación (importante)
 
 Cuando SAP contesta, el campo no hace falta: se usa el DocEntry de la respuesta. **Sí hace falta cuando no contesta** (timeout, red caída, error 5xx). En ese caso no se sabe si el recibo se creó, y sin un campo que lleve el `request_uuid` no hay forma segura de averiguarlo. La conciliación falla con el 400 de SAP y el recibo queda pendiente hasta que alguien lo revise en SAP. Nunca se reenvía solo, para no duplicarlo.
@@ -136,5 +173,6 @@ De `ProductionOrders` se usan: `AbsoluteEntry` (DocEntry), `DocumentNumber`, `Pr
 
 - **Correr `sap:check` y un recibo de prueba contra el SAP DEV.** Los nombres de objetos y campos son los estándar de Service Layer y los del JSON que compartieron, pero no se han validado contra su versión.
 - **Crear el campo `U_TRZ_UUID`** en la cabecera del recibo de producción, o definir otro. Sin él, un recibo que quede sin respuesta de SAP no se puede conciliar solo.
-- **Transferencia 04 → 05:** sin conectar. Con el conector real, la transferencia que pide el conteo aprobado se rechaza con el mensaje "todavía no está conectada" y la estiba queda lista para reintentar cuando se conecte.
+- **Probar el traslado contra el SAP DEV.** El cuerpo es el del JSON que compartieron. Las estibas cuyo traslado falló cuando no estaba conectado se reintentan con "Reintentar traslado" en su detalle.
+- **Campo de correlación del traslado.** Si se quiere conciliar solo un traslado que quedó sin respuesta, hace falta un campo de usuario en la cabecera de `StockTransfers` (tabla OWTR), como `U_TRZ_UUID` en el recibo.
 - **Decimales**: las cantidades viajan como número JSON. Con cantidades de hasta 15 dígitos significativos no hay pérdida.
