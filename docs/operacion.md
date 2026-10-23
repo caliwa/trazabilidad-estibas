@@ -86,7 +86,7 @@ Para encontrarlas: alerta "Pendientes de conciliación" en `/operations`, o el t
 
 ## 4. Discrepancias
 
-Una discrepancia se abre cuando el operario falla las 3 oportunidades del conteo. La estiba queda retenida y el caso se ve en `/discrepancies` con cada conteo, los números de cada oportunidad y la cantidad del sistema. El supervisor de producción da "Habilitar reconteo" y otro operario la vuelve a contar (ver `docs/fase-5-auditoria.md`). Cerrar un caso con acción sigue apagado (`TRACE_DISCREPANCY_CLOSE_ACTIONS`). Nunca se ajusta inventario: el ajuste, si hace falta, se hace en SAP.
+Una discrepancia se abre cuando el operario falla las 3 oportunidades del conteo. La estiba queda retenida y el caso se ve en `/discrepancies` con cada conteo, los números de cada oportunidad y la cantidad del sistema. El supervisor de producción da "Habilitar reconteo" y se vuelve a contar, por el mismo operario u otro (ver `docs/fase-5-auditoria.md`). Cerrar un caso con acción sigue apagado (`TRACE_DISCREPANCY_CLOSE_ACTIONS`). Nunca se ajusta inventario: el ajuste, si hace falta, se hace en SAP.
 
 ## 5. Después de restaurar un respaldo
 

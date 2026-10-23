@@ -197,21 +197,20 @@ class BlindCountTest extends TestCase
         $this->expectViolation(fn () => app(AuthorizeReaudit::class)->handle($this->admin, DiscrepancyCase::sole()->id, 'Recontar', $this->ctx($this->admin)), 'DP-04');
     }
 
-    public function test_an_authorized_reaudit_by_another_operator_that_matches_closes_the_case(): void
+    public function test_an_authorized_reaudit_by_the_same_operator_that_matches_closes_the_case(): void
     {
         config(['traceability.decisions.discrepancy_reaudit_enabled' => true]);
         Notification::fake();
         $pallet = Pallet::factory()->receivedInSap()->create();
         $this->submit($this->start($pallet), 1);
-        $case = app(AuthorizeReaudit::class)->handle($this->admin, DiscrepancyCase::sole()->id, 'Recontar con otra persona', $this->ctx($this->admin));
+        $this->expectViolation(fn () => $this->start($pallet), 'discrepancia abierta');
+        $case = app(AuthorizeReaudit::class)->handle($this->admin, DiscrepancyCase::sole()->id, 'Recontar', $this->ctx($this->admin));
         $this->assertSame(DiscrepancyStatus::InReview, $case->status);
 
-        $this->expectViolation(fn () => $this->start($pallet), 'persona distinta');
-
-        $other = $this->userWithRole(Role::LogisticsOperator);
-        $view = $this->start($pallet, $other);
+        // The operator who counted before can do the reaudit.
+        $view = $this->start($pallet);
         $this->assertTrue($view->isReaudit);
-        $this->assertSame(BlindCountOutcome::Approved, $this->submit($view, $pallet->boxes_count, $other));
+        $this->assertSame(BlindCountOutcome::Approved, $this->submit($view, $pallet->boxes_count));
 
         $case->refresh();
         $this->assertSame([DiscrepancyStatus::Resolved, 'REAUDITORIA_COINCIDE', $this->admin->id], [$case->status, $case->resolution_action, $case->resolved_by]);

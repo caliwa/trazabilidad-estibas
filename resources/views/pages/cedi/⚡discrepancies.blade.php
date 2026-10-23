@@ -90,7 +90,7 @@ new #[Title('Discrepancias')] class extends Component {
     {
         $this->validate(['notes' => ['required', 'string', 'max:500']], attributes: ['notes' => 'motivo']);
 
-        $this->run(fn () => $authorize->handle(Auth::user(), (int) $this->caseId, $this->notes, $this->context()), 'Reconteo habilitado: la puede contar otro operario.', 'reaudit');
+        $this->run(fn () => $authorize->handle(Auth::user(), (int) $this->caseId, $this->notes, $this->context()), 'Reconteo habilitado: ya se puede volver a contar.', 'reaudit');
     }
 
     public function resolve(ResolveDiscrepancy $resolve): void
@@ -188,7 +188,7 @@ new #[Title('Discrepancias')] class extends Component {
     <flux:modal name="reaudit" class="w-full max-w-md">
         <form wire:submit="authorizeReaudit" class="flex flex-col gap-4">
             <flux:heading size="lg">Habilitar reconteo</flux:heading>
-            <flux:text>Otro operario, que no haya contado esta estiba, podrá hacer un nuevo conteo ciego con {{ config('traceability.count_tries') }} oportunidades.</flux:text>
+            <flux:text>Se podrá hacer un nuevo conteo ciego de esta estiba, con {{ config('traceability.count_tries') }} oportunidades. Lo puede hacer el mismo operario u otro.</flux:text>
             <flux:textarea wire:model="notes" label="Motivo" rows="3" required />
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button variant="filled">Cancelar</flux:button></flux:modal.close>

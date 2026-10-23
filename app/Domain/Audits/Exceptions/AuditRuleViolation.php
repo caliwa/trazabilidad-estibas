@@ -45,11 +45,6 @@ class AuditRuleViolation extends DomainException
         return new self("La estiba {$code} tiene una discrepancia abierta. Un administrador debe autorizar la reauditoría.");
     }
 
-    public static function sameCounter(string $code): self
-    {
-        return new self("La reauditoría de {$code} la debe hacer una persona distinta a quien contó antes.");
-    }
-
     public static function notYourCount(): self
     {
         return new self('Ese conteo no es tuyo o ya terminó.');

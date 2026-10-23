@@ -26,9 +26,9 @@ use Illuminate\Support\Facades\Gate;
  * (receipt confirmed in SAP, not transferred, not approved, nobody else
  * counting, no discrepancy waiting) and returns identity only.
  *
- * A pallet with a discrepancy can be counted again only after an
- * administrator authorized a reaudit (case EN_REVISION), and only by
- * someone who has not counted it before.
+ * A pallet with a discrepancy can be counted again only after a
+ * supervisor enabled a reaudit (case EN_REVISION). Anyone who counts can
+ * do it, the operator who counted before included.
  */
 class StartBlindCount
 {
@@ -64,7 +64,7 @@ class StartBlindCount
             match ($pallet->audit_status) {
                 AuditStatus::Approved => throw AuditRuleViolation::alreadyApproved($pallet->pallet_code),
                 AuditStatus::Counting => throw AuditRuleViolation::countedByOther($pallet->pallet_code),
-                AuditStatus::Discrepancy => $reauditOf = $this->authorizedReaudit($pallet, $user),
+                AuditStatus::Discrepancy => $reauditOf = $this->authorizedReaudit($pallet),
                 AuditStatus::Pending => null,
             };
 
@@ -89,16 +89,12 @@ class StartBlindCount
         });
     }
 
-    private function authorizedReaudit(Pallet $pallet, User $user): PalletAudit
+    private function authorizedReaudit(Pallet $pallet): PalletAudit
     {
         $case = DiscrepancyCase::query()->where('pallet_id', $pallet->id)->where('status', '<>', DiscrepancyStatus::Resolved)->latest('id')->first();
 
         if ($case === null || $case->status !== DiscrepancyStatus::InReview) {
             throw AuditRuleViolation::discrepancyOpen($pallet->pallet_code);
-        }
-
-        if (PalletAudit::query()->where('pallet_id', $pallet->id)->where('operator_id', $user->id)->exists()) {
-            throw AuditRuleViolation::sameCounter($pallet->pallet_code);
         }
 
         return PalletAudit::query()->findOrFail($case->pallet_audit_id);
