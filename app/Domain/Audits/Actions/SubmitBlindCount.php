@@ -16,6 +16,7 @@ use App\Enums\Permission;
 use App\Models\DiscrepancyCase;
 use App\Models\Pallet;
 use App\Models\PalletAudit;
+use App\Models\PalletAuditTry;
 use App\Models\User;
 use App\Notifications\DiscrepancyOpened;
 use App\Services\TraceLogger;
@@ -26,11 +27,13 @@ use Illuminate\Support\Facades\Notification;
 /**
  * Compares the counted boxes with the system quantity, on the server.
  *
- * Match: audit approved and, in the same transaction, the stock transfer
- * 04 → 05 is requested; it is sent to SAP after the commit. Difference: the
- * count is kept as evidence, a discrepancy case opens, nothing moves and
- * the people who resolve discrepancies are notified. Nothing is adjusted.
- * The caller gets only the outcome, never a number.
+ * Every number typed is kept as a try. Match: audit approved and, in the
+ * same transaction, the stock transfer 04 → 05 is requested; it is sent to
+ * SAP after the commit. Difference with tries left (traceability.count_tries
+ * per pallet and round): the count stays open for another try. Difference
+ * on the last try: the count is kept as evidence, a discrepancy case opens,
+ * nothing moves and the people who resolve discrepancies are notified.
+ * Nothing is adjusted. The caller gets only the outcome, never a number.
  */
 class SubmitBlindCount
 {
@@ -57,6 +60,23 @@ class SubmitBlindCount
             $expected = $pallet->boxes_count;
             $matches = $counted === $expected;
 
+            $try = new PalletAuditTry;
+            $try->forceFill([
+                'pallet_audit_id' => $audit->id,
+                'try_number' => (int) $audit->tries()->max('try_number') + 1,
+                'counted_boxes' => $counted,
+                'matches' => $matches,
+                'created_at' => now(),
+            ])->save();
+
+            if (! $matches && $this->triesUsed($audit) < config()->integer('traceability.count_tries')) {
+                // Not yet a discrepancy: the operator counts again. Nothing about the number is said.
+                $this->trace->record($ctx, TraceEventType::AuditRetry, $pallet, result: TraceResult::Rejected,
+                    context: ['audit_id' => $audit->id, 'attempt' => $audit->attempt, 'try' => $try->try_number, 'counted_boxes' => $counted, 'expected_boxes' => $expected]);
+
+                return [BlindCountOutcome::Retry, null];
+            }
+
             $audit->forceFill([
                 'status' => $matches ? CountStatus::Approved : CountStatus::Discrepancy,
                 'counted_boxes' => $counted,
@@ -79,7 +99,7 @@ class SubmitBlindCount
                     'pallet_audit_id' => $audit->id,
                     'status' => DiscrepancyStatus::Open,
                     'opened_at' => now(),
-                    'evidence' => ['counted_boxes' => $counted, 'expected_boxes' => $expected, 'attempt' => $audit->attempt],
+                    'evidence' => ['counted_boxes' => $counted, 'expected_boxes' => $expected, 'attempt' => $audit->attempt, 'tries' => $audit->tries()->pluck('counted_boxes')->all()],
                 ])->save();
             }
 
@@ -88,7 +108,7 @@ class SubmitBlindCount
                 from: ['audit_status' => AuditStatus::Counting->value],
                 to: ['audit_status' => $matches ? AuditStatus::Approved->value : AuditStatus::Discrepancy->value],
                 result: $matches ? TraceResult::Ok : TraceResult::Rejected,
-                context: ['audit_id' => $audit->id, 'attempt' => $audit->attempt, 'counted_boxes' => $counted, 'expected_boxes' => $expected]);
+                context: ['audit_id' => $audit->id, 'attempt' => $audit->attempt, 'try' => $try->try_number, 'counted_boxes' => $counted, 'expected_boxes' => $expected]);
 
             if ($matches) {
                 // Same transaction: if the transfer request cannot be stored, the count is not approved either.
@@ -103,6 +123,26 @@ class SubmitBlindCount
         }
 
         return $outcome;
+    }
+
+    /**
+     * Tries left for this count: the limit minus the tries of every count of
+     * the same pallet in the same round, so cancelling and starting again
+     * does not give new ones.
+     */
+    public function triesLeft(int $auditId): int
+    {
+        $audit = PalletAudit::query()->findOrFail($auditId);
+
+        return max(0, config()->integer('traceability.count_tries') - $this->triesUsed($audit));
+    }
+
+    private function triesUsed(PalletAudit $audit): int
+    {
+        return PalletAuditTry::query()->whereHas('audit', fn ($q) => $q
+            ->where('pallet_id', $audit->pallet_id)
+            ->when($audit->reaudit_of_id === null, fn ($q) => $q->whereNull('reaudit_of_id'), fn ($q) => $q->where('reaudit_of_id', $audit->reaudit_of_id)),
+        )->count();
     }
 
     /**

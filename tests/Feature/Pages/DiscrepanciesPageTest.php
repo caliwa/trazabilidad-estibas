@@ -38,11 +38,14 @@ class DiscrepanciesPageTest extends TestCase
         $this->pallet = Pallet::factory()->receivedInSap()->create();
         $ctx = TraceContext::forUser($operator, Origin::Web, (string) Str::uuid());
         $view = app(StartBlindCount::class)->handle($operator, PalletQr::payload($this->pallet), $ctx);
-        app(SubmitBlindCount::class)->handle($operator, $view->auditId, 3, $ctx);
+        foreach ([3, 4, 3] as $counted) {
+            app(SubmitBlindCount::class)->handle($operator, $view->auditId, $counted, $ctx);
+        }
     }
 
     public function test_admins_see_counted_and_system_quantities_and_the_pending_policy(): void
     {
+        config(['traceability.decisions.discrepancy_reaudit_enabled' => false]);
         $this->actingAs($this->admin)->get(route('discrepancies.index'))
             ->assertOk()
             ->assertSee($this->pallet->pallet_code)
@@ -79,5 +82,23 @@ class DiscrepanciesPageTest extends TestCase
             ->call('resolve')->assertHasNoErrors();
 
         $this->assertSame(DiscrepancyStatus::Resolved, $case->refresh()->status);
+    }
+
+    public function test_the_production_supervisor_enables_a_recount_from_the_page(): void
+    {
+        $supervisor = $this->userWithRole(Role::ProductionSupervisor);
+        $case = DiscrepancyCase::sole();
+
+        $this->actingAs($supervisor)->get(route('discrepancies.index'))->assertOk()
+            ->assertSee('Habilitar reconteo')
+            ->assertSee('3 · 4 · 3')
+            ->assertDontSee('Resolución pendiente de aprobar (DP-04)');
+
+        Livewire::actingAs($supervisor)->test('pages::cedi.discrepancies')
+            ->call('open', $case->id, 'reaudit')
+            ->set('notes', 'Recontar con otro operario')->call('authorizeReaudit')->assertHasNoErrors();
+
+        $this->assertSame(DiscrepancyStatus::InReview, $case->refresh()->status);
+        $this->actingAs($supervisor)->get(route('discrepancies.index'))->assertSee('Reconteo habilitado');
     }
 }

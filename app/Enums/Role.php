@@ -11,6 +11,7 @@ enum Role: string
 {
     case Admin = 'admin';
     case TraceabilityAdmin = 'traceability_admin';
+    case ProductionSupervisor = 'production_supervisor';
     case ProductionOperator = 'production_operator';
     case LogisticsOperator = 'logistics_operator';
     case Viewer = 'viewer';
@@ -20,6 +21,7 @@ enum Role: string
         return match ($this) {
             self::Admin => 'Administrador del sistema',
             self::TraceabilityAdmin => 'Administrador de trazabilidad',
+            self::ProductionSupervisor => 'Supervisor de producción',
             self::ProductionOperator => 'Operario de producción',
             self::LogisticsOperator => 'Operario logístico',
             self::Viewer => 'Consulta',
@@ -47,6 +49,13 @@ enum Role: string
                 Permission::DiscrepanciesResolve,
                 Permission::TransfersReconcile,
                 Permission::OpsAlerts,
+                Permission::TraceView,
+            ],
+            // Sees the discrepancies and enables a new blind count; follows the orders and pallets.
+            self::ProductionSupervisor => [
+                Permission::DiscrepanciesResolve,
+                Permission::OrdersView,
+                Permission::PalletsView,
                 Permission::TraceView,
             ],
             self::ProductionOperator => [

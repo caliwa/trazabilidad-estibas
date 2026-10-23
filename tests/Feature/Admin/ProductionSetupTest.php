@@ -22,7 +22,7 @@ class ProductionSetupTest extends TestCase
         $this->artisan('db:seed', ['--class' => DatabaseSeeder::class, '--force' => true])->assertSuccessful();
 
         $this->assertSame(0, User::count());
-        $this->assertDatabaseCount('roles', 5);
+        $this->assertDatabaseCount('roles', count(Role::cases()));
     }
 
     public function test_create_admin_command_sends_a_password_link(): void

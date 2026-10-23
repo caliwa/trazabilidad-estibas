@@ -43,6 +43,10 @@ new #[Title('Conteo ciego')] class extends Component {
     #[Locked]
     public ?string $error = null;
 
+    /** Tries left for the count in progress; shown only after one did not match. */
+    #[Locked]
+    public ?int $triesLeft = null;
+
     private function context(): TraceContext
     {
         return TraceContext::forUser(Auth::user(), Origin::Web, app(CorrelationId::class)->get(), request()->ip());
@@ -50,7 +54,7 @@ new #[Title('Conteo ciego')] class extends Component {
 
     public function scan(StartBlindCount $start): void
     {
-        $this->reset('error', 'outcome', 'counted');
+        $this->reset('error', 'outcome', 'counted', 'triesLeft');
         $this->resetValidation();
 
         try {
@@ -63,6 +67,8 @@ new #[Title('Conteo ciego')] class extends Component {
         }
 
         $this->auditId = $view->auditId;
+        $left = app(SubmitBlindCount::class)->triesLeft($view->auditId);
+        $this->triesLeft = $left < config()->integer('traceability.count_tries') ? $left : null;
         $this->pallet = ['code' => $view->palletCode, 'order' => $view->productionOrderRef, 'item' => $view->itemCode, 'description' => $view->itemDescription, 'lot' => $view->lotCode, 'reaudit' => $view->isReaudit];
         $this->scanned = '';
     }
@@ -89,8 +95,16 @@ new #[Title('Conteo ciego')] class extends Component {
             return;
         }
 
+        if ($result === BlindCountOutcome::Retry) {
+            // Same count, another try: the pallet stays on screen, the number is cleared.
+            $this->triesLeft = $submit->triesLeft((int) $this->auditId);
+            $this->reset('counted');
+
+            return;
+        }
+
         $this->outcome = $result->value;
-        $this->reset('auditId', 'counted');
+        $this->reset('auditId', 'counted', 'triesLeft');
     }
 
     public function cancel(CancelBlindCount $cancel): void
@@ -101,12 +115,12 @@ new #[Title('Conteo ciego')] class extends Component {
             // Already finished or expired: nothing to cancel.
         }
 
-        $this->reset('auditId', 'pallet', 'counted', 'outcome', 'error');
+        $this->reset('auditId', 'pallet', 'counted', 'outcome', 'error', 'triesLeft');
     }
 
     public function next(): void
     {
-        $this->reset('auditId', 'pallet', 'counted', 'outcome', 'error', 'scanned');
+        $this->reset('auditId', 'pallet', 'counted', 'outcome', 'error', 'scanned', 'triesLeft');
     }
 }; ?>
 
@@ -131,22 +145,30 @@ new #[Title('Conteo ciego')] class extends Component {
             <div role="status" class="flex flex-col items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-8 text-center dark:border-amber-800 dark:bg-amber-950">
                 <flux:icon.exclamation-triangle class="size-12 text-amber-600" />
                 <div class="text-2xl font-semibold text-amber-800 dark:text-amber-200">Diferencia registrada</div>
-                <div class="text-amber-700 dark:text-amber-300">La estiba {{ $pallet['code'] ?? '' }} queda retenida. Ya avisamos al administrador.</div>
+                <div class="text-amber-700 dark:text-amber-300">La estiba {{ $pallet['code'] ?? '' }} queda retenida. Ya avisamos al supervisor para que habilite el reconteo.</div>
             </div>
         @endif
         <flux:button variant="primary" size="base" icon="qr-code" wire:click="next" class="w-full">Siguiente estiba</flux:button>
     @elseif ($pallet === null)
-        <div class="flex flex-col gap-4 rounded-xl border border-zinc-200 p-5 dark:border-zinc-700">
+        {{-- Keys on each step: the scanner is wire:ignore, and without them Livewire reused it for the pallet card. --}}
+        <div wire:key="step-scan" class="flex flex-col gap-4 rounded-xl border border-zinc-200 p-5 dark:border-zinc-700">
             <x-scanner action="scanFrom" label="Etiqueta de la estiba" placeholder="Lee el QR de la etiqueta de la estiba" />
             <div wire:loading wire:target="scanFrom" class="text-sm text-zinc-500">Buscando la estiba…</div>
         </div>
     @else
-        <div class="rounded-xl border border-zinc-200 p-5 dark:border-zinc-700">
+        <div wire:key="step-count-{{ $auditId }}" class="rounded-xl border border-zinc-200 p-5 dark:border-zinc-700">
             <div class="font-mono text-3xl font-semibold text-zinc-900 dark:text-white">{{ $pallet['code'] }}</div>
             <div class="mt-1 text-zinc-600 dark:text-zinc-300">{{ $pallet['item'] }} · {{ $pallet['description'] }}</div>
             <div class="text-zinc-500 dark:text-zinc-400">Orden {{ $pallet['order'] }} · Lote {{ $pallet['lot'] }}</div>
             @if ($pallet['reaudit'])<flux:badge color="amber" class="mt-2">Reauditoría</flux:badge>@endif
         </div>
+
+        @if ($triesLeft !== null)
+            <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+                <div class="font-medium">El conteo no coincide</div>
+                <div class="text-sm">Vuelve a contar las cajas. {{ $triesLeft === 1 ? 'Te queda 1 oportunidad' : "Te quedan {$triesLeft} oportunidades" }}: si no coincide, se registra la diferencia.</div>
+            </div>
+        @endif
 
         <form wire:submit="submit" class="flex flex-col gap-4">
             <flux:input wire:model="counted" type="number" inputmode="numeric" min="0" max="{{ SubmitBlindCount::MAX_BOXES }}" label="Cajas contadas" autofocus required class="text-2xl" />

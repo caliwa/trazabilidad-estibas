@@ -46,7 +46,12 @@ trait BuildsTransfers
         $counter ??= User::factory()->create()->assignRole(Role::LogisticsOperator->value);
         $view = app(StartBlindCount::class)->handle($counter, PalletQr::payload($pallet->refresh()), $this->transferCtx($counter));
 
-        return app(SubmitBlindCount::class)->handle($counter, $view->auditId, $boxes ?? $pallet->boxes_count, $this->transferCtx($counter));
+        // The same number on every try, so a wrong one ends in a discrepancy.
+        do {
+            $outcome = app(SubmitBlindCount::class)->handle($counter, $view->auditId, $boxes ?? $pallet->boxes_count, $this->transferCtx($counter));
+        } while ($outcome === BlindCountOutcome::Retry);
+
+        return $outcome;
     }
 
     /**

@@ -158,7 +158,9 @@ class OperationalChecksTest extends TestCase
         [$pallet] = $this->labeledPallets(['L-1'])->all();
         $this->requestReceipts($this->admin, [$pallet]);
         $view = app(StartBlindCount::class)->handle($counter, PalletQr::payload($pallet->refresh()), $this->transferCtx($counter));
-        app(SubmitBlindCount::class)->handle($counter, $view->auditId, $pallet->boxes_count - 1, $this->transferCtx($counter));
+        foreach (range(1, config()->integer('traceability.count_tries')) as $try) {
+            app(SubmitBlindCount::class)->handle($counter, $view->auditId, $pallet->boxes_count - 1, $this->transferCtx($counter));
+        }
 
         $alert = $this->alerts()['open_discrepancies'];
 

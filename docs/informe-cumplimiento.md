@@ -296,7 +296,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 | DP-01 | Identificador del sensor y eventos tardíos | Motor completo, `TRACE_SCAN_INGESTION_ENABLED=false` | Sí: sin esto no entra producción |
 | DP-02 | Fuente de órdenes, lotes y factores | Tablas y validación; sin sincronización con SAP | Sí |
 | DP-03 | Confirmación de etiqueta aplicada | Tres modos implementados, ninguno activo | Sí: sin esto no hay recibos |
-| DP-04 | Resolución de discrepancias | Reauditoría y cierre implementados, apagados | No para arrancar, pero las estibas con discrepancia quedan retenidas |
+| DP-04 | Resolución de discrepancias | Reauditoría aprobada y encendida: el supervisor de producción habilita el reconteo, hasta 3 oportunidades por conteo. Cierre con acción implementado y apagado | No |
 | DP-05 | Traslado agrupado | **Cerrada.** El negocio eliminó el paso de traslado: el conteo aprobado transfiere cada estiba por separado | No |
 | DP-06 | Cierre de órdenes en SAP con recibos parciales | Se revisa la copia local | Depende de cómo opere SAP |
 | DP-07 | Etiqueta física | Etiqueta HTML 100 × 150 mm | Depende de la impresora |
@@ -314,7 +314,7 @@ Todo en `docs/despliegue.md` y `deploy/`:
 | SAP con idempotencia y conciliación | Sí, en simulador |
 | Estados locales con evidencia de SAP | Sí: confirmación solo después de leer el documento; restricción en la base |
 | Conteo ciego protegido en todas las interfaces | Sí (CA-15) |
-| Procedimiento autorizado de discrepancias | Implementado; falta aprobarlo (DP-04) |
+| Procedimiento autorizado de discrepancias | Reconteo aprobado y encendido; cierre con acción pendiente (DP-04) |
 | Trazabilidad reconstruible | Sí (RF-21) |
 | Permisos y auditoría | Sí |
 | Despliegue reproducible | Documentado y con scripts; sin ejecutar en un servidor |

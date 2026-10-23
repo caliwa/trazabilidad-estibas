@@ -20,8 +20,9 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 
 /**
- * Discrepancies for administrators: counted vs system quantity, every
- * attempt, and the actions approved by DP-04.
+ * Discrepancies for supervisors and administrators: counted vs system
+ * quantity, every count with the number of each try, and the actions
+ * approved by DP-04 (enabling a new blind count).
  */
 new #[Title('Discrepancias')] class extends Component {
     public function boot(): void
@@ -66,7 +67,7 @@ new #[Title('Discrepancias')] class extends Component {
      */
     public function attempts(int $palletId): Collection
     {
-        return PalletAudit::query()->with('operator:id,name')->where('pallet_id', $palletId)->orderBy('attempt')->get();
+        return PalletAudit::query()->with(['operator:id,name', 'tries'])->where('pallet_id', $palletId)->orderBy('attempt')->get();
     }
 
     /**
@@ -89,7 +90,7 @@ new #[Title('Discrepancias')] class extends Component {
     {
         $this->validate(['notes' => ['required', 'string', 'max:500']], attributes: ['notes' => 'motivo']);
 
-        $this->run(fn () => $authorize->handle(Auth::user(), (int) $this->caseId, $this->notes, $this->context()), 'Reauditoría autorizada: la puede contar otra persona.', 'reaudit');
+        $this->run(fn () => $authorize->handle(Auth::user(), (int) $this->caseId, $this->notes, $this->context()), 'Reconteo habilitado: la puede contar otro operario.', 'reaudit');
     }
 
     public function resolve(ResolveDiscrepancy $resolve): void
@@ -150,14 +151,16 @@ new #[Title('Discrepancias')] class extends Component {
             </div>
 
             <table class="mt-3 w-full text-sm">
-                <thead class="text-left text-xs text-zinc-500"><tr><th class="py-1">Intento</th><th>Operario</th><th>Fecha</th><th class="text-end">Contado</th><th class="text-end">Sistema</th><th class="ps-6">Resultado</th></tr></thead>
+                <thead class="text-left text-xs text-zinc-500"><tr><th class="py-1">Conteo</th><th>Operario</th><th>Fecha</th><th class="text-end">Contado</th><th class="text-end">Sistema</th><th class="ps-6">Resultado</th></tr></thead>
                 <tbody>
                     @foreach ($this->attempts($case->pallet_id) as $a)
                         <tr wire:key="a-{{ $a->id }}" class="border-t border-zinc-100 dark:border-zinc-800">
                             <td class="py-1">{{ $a->attempt }}@if ($a->reaudit_of_id) (reauditoría)@endif</td>
                             <td>{{ $a->operator->name }}</td>
                             <td class="tabular-nums">{{ $a->started_at->timezone(config('app.timezone'))->format('d/m/Y H:i') }}</td>
-                            <td class="text-end tabular-nums">{{ $a->counted_boxes ?? '—' }}</td>
+                            <td class="text-end tabular-nums">
+                                @if ($a->tries->count() > 1)<span title="Número de cada oportunidad">{{ $a->tries->pluck('counted_boxes')->implode(' · ') }}</span>@else{{ $a->counted_boxes ?? $a->tries->first()?->counted_boxes ?? '—' }}@endif
+                            </td>
                             <td class="text-end tabular-nums">{{ $a->expected_boxes ?? '—' }}</td>
                             <td class="ps-6">{{ $a->status->value }}</td>
                         </tr>
@@ -170,7 +173,7 @@ new #[Title('Discrepancias')] class extends Component {
             @else
                 <div class="mt-4 flex flex-wrap gap-2">
                     @if (config('traceability.decisions.discrepancy_reaudit_enabled') && $case->status === DiscrepancyStatus::Open)
-                        <flux:button size="sm" icon="arrow-path" wire:click="open({{ $case->id }}, 'reaudit')">Autorizar reauditoría</flux:button>
+                        <flux:button size="sm" icon="arrow-path" wire:click="open({{ $case->id }}, 'reaudit')">Habilitar reconteo</flux:button>
                     @endif
                     @if ($this->closeActions() !== [])
                         <flux:button size="sm" variant="ghost" icon="check" wire:click="open({{ $case->id }}, 'resolve')">Cerrar con acción</flux:button>
@@ -184,12 +187,12 @@ new #[Title('Discrepancias')] class extends Component {
 
     <flux:modal name="reaudit" class="w-full max-w-md">
         <form wire:submit="authorizeReaudit" class="flex flex-col gap-4">
-            <flux:heading size="lg">Autorizar reauditoría</flux:heading>
-            <flux:text>Otra persona, que no haya contado esta estiba, podrá hacer un nuevo conteo ciego.</flux:text>
+            <flux:heading size="lg">Habilitar reconteo</flux:heading>
+            <flux:text>Otro operario, que no haya contado esta estiba, podrá hacer un nuevo conteo ciego con {{ config('traceability.count_tries') }} oportunidades.</flux:text>
             <flux:textarea wire:model="notes" label="Motivo" rows="3" required />
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button variant="filled">Cancelar</flux:button></flux:modal.close>
-                <flux:button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="authorizeReaudit">Autorizar</flux:button>
+                <flux:button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="authorizeReaudit">Habilitar</flux:button>
             </div>
         </form>
     </flux:modal>

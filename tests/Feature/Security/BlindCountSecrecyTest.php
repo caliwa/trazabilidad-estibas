@@ -71,6 +71,10 @@ class BlindCountSecrecyTest extends TestCase
         $this->assertComponentDoesNotLeak($page, 'fuera de rango');
 
         Notification::fake();
+        $page->set('counted', 12)->call('submit')->assertSee('El conteo no coincide')->assertSee('Te quedan 2 oportunidades');
+        $this->assertComponentDoesNotLeak($page, 'otra oportunidad');
+
+        $page->set('counted', 12)->call('submit')->assertSee('Te queda 1 oportunidad');
         $page->set('counted', 12)->call('submit')->assertSee('Diferencia registrada');
         $this->assertComponentDoesNotLeak($page, 'resultado con diferencia');
     }
