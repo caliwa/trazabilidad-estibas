@@ -174,8 +174,8 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 
 | Escenario | Prueba |
 |---|---|
-| Una OF liberada se consulta en SAP y su encabezado queda guardado | `BoxLabelsTest::test_a_released_order_is_consulted_in_sap_and_its_header_is_stored` |
-| OF inexistente, planificada, cerrada o cancelada se rechaza sin guardar; SAP sin respuesta no es "no existe" | `BoxLabelsTest::test_orders_that_do_not_exist_or_are_not_released_are_refused_and_nothing_is_stored` |
+| Etiquetas de caja busca la OF en la base de la aplicación (actualizada por el Tablero de OF), sin llamar a SAP | `BoxLabelsTest::test_a_released_order_is_found_in_the_application_without_asking_sap` |
+| OF que no está en la aplicación, planificada, cerrada o cancelada se rechaza con el motivo | `BoxLabelsTest::test_orders_not_in_the_application_or_not_released_are_refused` |
 | Lote = OF + día juliano | `BoxLabelsTest::test_the_lot_is_the_order_number_and_the_julian_day` |
 | El QR se lee como las líneas de la etiqueta (OF, producto, descripción, lote, vence, contenido); el EAN-14 va aparte como ITF-14 | `BoxLabelsTest::test_the_qr_reads_as_the_lines_of_the_label_and_the_ean14_goes_apart`, `BoxLabelsTest::test_the_ean14_check_digit_and_itf14_pattern_follow_gs1` |
 | ZPL de 10 × 8 cm con la cantidad pedida | `BoxLabelsTest::test_the_zpl_is_a_10_by_8_cm_label_printed_as_many_times_as_asked` |
@@ -201,6 +201,7 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 |---|---|
 | Se traen todas las OF liberadas en SAP y ninguna otra | `OrderBoardTest::test_the_sync_brings_every_order_released_in_sap_and_nothing_else` |
 | Una OF cerrada en SAP sale del tablero; SAP sin respuesta no cambia nada; una OF que SAP ya no tiene se reporta | `OrderBoardTest::test_an_order_closed_in_sap_leaves_the_board_on_the_next_sync`, `OrderBoardTest::test_when_sap_does_not_answer_nothing_changes`, `OrderBoardTest::test_an_order_released_here_that_sap_no_longer_has_is_kept_and_reported` |
+| Una OF que llegó a "Lista para cerrar" y se cerró en SAP queda como "Cerrada en SAP", con la fecha del cierre, y se consulta en el tablero | `OrderBoardTest::test_an_order_that_reached_ready_to_close_and_was_closed_in_sap_shows_as_closed_in_sap` |
 | Avance por recibos confirmados y transferencia a CEDI | `OrderBoardTest::test_progress_follows_confirmed_receipts_and_the_transfer_to_the_cedi`, `OrderBoardTest::test_a_receipt_not_confirmed_yet_does_not_count`, `OrderBoardTest::test_the_last_partial_box_still_counts_as_the_planned_quantity` |
 | Aviso "Lista para cerrar" una sola vez, solo a quien sigue el tablero y solo con la OF liberada | `OrderBoardTest::test_the_ready_to_close_alert_goes_once_to_the_people_who_follow_the_board`, `OrderBoardTest::test_an_order_not_released_in_sap_never_raises_the_alert` |
 | KPIs y pantalla | `OrderBoardTest::test_the_kpis_add_up_the_released_orders`, `OrderBoardTest::test_the_board_shows_the_kpis_and_the_released_orders_most_urgent_first` |

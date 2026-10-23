@@ -73,8 +73,13 @@ final class ProductionOrderCache
             'linked_to' => $sapOrder->linkedTo,
         ];
 
+        $closed = $sapOrder->status === ProductionOrderStatus::Closed;
+        $closedNow = $closed && $order->exists && $order->sap_status !== ProductionOrderStatus::Closed->value;
+
         $order->forceFill([
             'ref' => $sapOrder->docNum,
+            // First time it is seen closed; kept on later refreshes.
+            'sap_closed_at' => $closed ? ($order->sap_closed_at ?? now()) : null,
             'sap_doc_entry' => $sapOrder->docEntry,
             'item_id' => $item->id,
             'sap_status' => $sapOrder->status->value,
@@ -98,6 +103,10 @@ final class ProductionOrderCache
         ])->save();
 
         $this->trace->record($ctx, $event, $order, context: $header);
+
+        if ($closedNow) {
+            $this->trace->record($ctx, TraceEventType::ProductionOrderClosedInSap, $order, context: ['ready_to_close_notified_at' => $order->ready_to_close_notified_at?->toIso8601String()]);
+        }
 
         return $order;
     }

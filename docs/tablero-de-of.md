@@ -17,6 +17,7 @@ La aplicación **no cierra** la OF: solo avisa. El cierre lo hacen en SAP, como 
 - **Recibido en 04:** % de lo planificado, con las unidades.
 - **Transferido a CEDI:** % de lo planificado, con las unidades.
 - **Listas para cerrar en SAP:** cuántas ya están completas en CEDI y cuántas tienen sobreproducción.
+- **Cerradas en SAP:** las OF que llegaron a "Lista para cerrar" en la aplicación y después se cerraron en SAP. Al tocar la tarjeta se filtran.
 - Un aviso si alguna OF tiene recibos o transferencias pendientes de conciliar con SAP.
 
 **Una fila por OF:** OF y fecha de fin, producto, planificado, barra de recibido en 04, barra de transferido a CEDI, y el estado. Las listas para cerrar salen primero. Se puede buscar por OF, código o descripción, y filtrar por estado.
@@ -33,7 +34,7 @@ SAP se consulta **solo con el botón** "Actualizar desde SAP" (o con `php artisa
 
 - Se pide a SAP la lista de **todas las OF liberadas** (`SapGateway::releasedProductionOrders`). Cada una se guarda o se actualiza aquí, aunque nunca se haya consultado antes.
 - Las que aquí estaban liberadas y ya no vienen en la lista se consultan una por una. Si quedaron cerradas o canceladas, se marcan igual aquí: salen del tablero y ya no reciben lecturas, etiquetas ni recibos.
-- Planificadas, cerradas y canceladas nunca entran al tablero.
+- Planificadas y canceladas nunca entran al tablero. Las cerradas solo se ven con el filtro "Cerrada en SAP" (sección 6).
 - Si SAP no responde, no cambia nada y la pantalla lo dice. Si SAP ya no tiene una OF que aquí está liberada, se deja como está y se reporta.
 - Cada OF se guarda en su propia transacción: si una falla, las demás se actualizan igual.
 
@@ -49,6 +50,7 @@ SAP se consulta **solo con el botón** "Actualizar desde SAP" (o con `php artisa
 | En proceso | Lo recibido no llega a lo planificado |
 | **Lista para cerrar en SAP** | Lo recibido llega a lo planificado, contando la última caja completa |
 | **Sobreproducción** | Lo recibido pasa de lo que llenan las cajas planificadas |
+| **Cerrada en SAP** | La OF llegó a "Lista para cerrar" (o sobreproducción) en la aplicación y después se cerró en SAP |
 
 **La última caja.** Los recibos van en cajas completas. Si lo planificado no da cajas exactas (800 unidades a 24 por caja son 33 cajas y una de 8), recibir esa caja 34 deja 816 unidades: eso cuenta como "Lista para cerrar", no como sobreproducción. Si el producto no tiene factor de conversión, el límite es lo planificado.
 
@@ -58,16 +60,23 @@ SAP se consulta **solo con el botón** "Actualizar desde SAP" (o con `php artisa
 - Se manda **una sola vez por OF** y solo si la OF está liberada en SAP. La fila de la OF se bloquea mientras se decide. Quedan la marca `ready_to_close_notified_at` y un evento en la bitácora.
 - Corre después de confirmar el recibo y nunca puede deshacer la confirmación. También se revisa en cada actualización desde SAP.
 
-## 6. Pruebas
+## 6. Cerradas en SAP
+
+- Cuando una actualización del tablero encuentra cerrada en SAP una OF que aquí estaba liberada, guarda la fecha en que lo vio (`sap_closed_at`) y deja un evento `production_order.closed_in_sap` en la bitácora. Esa fecha no cambia en las actualizaciones siguientes.
+- El filtro "Cerrada en SAP" muestra solo las OF que **pasaron por el proceso aquí**: las que llegaron a "Lista para cerrar" y mandaron el aviso (`ready_to_close_notified_at`). Una OF que se cerró en SAP sin llegar a eso no aparece. Las canceladas tampoco.
+- Salen de la más reciente a la más antigua, con su avance de recibos y de traslado a CEDI y la fecha del cierre.
+- La aplicación se entera del cierre solo al actualizar el tablero desde SAP.
+
+## 7. Pruebas
 
 | Prueba | Qué demuestra |
 |---|---|
-| `OrderBoardTest` (12) | Se traen todas las liberadas y ninguna otra; una OF cerrada en SAP sale del tablero; SAP sin respuesta no cambia nada; OF que SAP ya no tiene; avance por recibos y por transferencia a CEDI; un recibo sin confirmar no cuenta; la última caja incompleta; aviso una sola vez y solo a quien tiene el permiso; OF no liberada sin aviso; KPIs; permisos; pantalla |
+| `OrderBoardTest` (13) | Se traen todas las liberadas y ninguna otra; una OF cerrada en SAP sale del tablero; SAP sin respuesta no cambia nada; OF que SAP ya no tiene; avance por recibos y por transferencia a CEDI; un recibo sin confirmar no cuenta; la última caja incompleta; aviso una sola vez y solo a quien tiene el permiso; OF no liberada sin aviso; KPIs; permisos; pantalla; OF lista para cerrar y cerrada en SAP sale como "Cerrada en SAP" con su fecha, y una cerrada sin pasar por el proceso no |
 | `DemoFlowTest` | La demo trae solo las liberadas y deja la OF 33134 lista para cerrar y completa en CEDI, con el aviso enviado |
 
 Al quitar el control de "una sola vez", la prueba del aviso falla.
 
-## 7. Lo que falta o está supuesto
+## 8. Lo que falta o está supuesto
 
 - **Conector SAP real (DP-09).** El contrato pide la lista de OF liberadas con el mismo encabezado que la consulta de una OF. Qué consulta de Service Layer la trae se decide al escribir el conector. Hoy responde el simulador.
 - **Sin tolerancia por debajo.** "Lista para cerrar" pide llegar a lo planificado. Si en planta cierran con menos (por ejemplo 98 %), hay que definir el porcentaje.

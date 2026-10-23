@@ -10,9 +10,12 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 /**
- * KPI board of production orders released in SAP. Planned, closed and
- * cancelled orders stay off. The stage comes from each order's progress,
- * so filtering by it and sorting by urgency happen after computing it.
+ * KPI board of production orders released in SAP. The stage comes from each
+ * order's progress, so filtering by it and sorting by urgency happen after
+ * computing it. Closed orders show only under the "Cerrada en SAP" filter,
+ * and only those that reached "ready to close" here (they went through the
+ * process in this application), newest closure first. Planned and
+ * cancelled orders never show.
  */
 class OrderBoardQuery
 {
@@ -34,7 +37,9 @@ class OrderBoardQuery
     {
         $like = '%'.addcslashes(trim($search), '%_\\').'%';
 
-        $orders = $this->released()
+        $closed = $stage === OrderStage::Closed->value;
+
+        $orders = ($closed ? $this->closedThroughApp() : $this->released())
             ->with('item:id,code,description')
             ->when(trim($search) !== '', fn ($q) => $q->where(fn ($q) => $q
                 ->where('ref', 'ilike', $like)
@@ -45,8 +50,10 @@ class OrderBoardQuery
 
         return $orders
             ->map(fn (ProductionOrder $order) => ['order' => $order, 'progress' => $progress[$order->id]])
-            ->filter(fn (array $row) => $stage === '' || $row['progress']->stage()->value === $stage)
-            ->sort(fn (array $a, array $b) => [self::STAGE_ORDER[$a['progress']->stage()->value], $a['order']->due_date->timestamp ?? PHP_INT_MAX, -$a['order']->id]
+            ->filter(fn (array $row) => $closed || $stage === '' || $row['progress']->stage()->value === $stage)
+            ->sort($closed
+                ? fn (array $a, array $b) => [$b['order']->sap_closed_at->timestamp ?? 0, $b['order']->id] <=> [$a['order']->sap_closed_at->timestamp ?? 0, $a['order']->id]
+                : fn (array $a, array $b) => [self::STAGE_ORDER[$a['progress']->stage()->value], $a['order']->due_date->timestamp ?? PHP_INT_MAX, -$a['order']->id]
                 <=> [self::STAGE_ORDER[$b['progress']->stage()->value], $b['order']->due_date->timestamp ?? PHP_INT_MAX, -$b['order']->id])
             ->values();
     }
@@ -55,12 +62,12 @@ class OrderBoardQuery
      * KPIs over every released order. Units are added up only across orders
      * that share the unit, which is why they are grouped by unit.
      *
-     * @return array{orders: int, ready: int, over: int, no_progress: int, in_cedi: int, pending_in_sap: int, units: array<string, array{planned: int, received: int, transferred: int}>}
+     * @return array{orders: int, ready: int, over: int, no_progress: int, in_cedi: int, pending_in_sap: int, closed: int, units: array<string, array{planned: int, received: int, transferred: int}>}
      */
     public function kpis(): array
     {
         $rows = $this->rows();
-        $kpis = ['orders' => $rows->count(), 'ready' => 0, 'over' => 0, 'no_progress' => 0, 'in_cedi' => 0, 'pending_in_sap' => 0, 'units' => []];
+        $kpis = ['orders' => $rows->count(), 'ready' => 0, 'over' => 0, 'no_progress' => 0, 'in_cedi' => 0, 'pending_in_sap' => 0, 'closed' => $this->closedThroughApp()->count(), 'units' => []];
 
         foreach ($rows as ['order' => $order, 'progress' => $p]) {
             $stage = $p->stage();
@@ -86,5 +93,15 @@ class OrderBoardQuery
     private function released(): Builder
     {
         return ProductionOrder::query()->where('sap_status', ProductionOrderStatus::Released->value);
+    }
+
+    /**
+     * Closed in SAP after reaching "ready to close" here.
+     *
+     * @return Builder<ProductionOrder>
+     */
+    private function closedThroughApp(): Builder
+    {
+        return ProductionOrder::query()->where('sap_status', ProductionOrderStatus::Closed->value)->whereNotNull('ready_to_close_notified_at');
     }
 }

@@ -10,6 +10,9 @@ use App\Domain\BoxLabels\BoxLot;
 use App\Domain\BoxLabels\BoxQr;
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
 use App\Domain\BoxLabels\Itf14;
+use App\Domain\Orders\Actions\SyncReleasedOrders;
+use App\Domain\Orders\ProductionOrderCache;
+use App\Domain\Orders\SyncResult;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
@@ -32,6 +35,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\Concerns\CreatesUsers;
@@ -72,14 +76,27 @@ class BoxLabelsTest extends TestCase
 
     private function consult(string $docNum, ?User $user = null): ProductionOrder
     {
-        return app(ConsultProductionOrder::class)->handle($user ?? $this->operator, $docNum, $this->ctx($user));
+        return app(ConsultProductionOrder::class)->handle($user ?? $this->operator, $docNum);
+    }
+
+    /** The order board's refresh: brings the released orders from SAP. */
+    private function syncFromSap(): SyncResult
+    {
+        return app(SyncReleasedOrders::class)->handle(null, $this->ctx());
+    }
+
+    /** The application already has this SAP order, in the status SAP gave it. */
+    private function stored(string $docNum): ProductionOrder
+    {
+        return DB::transaction(fn () => app(ProductionOrderCache::class)->store(FakeSapCatalog::productionOrders()[$docNum], null, $this->ctx(), TraceEventType::ProductionOrderRefreshed));
     }
 
     /**
-     * Order 33128 consulted, its product with 24 units per box.
+     * Order 33128 brought from SAP and found, its product with 24 units per box.
      */
     private function ready(string $unitsPerBox = '24', ?int $shelfLifeDays = 365): ProductionOrder
     {
+        $this->syncFromSap();
         $order = $this->consult('33128');
         BoxConversionFactor::factory()->create(['item_id' => $order->item_id, 'units_per_box' => $unitsPerBox]);
         Item::query()->whereKey($order->item_id)->update(['shelf_life_days' => $shelfLifeDays]);
@@ -104,8 +121,13 @@ class BoxLabelsTest extends TestCase
         }
     }
 
-    public function test_a_released_order_is_consulted_in_sap_and_its_header_is_stored(): void
+    public function test_a_released_order_is_found_in_the_application_without_asking_sap(): void
     {
+        $this->syncFromSap();
+        // Any call to SAP from here on would fail: the lookup must not make one.
+        $this->sap()->failNextLookups(10);
+        $traces = TraceEvent::count();
+
         $order = $this->consult(' 33128 ');
 
         $this->assertSame('33128', $order->ref);
@@ -116,29 +138,29 @@ class BoxLabelsTest extends TestCase
         $this->assertSame(['UNIDAD', '04', 100, 'Aux Producción 1', 'Manual', 'Pedido de cliente'], [$order->uom_name, $order->warehouse_code, $order->priority, $order->sap_user, $order->sap_origin, $order->sap_linked_to]);
         $this->assertSame(['2026-02-17', '2026-02-17', '2026-02-24'], [$order->order_date?->toDateString(), $order->start_date?->toDateString(), $order->due_date?->toDateString()]);
         $this->assertSame('33128', $order->sap_header['doc_num']);
-        $this->assertSame($this->operator->id, $order->consulted_by);
 
         $item = Item::query()->findOrFail($order->item_id);
         $this->assertSame(['PT1350023', 'GELATINA OLIMPICA SIN SABOR 30 GR', FakeSapCatalog::barcode('PT1350023')], [$item->code, $item->description, $item->barcode]);
-        $this->assertSame(TraceEventType::ProductionOrderConsulted->value, TraceEvent::query()->latest('id')->value('event'));
+        // A read: nothing stored, nothing traced.
+        $this->assertSame($traces, TraceEvent::count());
     }
 
-    public function test_orders_that_do_not_exist_or_are_not_released_are_refused_and_nothing_is_stored(): void
+    public function test_orders_not_in_the_application_or_not_released_are_refused(): void
     {
-        $this->expectViolation(fn () => $this->consult('99999'), 'no existe en SAP');
-        $this->expectViolation(fn () => $this->consult('33129'), 'está «Planificado»');
-        $this->expectViolation(fn () => $this->consult('33130'), 'está «Cerrado»');
-        $this->expectViolation(fn () => $this->consult('33133'), 'está «Cancelado»');
+        // Released in SAP but the board was never refreshed: not here yet.
+        $this->expectViolation(fn () => $this->consult('33128'), 'no está en la aplicación. Actualiza el Tablero de OF');
+        $this->expectViolation(fn () => $this->consult('99999'), 'no está en la aplicación');
+
+        foreach (['33129' => 'Planificado', '33130' => 'Cerrado', '33133' => 'Cancelado'] as $docNum => $status) {
+            $this->stored((string) $docNum);
+            $this->expectViolation(fn () => $this->consult((string) $docNum), "está «{$status}»");
+        }
+
         $this->expectViolation(fn () => $this->consult('OF-33128'), 'solo números');
-
-        $this->sap()->failNextLookups();
-        $this->expectViolation(fn () => $this->consult('33128'), 'No se pudo consultar SAP');
-
-        $this->assertSame(0, ProductionOrder::count());
-        $this->assertSame(0, Item::count());
+        $this->assertSame(0, $this->sap()->receiptWriteCalls());
     }
 
-    public function test_consulting_again_refreshes_the_header_but_keeps_the_local_shelf_life(): void
+    public function test_refreshing_the_board_updates_the_header_but_keeps_the_local_shelf_life(): void
     {
         $order = $this->ready(shelfLifeDays: 540);
         $sapOrder = FakeSapCatalog::productionOrders()['33128'];
@@ -148,12 +170,13 @@ class BoxLabelsTest extends TestCase
             $sapOrder->userName, $sapOrder->origin, $sapOrder->linkedTo, $sapOrder->itemBarcode, $sapOrder->itemInventoryUom,
         ));
 
+        $this->syncFromSap();
         $again = $this->consult('33128');
 
         $this->assertSame($order->id, $again->id);
         $this->assertSame(['1000.000000', 50], [$again->refresh()->planned_quantity, $again->priority]);
         $this->assertSame(540, Item::query()->findOrFail($order->item_id)->shelf_life_days);
-        $this->assertSame(1, ProductionOrder::count());
+        $this->assertSame(1, ProductionOrder::query()->where('ref', '33128')->count());
     }
 
     public function test_an_order_whose_product_changed_in_sap_is_refused_once_it_has_pallets(): void
@@ -162,7 +185,9 @@ class BoxLabelsTest extends TestCase
         $local = ProductionOrder::factory()->for($other)->create(['ref' => '33128']);
         Pallet::factory()->create(['production_order_id' => $local->id]);
 
-        $this->expectViolation(fn () => $this->consult('33128'), 'otro producto');
+        $result = $this->syncFromSap();
+
+        $this->assertStringContainsString('otro producto', $result->problems['33128'] ?? '');
         $this->assertSame($other->id, $local->refresh()->item_id);
     }
 
@@ -295,8 +320,9 @@ class BoxLabelsTest extends TestCase
     public function test_labels_need_a_consulted_order_a_barcode_units_per_box_and_a_past_production_date(): void
     {
         $notConsulted = ProductionOrder::factory()->create();
-        $this->expectViolation(fn () => $this->generate($notConsulted, 1, expiration: '2027-01-01'), 'Consulta la orden en SAP');
+        $this->expectViolation(fn () => $this->generate($notConsulted, 1, expiration: '2027-01-01'), 'Busca la orden de fabricación');
 
+        $this->syncFromSap();
         $order = $this->consult('33128');
         $this->expectViolation(fn () => $this->generate($order, 1, expiration: '2027-01-01'), 'unidades por caja');
 
@@ -355,6 +381,8 @@ class BoxLabelsTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00'));
         $item = Item::factory()->create(['code' => 'PT1350023', 'shelf_life_days' => 365]);
         BoxConversionFactor::factory()->create(['item_id' => $item->id, 'units_per_box' => '24']);
+        $this->syncFromSap();
+        $this->stored('33129');
 
         $page = Livewire::actingAs($this->operator)->test('pages::box-labels.index')
             ->set('docNum', '33129')->call('consult')

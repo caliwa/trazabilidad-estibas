@@ -16,14 +16,9 @@ class BoxLabelRuleViolation extends DomainException
         return new self('Escribe el número de la orden de fabricación (solo números).');
     }
 
-    public static function sapUnavailable(): self
+    public static function notSynced(string $docNum): self
     {
-        return new self('No se pudo consultar SAP en este momento. Intenta de nuevo.');
-    }
-
-    public static function notFound(string $docNum): self
-    {
-        return new self("La orden de fabricación {$docNum} no existe en SAP.");
+        return new self("La orden de fabricación {$docNum} no está en la aplicación. Actualiza el Tablero de OF desde SAP y vuelve a buscarla.");
     }
 
     public static function notReleased(string $docNum, string $status): self
@@ -38,7 +33,7 @@ class BoxLabelRuleViolation extends DomainException
 
     public static function notConsulted(): self
     {
-        return new self('Consulta la orden en SAP antes de generar etiquetas.');
+        return new self('Busca la orden de fabricación antes de generar etiquetas.');
     }
 
     public static function noBarcode(string $itemCode): self

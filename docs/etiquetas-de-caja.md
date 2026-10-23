@@ -2,7 +2,7 @@
 
 ## 1. Objetivo
 
-Generar el QR que va pegado en cada caja de producto, en etiquetas de 10 × 8 cm para impresora Zebra. El operario escribe el número de la orden de fabricación (OF), el sistema la consulta en SAP B1 y, si está **Liberada**, muestra su encabezado, lo guarda y permite generar las etiquetas.
+Generar el QR que va pegado en cada caja de producto, en etiquetas de 10 × 8 cm para impresora Zebra. El operario escribe el número de la orden de fabricación (OF). El sistema la busca en su propia base, que el Tablero de OF mantiene al día con SAP B1 ("Actualizar desde SAP" o `sap:sync-orders`). Si está **Liberada**, muestra su encabezado y permite generar las etiquetas. No consulta SAP.
 
 Es un módulo nuevo y aparte: no cambia la estación de producción, las estibas, los recibos, el conteo ni las transferencias.
 
@@ -14,15 +14,14 @@ Es un módulo nuevo y aparte: no cambia la estación de producción, las estibas
 
 ## 3. Cómo funciona
 
-1. **Consulta en SAP** (`ConsultProductionOrder`).
-   - Si la OF no existe, se dice.
-   - Si existe pero está Planificada, Cerrada o Cancelada, se dice el estado y no se guarda nada.
-   - Si SAP no responde, se dice que no se pudo consultar. Nunca se confunde con "no existe".
-2. **Encabezado guardado.** Con la OF liberada se guardan en `production_orders` los mismos campos del formulario de SAP: tipo, estado, producto, descripción, cantidad planificada y unidad, almacén, prioridad, fechas de la orden, de inicio y de finalización, usuario, origen y "vinculado a". También queda la respuesta completa de SAP (`sap_header`), quién consultó y cuándo.
+1. **Búsqueda en la aplicación** (`ConsultProductionOrder`). Nunca llama a SAP.
+   - Si la OF no está en la aplicación, se dice y se pide actualizar el Tablero de OF desde SAP.
+   - Si está pero quedó Planificada, Cerrada o Cancelada, se dice el estado.
+2. **Encabezado.** El Tablero de OF guarda en `production_orders` los mismos campos del formulario de SAP: tipo, estado, producto, descripción, cantidad planificada y unidad, almacén, prioridad, fechas de la orden, de inicio y de finalización, usuario, origen y "vinculado a". También queda la respuesta completa de SAP (`sap_header`). La pantalla dice cuándo se actualizaron esos datos.
    - El producto queda en `items` con su código EAN.
-   - Consultar otra vez actualiza el encabezado.
+   - Actualizar el tablero refresca el encabezado.
    - La vida útil del producto es un dato local y SAP no la pisa.
-   - Si en SAP la OF cambió de producto y aquí ya tiene estibas, se rechaza para revisar.
+   - Si en SAP la OF cambió de producto y aquí ya tiene estibas, la actualización la deja como estaba y lo reporta.
 3. **Generar etiquetas** (`GenerateBoxLabels`). El operario indica la cantidad de etiquetas, la fecha de producción (no puede ser futura) y la de vencimiento. La de vencimiento se propone sola con la vida útil del producto, si está cargada.
 4. **Lote:** número de OF + día juliano de la fecha de producción, con 3 dígitos. Por ejemplo, la OF 33128 producida el 20/10/2026 (día 293) queda con lote `33128293`.
 5. **Límite por OF.** Entre todas las tandas, una OF no recibe más etiquetas que las cajas que llena su cantidad planificada, contando la última caja aunque quede incompleta. Ejemplo: 800 unidades a 24 por caja dan 34 etiquetas. La fila de la OF se bloquea mientras se genera una tanda, así dos operarios a la vez no se pasan del límite.
@@ -85,7 +84,7 @@ ZPL II para una Zebra de 203 dpi: 800 × 640 puntos, es decir 100 × 80 mm.
 
 | Prueba | Qué demuestra |
 |---|---|
-| `BoxLabelsTest` (19) | Cada etiqueta con su código de caja; consulta y guardado del encabezado; rechazo de OF inexistentes, planificadas, cerradas o canceladas, sin guardar nada; SAP sin respuesta; reconsulta que conserva la vida útil; cambio de producto con estibas; regla del lote; el QR con las líneas de la etiqueta y el EAN-14 aparte; ZPL con QR e ITF-14; dígito de control y patrón ITF-14 contra el ejemplo de GS1; EAN-13 o dígito de control erróneo rechazados; texto de SAP que intenta meter comandos; vencimiento; un solo vencimiento por lote; límite acumulado por OF; datos que faltan; tanda inmutable; permisos; pantalla completa con la descarga |
+| `BoxLabelsTest` (19) | Cada etiqueta con su código de caja; búsqueda en la base sin llamar a SAP; OF que no está en la aplicación, planificada, cerrada o cancelada; actualización del tablero que conserva la vida útil; cambio de producto con estibas; regla del lote; el QR con las líneas de la etiqueta y el EAN-14 aparte; ZPL con QR e ITF-14; dígito de control y patrón ITF-14 contra el ejemplo de GS1; EAN-13 o dígito de control erróneo rechazados; texto de SAP que intenta meter comandos; vencimiento; un solo vencimiento por lote; límite acumulado por OF; datos que faltan; tanda inmutable; permisos; pantalla completa con la descarga |
 | `BoxLabelConcurrencyTest` | 12 tandas en paralelo sobre la misma OF nunca pasan de 34. Sin el bloqueo de la fila, la prueba falló 4 de 5 veces |
 
 Además, desde una captura de la vista previa en el navegador, zxing-cpp leyó el QR (las seis líneas exactas) y el ITF-14 (`12000013500233`). El ZPL no se pudo dibujar con un renderizador externo porque el servicio está bloqueado en esta sesión; las medidas se revisaron a mano.
@@ -97,7 +96,7 @@ Además, desde una captura de la vista previa en el navegador, zxing-cpp leyó e
 
 ## 8. Lo que falta o está supuesto
 
-- **Conector SAP real (DP-09).** La consulta corre contra el simulador. El contrato (`SapGateway::findProductionOrder`) ya define qué datos hacen falta. Qué propiedades de Service Layer los traen se decide al escribir el conector, con acceso a SAP.
+- **Datos al día.** Si una OF se liberó en SAP después de la última actualización del tablero, no aparece aquí hasta actualizarlo.
 - **Simulador.** Responde con los 40 PT reales y siete órdenes de ejemplo (33128 a 33134) basadas en la 33128 que mandaste. Los EAN-14 del simulador **no son reales**: llevan indicador 1 y prefijo 200, que es de uso interno.
 - **Unidades por caja.** Salen de `Items.SalesQtyPerPackUnit` en SAP, que se guarda como factor de conversión al consultar o sincronizar la OF. Sin factor vigente no se generan etiquetas.
 - **Vida útil.** No viene de SAP. Es un campo local por producto (`items.shelf_life_days`). Si está vacío, el operario escribe el vencimiento. Falta definir quién la carga y de dónde sale.

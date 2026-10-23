@@ -29,7 +29,8 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /**
- * Box labels: look the production order up in SAP, check its header and
+ * Box labels: look the production order up in this application's copy of
+ * SAP (kept by the order board's refresh), check its header and
  * generate the QR labels (10 × 8 cm, ZPL for Zebra) for its boxes.
  */
 new #[Title('Etiquetas de caja')] class extends Component {
@@ -130,7 +131,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
         unset($this->order, $this->factor, $this->batch);
 
         try {
-            $order = $consult->handle(Auth::user(), $this->docNum, $this->context());
+            $order = $consult->handle(Auth::user(), $this->docNum);
         } catch (BoxLabelRuleViolation $e) {
             $this->addError('docNum', $e->getMessage());
 
@@ -204,7 +205,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
         <flux:label for="doc-num">Número de orden de fabricación</flux:label>
         <div class="flex items-start gap-2">
             <flux:input id="doc-num" wire:model="docNum" placeholder="Ej. 33128" inputmode="numeric" autocomplete="off" autofocus class="flex-1" />
-            <flux:button type="submit" variant="primary" icon="magnifying-glass" wire:loading.attr="disabled" wire:target="consult">Consultar en SAP</flux:button>
+            <flux:button type="submit" variant="primary" icon="magnifying-glass" wire:loading.attr="disabled" wire:target="consult">Buscar OF</flux:button>
         </div>
         <flux:error name="docNum" />
     </form>
@@ -236,7 +237,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                     </div>
                 @endforeach
             </dl>
-            <flux:text class="mt-3 text-xs">Consultada en SAP el {{ $order->consulted_at?->timezone($tz)->format('d/m/Y H:i') }}. La información quedó guardada.</flux:text>
+            <flux:text class="mt-3 text-xs">Datos de SAP actualizados el {{ $order->synced_at?->timezone($tz)->format('d/m/Y H:i') }} desde el Tablero de OF. Si algo cambió en SAP, actualiza el tablero.</flux:text>
         </div>
 
         <div class="grid gap-6 lg:grid-cols-2">
