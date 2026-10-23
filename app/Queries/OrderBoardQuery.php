@@ -52,7 +52,7 @@ class OrderBoardQuery
             ->map(fn (ProductionOrder $order) => ['order' => $order, 'progress' => $progress[$order->id]])
             ->filter(fn (array $row) => $closed || $stage === '' || $row['progress']->stage()->value === $stage)
             ->sort($closed
-                ? fn (array $a, array $b) => [$b['order']->sap_closed_at?->timestamp ?? 0, $b['order']->id] <=> [$a['order']->sap_closed_at?->timestamp ?? 0, $a['order']->id]
+                ? fn (array $a, array $b) => [$b['order']->sap_closed_at->timestamp ?? 0, $b['order']->id] <=> [$a['order']->sap_closed_at->timestamp ?? 0, $a['order']->id]
                 : fn (array $a, array $b) => [self::STAGE_ORDER[$a['progress']->stage()->value], $a['order']->due_date->timestamp ?? PHP_INT_MAX, -$a['order']->id]
                 <=> [self::STAGE_ORDER[$b['progress']->stage()->value], $b['order']->due_date->timestamp ?? PHP_INT_MAX, -$b['order']->id])
             ->values();
