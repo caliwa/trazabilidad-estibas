@@ -80,6 +80,12 @@ class AppServiceProvider extends ServiceProvider
                         'costing_code3' => config('sap.receipt.costing_code3'),
                     ],
                     config()->string('sap.order_item_prefix'),
+                    [
+                        'card_code' => config('sap.transfer.card_code'),
+                        'distribution_rule' => config('sap.transfer.distribution_rule'),
+                        'distribution_rule2' => config('sap.transfer.distribution_rule2'),
+                        'distribution_rule3' => config('sap.transfer.distribution_rule3'),
+                    ],
                 );
             }
 

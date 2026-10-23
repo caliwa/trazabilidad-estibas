@@ -23,7 +23,8 @@ use Tests\TestCase;
 /**
  * Service Layer connector against recorded-style answers (Http::fake):
  * login and session, the production receipt JSON, how each answer is
- * classified, reading a receipt back and the production orders.
+ * classified, reading a receipt back, the stock transfer and the
+ * production orders.
  */
 class ServiceLayerGatewayTest extends TestCase
 {
@@ -309,14 +310,126 @@ class ServiceLayerGatewayTest extends TestCase
         }
     }
 
-    public function test_transfers_are_not_connected_and_never_send_anything(): void
+    private function transferRequest(): InventoryTransferRequest
     {
-        Http::fake();
+        return new InventoryTransferRequest(self::UUID, '04', '05', [
+            new DocumentLine('PT1350652', 'LOTEPRUEHY', new Quantity('1000'), '05'),
+            new DocumentLine('PT1350652', 'LOTE2', new Quantity('24.5'), '05'),
+        ]);
+    }
 
-        $result = $this->gateway()->createInventoryTransfer(new InventoryTransferRequest(self::UUID, '04', '05', [new DocumentLine('PT1', 'L1', new Quantity('1'), '05')]));
+    /**
+     * A StockTransfers document as Service Layer answers it.
+     *
+     * @return array<string, mixed>
+     */
+    private function transferDocument(string $secondQuantity = '24.5'): array
+    {
+        return [
+            'DocEntry' => 7001, 'DocNum' => 3001, 'DocDate' => '2026-10-23T00:00:00Z', 'FromWarehouse' => '04', 'ToWarehouse' => '05', 'CardCode' => 'P811022882',
+            'StockTransferLines' => [
+                ['LineNum' => 0, 'ItemCode' => 'PT1350652', 'Quantity' => 1000.0, 'FromWarehouseCode' => '04', 'WarehouseCode' => '05', 'BatchNumbers' => [['BatchNumber' => 'LOTEPRUEHY', 'Quantity' => 1000.0, 'BaseLineNumber' => 0]]],
+                ['LineNum' => 1, 'ItemCode' => 'PT1350652', 'Quantity' => (float) $secondQuantity, 'FromWarehouseCode' => '04', 'WarehouseCode' => '05', 'BatchNumbers' => [['BatchNumber' => 'LOTE2', 'Quantity' => (float) $secondQuantity, 'BaseLineNumber' => 1]]],
+            ],
+        ];
+    }
 
-        $this->assertSame([WriteOutcome::Rejected, 'NOT_CONNECTED'], [$result->outcome, $result->errorCode]);
-        Http::assertNothingSent();
+    public function test_the_transfer_goes_as_stock_transfers_with_the_fixed_partner_and_distribution_rules(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-23 08:00'));
+        Http::fake($this->fakes([self::URL.'/StockTransfers' => Http::response($this->transferDocument(), 201)]));
+
+        $result = $this->gateway()->createInventoryTransfer($this->transferRequest());
+
+        $this->assertSame([WriteOutcome::Created, 7001, 3001], [$result->outcome, $result->docEntry, $result->docNum]);
+        $this->assertSame(['PT1350652|LOTEPRUEHY|05|1000', 'PT1350652|LOTE2|05|24.5'], array_map(fn ($l) => "{$l->itemCode}|{$l->lotCode}|{$l->warehouse}|{$l->quantity->value}", $result->document?->lines ?? []));
+        $this->assertSame('04', $result->document?->fromWarehouse);
+
+        Http::assertSent(function (Request $r) {
+            if ($r->method() !== 'POST' || ! str_ends_with($r->url(), '/StockTransfers')) {
+                return false;
+            }
+
+            return $r->data() === [
+                'DocDate' => '2026-10-23',
+                'FromWarehouse' => '04',
+                'ToWarehouse' => '05',
+                'CardCode' => 'P811022882',
+                'StockTransferLines' => [
+                    ['ItemCode' => 'PT1350652', 'Quantity' => 1000, 'FromWarehouseCode' => '04', 'WarehouseCode' => '05', 'DistributionRule' => 'PCC', 'DistributionRule2' => 'PRODUCCI', 'DistributionRule3' => 'ANTIOQUI',
+                        'BatchNumbers' => [['BatchNumber' => 'LOTEPRUEHY', 'Quantity' => 1000, 'BaseLineNumber' => 0]]],
+                    ['ItemCode' => 'PT1350652', 'Quantity' => 24.5, 'FromWarehouseCode' => '04', 'WarehouseCode' => '05', 'DistributionRule' => 'PCC', 'DistributionRule2' => 'PRODUCCI', 'DistributionRule3' => 'ANTIOQUI',
+                        'BatchNumbers' => [['BatchNumber' => 'LOTE2', 'Quantity' => 24.5, 'BaseLineNumber' => 1]]],
+                ],
+            ];
+        });
+    }
+
+    public function test_the_transfer_partner_and_distribution_rules_come_from_the_configuration(): void
+    {
+        config(['sap.transfer.card_code' => 'P999', 'sap.transfer.distribution_rule2' => '', 'sap.transfer.distribution_rule3' => null]);
+        $this->app->forgetInstance(SapGateway::class);
+        Http::fake($this->fakes([self::URL.'/StockTransfers' => Http::response($this->transferDocument(), 201)]));
+
+        $this->gateway()->createInventoryTransfer($this->transferRequest());
+
+        Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/StockTransfers')
+            && $r['CardCode'] === 'P999'
+            && $r['StockTransferLines'][0]['DistributionRule'] === 'PCC'
+            && ! array_key_exists('DistributionRule2', $r['StockTransferLines'][0])
+            && ! array_key_exists('DistributionRule3', $r['StockTransferLines'][0]));
+    }
+
+    public function test_each_transfer_answer_is_classified_like_the_receipt(): void
+    {
+        $cases = [
+            'sin líneas' => [Http::response(['DocEntry' => 7001, 'DocNum' => 3001], 201), WriteOutcome::Created],
+            'rechazo claro' => [Http::response(['error' => ['code' => -10, 'message' => ['value' => 'Batch LOTE2 has insufficient quantity']]], 400), WriteOutcome::Rejected],
+            'error del servidor' => [Http::response(['error' => ['code' => -1, 'message' => ['value' => 'Internal error']]], 500), WriteOutcome::Uncertain],
+            'sin DocEntry' => [Http::response([], 201), WriteOutcome::Uncertain],
+        ];
+
+        $answer = null;
+        Http::fake(function (Request $r) use (&$answer) {
+            return str_ends_with($r->url(), '/Login') ? Http::response(['SessionId' => 's1'], 200) : (is_callable($answer) ? $answer() : $answer);
+        });
+
+        foreach ($cases as $case => [$answer, $outcome]) {
+
+            $result = $this->gateway()->createInventoryTransfer($this->transferRequest());
+
+            $this->assertSame($outcome, $result->outcome, $case);
+            if ($case === 'sin líneas') {
+                // Nothing to verify in the answer: the lifecycle reads it by DocEntry.
+                $this->assertNull($result->document);
+            }
+            if ($case === 'rechazo claro') {
+                $this->assertSame('Batch LOTE2 has insufficient quantity', $result->errorMessage);
+            }
+        }
+
+        $answer = fn () => throw new ConnectionException('Operation timed out');
+        $this->assertSame(WriteOutcome::Uncertain, $this->gateway()->createInventoryTransfer($this->transferRequest())->outcome);
+    }
+
+    public function test_a_transfer_is_read_by_its_doc_entry_and_never_by_a_correlation(): void
+    {
+        Http::fake($this->fakes([
+            self::URL.'/StockTransfers(7001)' => Http::response($this->transferDocument()),
+            self::URL.'/StockTransfers(7002)' => Http::response(['error' => ['code' => -2028, 'message' => ['value' => 'No matching records found']]], 404),
+        ]));
+
+        $found = $this->gateway()->findInventoryTransfer(7001);
+        $this->assertSame([7001, 3001, '04', 2], [$found?->docEntry, $found?->docNum, $found?->fromWarehouse, count($found->lines ?? [])]);
+        $this->assertNull($this->gateway()->findInventoryTransfer(7002));
+
+        try {
+            $this->gateway()->findInventoryTransferByCorrelation(self::UUID);
+            $this->fail('Sin campo de correlación no se puede buscar');
+        } catch (SapLookupFailed $e) {
+            $this->assertStringContainsString('no lleva campo de correlación', $e->getMessage());
+        }
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/StockTransfers?'));
     }
 
     public function test_credentials_are_required_and_never_logged(): void

@@ -25,13 +25,15 @@ use Throwable;
  * Connected:
  *  - production receipts: POST InventoryGenEntries, one document line per
  *    lot against the production order (BaseType 202), with its batch and
- *    dates; found again by the correlation field carrying the request_uuid;
+ *    dates; verified with the document SAP answers (or read by DocEntry),
+ *    and found by the correlation field after a timeout;
  *  - production orders: ProductionOrders, one by number or all released,
  *    only for finished products (ItemNo starting with "PT"), with the
- *    product from Items.
- *
- * Not connected yet: stock transfers 04 → 05. They are refused, so nothing
- * is ever sent with an unverified payload.
+ *    product from Items;
+ *  - stock transfers 04 → 05: POST StockTransfers, one line per item and
+ *    lot with its batch, business partner and distribution rules from
+ *    configuration; verified with the document SAP answers or read by
+ *    DocEntry. There is no correlation field on the transfer.
  *
  * Contract (see SapGateway): a write that may have reached SAP is
  * UNCERTAIN, never REJECTED; a lookup that proves nothing throws
@@ -60,6 +62,8 @@ class ServiceLayerGateway implements SapGateway
         private readonly ServiceLayerClient $client,
         private readonly array $receipt,
         private readonly string $itemPrefix = 'PT',
+        /** @var array{card_code?: ?string, distribution_rule?: ?string, distribution_rule2?: ?string, distribution_rule3?: ?string} */
+        private readonly array $transfer = [],
     ) {
         // It goes into an OData filter: only a plain field name is accepted.
         if (preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,49}$/', $receipt['correlation_field']) !== 1) {
@@ -173,17 +177,72 @@ class ServiceLayerGateway implements SapGateway
 
     public function createInventoryTransfer(InventoryTransferRequest $request): SapWriteResult
     {
-        return SapWriteResult::rejected('NOT_CONNECTED', 'La transferencia 04 → 05 todavía no está conectada con SAP real. No se envió nada.', 0);
+        $body = $this->transferBody($request);
+        $started = hrtime(true);
+
+        try {
+            $response = $this->client->post('StockTransfers', $body);
+        } catch (ConnectionException|ServiceLayerLoginFailed $e) {
+            // The transfer may or may not have reached SAP: it stays pending for a person.
+            return SapWriteResult::uncertain($e instanceof ServiceLayerLoginFailed ? 'SAP_LOGIN' : 'TIMEOUT', $e->getMessage(), $this->elapsed($started));
+        }
+
+        $latency = $this->elapsed($started);
+
+        if ($response->successful()) {
+            $docEntry = $response->json('DocEntry');
+            $docNum = $response->json('DocNum');
+
+            if (! is_numeric($docEntry) || ! is_numeric($docNum)) {
+                return SapWriteResult::uncertain('NO_DOC_ENTRY', 'SAP respondió sin DocEntry ni DocNum.', $latency, $response->status());
+            }
+
+            // Same as receipts: what SAP answered is verified; without lines it is read by DocEntry.
+            $answer = (array) $response->json();
+            try {
+                $document = is_array($answer['StockTransferLines'] ?? null) && $answer['StockTransferLines'] !== []
+                    ? $this->transferDocument($answer, $request->requestUuid)
+                    : null;
+            } catch (Throwable) {
+                $document = null;
+            }
+
+            return SapWriteResult::created((int) $docEntry, (int) $docNum, $latency, $response->status(), $document);
+        }
+
+        if ($this->mayHaveBeenProcessed($response)) {
+            return SapWriteResult::uncertain(ServiceLayerError::code($response), ServiceLayerError::message($response), $latency, $response->status());
+        }
+
+        return SapWriteResult::rejected(ServiceLayerError::code($response), ServiceLayerError::message($response), $latency, $response->status());
     }
 
     public function findInventoryTransfer(int $docEntry): ?SapDocument
     {
-        throw new SapLookupFailed('La transferencia 04 → 05 todavía no está conectada con SAP real.');
+        try {
+            $response = $this->client->get('StockTransfers('.$docEntry.')');
+        } catch (ConnectionException|ServiceLayerLoginFailed $e) {
+            throw new SapLookupFailed('No se pudo consultar SAP: '.$e->getMessage(), previous: $e);
+        }
+
+        if ($response->status() === 404) {
+            return null;
+        }
+
+        if (! $response->successful()) {
+            throw new SapLookupFailed('SAP respondió '.$response->status().' a la consulta: '.ServiceLayerError::message($response));
+        }
+
+        return $this->transferDocument((array) $response->json(), '');
     }
 
+    /**
+     * The transfer carries no correlation field (none is defined for StockTransfers),
+     * so after a timeout SAP cannot be asked whether it was created.
+     */
     public function findInventoryTransferByCorrelation(string $requestUuid): ?SapDocument
     {
-        throw new SapLookupFailed('La transferencia 04 → 05 todavía no está conectada con SAP real.');
+        throw new SapLookupFailed('El traslado no lleva campo de correlación: sin respuesta de SAP no se puede saber si se creó. Revísalo en SAP.');
     }
 
     public function findProductionOrder(string $docNum): ?SapProductionOrder
@@ -300,6 +359,83 @@ class ServiceLayerGateway implements SapGateway
             'ExpiryDate' => $line->expirationDate->toDateString(),
             'AddmisionDate' => $postingDate,
         ];
+    }
+
+    /**
+     * StockTransfers body as SAP DEV takes it: one line per item and lot,
+     * with the business partner and distribution rules from configuration.
+     *
+     * @return array<string, mixed>
+     */
+    private function transferBody(InventoryTransferRequest $request): array
+    {
+        $lines = [];
+        foreach ($request->lines as $line) {
+            $quantity = $this->number($line->quantity);
+            $lines[] = array_filter([
+                'ItemCode' => $line->itemCode,
+                'Quantity' => $quantity,
+                'FromWarehouseCode' => $request->fromWarehouse,
+                'WarehouseCode' => $line->warehouse,
+                'DistributionRule' => $this->transfer['distribution_rule'] ?? null,
+                'DistributionRule2' => $this->transfer['distribution_rule2'] ?? null,
+                'DistributionRule3' => $this->transfer['distribution_rule3'] ?? null,
+                'BatchNumbers' => [['BatchNumber' => $line->lotCode, 'Quantity' => $quantity, 'BaseLineNumber' => count($lines)]],
+            ], fn ($value) => $value !== null && $value !== '');
+        }
+
+        return array_filter([
+            'DocDate' => CarbonImmutable::today()->toDateString(),
+            'FromWarehouse' => $request->fromWarehouse,
+            'ToWarehouse' => $request->toWarehouse,
+            'CardCode' => $this->transfer['card_code'] ?? null,
+            'StockTransferLines' => $lines,
+        ], fn ($value) => $value !== null && $value !== '');
+    }
+
+    /**
+     * @param  array<mixed>  $doc
+     */
+    private function transferDocument(array $doc, string $requestUuid): SapDocument
+    {
+        $docEntry = $doc['DocEntry'] ?? null;
+        $docNum = $doc['DocNum'] ?? null;
+
+        if (! is_numeric($docEntry) || ! is_numeric($docNum)) {
+            throw new SapLookupFailed('Service Layer respondió un traslado sin DocEntry o DocNum.');
+        }
+
+        $lines = [];
+        foreach ((array) ($doc['StockTransferLines'] ?? []) as $row) {
+            $row = (array) $row;
+            $lineNum = (int) ($row['LineNum'] ?? count($lines));
+            $item = (string) ($row['ItemCode'] ?? '');
+            $warehouse = (string) ($row['WarehouseCode'] ?? '');
+
+            $batches = (array) ($row['BatchNumbers'] ?? []);
+            if ($batches === []) {
+                // No batch: it can never match a requested lot, so verification flags it.
+                $lines[] = new SapDocumentLine($lineNum, $item, '', $this->quantity($row['Quantity'] ?? null), $warehouse);
+
+                continue;
+            }
+
+            foreach ($batches as $batch) {
+                $batch = (array) $batch;
+                $lines[] = new SapDocumentLine($lineNum, $item, (string) ($batch['BatchNumber'] ?? ''), $this->quantity($batch['Quantity'] ?? null), $warehouse);
+            }
+        }
+
+        $from = $doc['FromWarehouse'] ?? null;
+
+        return new SapDocument(
+            docEntry: (int) $docEntry,
+            docNum: (int) $docNum,
+            correlationId: $requestUuid,
+            lines: $lines,
+            fromWarehouse: is_string($from) && $from !== '' ? $from : null,
+            postingDate: $this->date($doc['DocDate'] ?? null),
+        );
     }
 
     /**
