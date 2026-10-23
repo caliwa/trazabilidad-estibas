@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Domain\Audits\Actions\StartBlindCount;
 use App\Domain\Audits\Actions\SubmitBlindCount;
+use App\Domain\Audits\Data\BlindCountOutcome;
 use App\Domain\BoxLabels\Actions\ConsultProductionOrder;
 use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
 use App\Domain\BoxLabels\BoxLot;
@@ -356,7 +357,12 @@ class DemoFlow extends Command
         $this->tick(120);
         $view = app(StartBlindCount::class)->handle($counter, PalletQr::payload($pallet), $this->web($counter));
         $this->tick(240);
-        app(SubmitBlindCount::class)->handle($counter, $view->auditId, $boxes, $this->web($counter));
+        // A wrong number is counted again on every try, so it ends in a discrepancy.
+        $outcome = app(SubmitBlindCount::class)->handle($counter, $view->auditId, $boxes, $this->web($counter));
+        while ($outcome === BlindCountOutcome::Retry) {
+            $this->tick(30);
+            $outcome = app(SubmitBlindCount::class)->handle($counter, $view->auditId, $boxes, $this->web($counter));
+        }
     }
 
     private function at(string $time): void

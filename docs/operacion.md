@@ -86,7 +86,7 @@ Para encontrarlas: alerta "Pendientes de conciliación" en `/operations`, o el t
 
 ## 4. Discrepancias
 
-Con DP-04 sin aprobar, una discrepancia deja la estiba retenida y nada más. El caso se ve en `/discrepancies` con cada conteo y la cantidad del sistema. Cuando se apruebe DP-04 se prenden `TRACE_DISCREPANCY_REAUDIT_ENABLED` o `TRACE_DISCREPANCY_CLOSE_ACTIONS` (ver `docs/fase-5-auditoria.md`). Cerrar un caso nunca ajusta inventario: el ajuste, si hace falta, se hace en SAP.
+Una discrepancia se abre cuando el operario falla las 3 oportunidades del conteo. La estiba queda retenida y el caso se ve en `/discrepancies` con cada conteo, los números de cada oportunidad y la cantidad del sistema. El supervisor de producción da "Habilitar reconteo" y otro operario la vuelve a contar (ver `docs/fase-5-auditoria.md`). Cerrar un caso con acción sigue apagado (`TRACE_DISCREPANCY_CLOSE_ACTIONS`). Nunca se ajusta inventario: el ajuste, si hace falta, se hace en SAP.
 
 ## 5. Después de restaurar un respaldo
 

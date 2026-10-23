@@ -17,12 +17,14 @@ use App\Domain\Pallets\PalletQr;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
+use App\Domain\Shared\TraceEventType;
 use App\Domain\Transfers\Enums\TransferStatus;
 use App\Enums\Role;
 use App\Models\DiscrepancyCase;
 use App\Models\InventoryTransfer;
 use App\Models\Pallet;
 use App\Models\PalletAudit;
+use App\Models\TraceEvent;
 use App\Models\User;
 use App\Notifications\DiscrepancyOpened;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -73,7 +75,12 @@ class BlindCountTest extends TestCase
     {
         $user ??= $this->operator;
 
-        return app(SubmitBlindCount::class)->handle($user, $view->auditId, $counted, $this->ctx($user));
+        // The same number on every try: a wrong count ends in a discrepancy, as before the tries existed.
+        do {
+            $outcome = app(SubmitBlindCount::class)->handle($user, $view->auditId, $counted, $this->ctx($user));
+        } while ($outcome === BlindCountOutcome::Retry);
+
+        return $outcome;
     }
 
     private function expectViolation(callable $attempt, string $message): void
@@ -143,7 +150,8 @@ class BlindCountTest extends TestCase
         $this->assertSame(ReceiptStatus::Confirmed, $pallet->receipt_status);
         $case = DiscrepancyCase::sole();
         $this->assertSame(DiscrepancyStatus::Open, $case->status);
-        $this->assertEquals(['counted_boxes' => $pallet->boxes_count - 2, 'expected_boxes' => $pallet->boxes_count, 'attempt' => 1], $case->evidence);
+        $wrong = $pallet->boxes_count - 2;
+        $this->assertEquals(['counted_boxes' => $wrong, 'expected_boxes' => $pallet->boxes_count, 'attempt' => 1, 'tries' => [$wrong, $wrong, $wrong]], $case->evidence);
 
         Notification::assertSentTo([$this->admin, $resolverWhoAlsoCounts], DiscrepancyOpened::class);
         Notification::assertNotSentTo($this->operator, DiscrepancyOpened::class);
@@ -179,6 +187,8 @@ class BlindCountTest extends TestCase
 
     public function test_a_discrepancy_blocks_new_counts_until_dp04_allows_a_reaudit(): void
     {
+        // The reaudit is approved and on by default; with it off nothing reopens the count.
+        config(['traceability.decisions.discrepancy_reaudit_enabled' => false]);
         $pallet = Pallet::factory()->receivedInSap()->create();
         $this->submit($this->start($pallet), 1);
         $other = $this->userWithRole(Role::LogisticsOperator);
@@ -266,5 +276,100 @@ class BlindCountTest extends TestCase
         $this->submit($this->start($pallet), 1);
         $this->expectException(AuthorizationException::class);
         app(ResolveDiscrepancy::class)->handle($this->operator, DiscrepancyCase::sole()->id, 'X', 'Y', [], $this->ctx($this->operator));
+    }
+
+    /** One number typed, without retrying: what the operator gets back for that try. */
+    private function type(BlindCountView $view, int $counted, ?User $user = null): BlindCountOutcome
+    {
+        $user ??= $this->operator;
+
+        return app(SubmitBlindCount::class)->handle($user, $view->auditId, $counted, $this->ctx($user));
+    }
+
+    public function test_a_wrong_number_gets_another_try_and_a_right_one_still_approves(): void
+    {
+        $pallet = Pallet::factory()->receivedInSap()->create();
+        $view = $this->start($pallet);
+
+        $this->assertSame(BlindCountOutcome::Retry, $this->type($view, $pallet->boxes_count - 1));
+        $this->assertSame(2, app(SubmitBlindCount::class)->triesLeft($view->auditId));
+        $this->assertSame(BlindCountOutcome::Retry, $this->type($view, $pallet->boxes_count + 1));
+        $this->assertSame(AuditStatus::Counting, $pallet->refresh()->audit_status);
+        $this->assertSame(BlindCountOutcome::Approved, $this->type($view, $pallet->boxes_count));
+
+        $this->assertSame(AuditStatus::Approved, $pallet->refresh()->audit_status);
+        $this->assertSame(0, DiscrepancyCase::count());
+        // Every number typed stays as evidence, the wrong ones too.
+        $this->assertSame([$pallet->boxes_count - 1, $pallet->boxes_count + 1, $pallet->boxes_count], PalletAudit::sole()->tries->pluck('counted_boxes')->all());
+        $this->assertSame(2, TraceEvent::query()->where('event', TraceEventType::AuditRetry->value)->count());
+    }
+
+    public function test_three_wrong_tries_open_the_discrepancy(): void
+    {
+        Notification::fake();
+        $pallet = Pallet::factory()->receivedInSap()->create();
+        $view = $this->start($pallet);
+
+        $this->assertSame(BlindCountOutcome::Retry, $this->type($view, 1));
+        $this->assertSame(BlindCountOutcome::Retry, $this->type($view, 2));
+        $this->assertSame(0, DiscrepancyCase::count());
+        $this->assertSame(BlindCountOutcome::Discrepancy, $this->type($view, 3));
+
+        $this->assertSame([1, 2, 3], DiscrepancyCase::sole()->evidence['tries']);
+        $this->assertSame(AuditStatus::Discrepancy, $pallet->refresh()->audit_status);
+        Notification::assertSentTo($this->admin, DiscrepancyOpened::class);
+    }
+
+    public function test_cancelling_and_starting_again_gives_no_new_tries(): void
+    {
+        $pallet = Pallet::factory()->receivedInSap()->create();
+        $view = $this->start($pallet);
+        $this->type($view, 1);
+        $this->type($view, 2);
+        app(CancelBlindCount::class)->handle($this->operator, $view->auditId, 'Me equivoqué de estiba', $this->ctx($this->operator));
+
+        // Another person, or the same one, starts again: the tries of this round are already spent.
+        $other = $this->userWithRole(Role::LogisticsOperator);
+        $again = $this->start($pallet, $other);
+        $this->assertSame(1, app(SubmitBlindCount::class)->triesLeft($again->auditId));
+        $this->assertSame(BlindCountOutcome::Discrepancy, $this->type($again, 3, $other));
+    }
+
+    public function test_the_tries_limit_comes_from_the_configuration(): void
+    {
+        config(['traceability.count_tries' => 1]);
+        $pallet = Pallet::factory()->receivedInSap()->create();
+
+        $this->assertSame(BlindCountOutcome::Discrepancy, $this->type($this->start($pallet), 1));
+    }
+
+    public function test_a_reaudit_enabled_by_a_supervisor_has_its_own_three_tries(): void
+    {
+        Notification::fake();
+        $supervisor = $this->userWithRole(Role::ProductionSupervisor);
+        $pallet = Pallet::factory()->receivedInSap()->create();
+        $this->submit($this->start($pallet), 1);
+
+        // Reaudit is on by default: the supervisor enables it from the case.
+        app(AuthorizeReaudit::class)->handle($supervisor, DiscrepancyCase::sole()->id, 'Recontar', $this->ctx($supervisor));
+
+        $other = $this->userWithRole(Role::LogisticsOperator);
+        $view = $this->start($pallet, $other);
+        $this->assertSame(BlindCountOutcome::Retry, $this->type($view, 2, $other));
+        $this->assertSame(BlindCountOutcome::Retry, $this->type($view, 2, $other));
+        $this->assertSame(BlindCountOutcome::Approved, $this->type($view, $pallet->boxes_count, $other));
+
+        $case = DiscrepancyCase::sole();
+        $this->assertSame([DiscrepancyStatus::Resolved, $supervisor->id], [$case->status, $case->resolved_by]);
+    }
+
+    public function test_the_supervisor_enables_recounts_but_never_counts(): void
+    {
+        $supervisor = $this->userWithRole(Role::ProductionSupervisor);
+        $pallet = Pallet::factory()->receivedInSap()->create();
+
+        $this->assertTrue($supervisor->can('discrepancies.resolve'));
+        $this->expectException(AuthorizationException::class);
+        $this->start($pallet, $supervisor);
     }
 }

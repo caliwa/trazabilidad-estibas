@@ -12,7 +12,7 @@ enum DiscrepancyStatus: string
     {
         return match ($this) {
             self::Open => 'Abierta',
-            self::InReview => 'En revisión',
+            self::InReview => 'Reconteo habilitado',
             self::Resolved => 'Resuelta',
         };
     }

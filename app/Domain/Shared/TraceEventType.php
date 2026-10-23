@@ -29,6 +29,7 @@ enum TraceEventType: string
     case AuditStarted = 'audit.started';
     case AuditApproved = 'audit.approved';
     case AuditDiscrepancy = 'audit.discrepancy';
+    case AuditRetry = 'audit.retry';
     case AuditCancelled = 'audit.cancelled';
     case DiscrepancyResolved = 'discrepancy.resolved';
 
@@ -67,6 +68,7 @@ enum TraceEventType: string
             self::AuditStarted => 'Conteo iniciado',
             self::AuditApproved => 'Auditoría aprobada',
             self::AuditDiscrepancy => 'Discrepancia en conteo',
+            self::AuditRetry => 'Conteo no coincidió, otra oportunidad',
             self::AuditCancelled => 'Conteo cancelado',
             self::DiscrepancyResolved => 'Discrepancia resuelta',
             self::TransferRequested => 'Traslado solicitado',

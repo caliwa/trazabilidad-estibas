@@ -8,6 +8,7 @@ use Database\Factories\PalletAuditFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * One blind count attempt. expected_boxes is server-side evidence and must
@@ -68,5 +69,13 @@ class PalletAudit extends Model
     public function reauditOf(): BelongsTo
     {
         return $this->belongsTo(PalletAudit::class, 'reaudit_of_id');
+    }
+
+    /**
+     * @return HasMany<PalletAuditTry, $this>
+     */
+    public function tries(): HasMany
+    {
+        return $this->hasMany(PalletAuditTry::class)->orderBy('try_number');
     }
 }

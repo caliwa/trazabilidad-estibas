@@ -18,6 +18,13 @@ return [
     'count_timeout_minutes' => (int) env('TRACE_COUNT_TIMEOUT_MINUTES', 60),
 
     /*
+    | Tries a blind count has before a discrepancy opens. They count per
+    | pallet and round (the first count, or each reaudit enabled), even if the
+    | count is cancelled and started again.
+    */
+    'count_tries' => max(1, (int) env('TRACE_COUNT_TRIES', 3)),
+
+    /*
     | Boxes per pallet for a product that has no pallet standard yet, used by
     | the manual box reads at the production station while the real standard
     | is loaded in SAP. The standard it creates is marked PRUEBA. 0 turns it off.
@@ -40,9 +47,10 @@ return [
         // Decided: the QR of the label stuck on the pallet is read ("scan").
         'label_confirmation' => env('TRACE_LABEL_CONFIRMATION', 'scan'),
 
-        // DP-04: how discrepancies are resolved. Both off until the policy is approved.
-        // A reaudit is a second blind count by someone who has not counted that pallet.
-        'discrepancy_reaudit_enabled' => (bool) env('TRACE_DISCREPANCY_REAUDIT_ENABLED', false),
+        // DP-04: how discrepancies are resolved. The reaudit was approved: a supervisor
+        // enables a new blind count, by someone who has not counted that pallet.
+        // Closing with an action stays off until those actions are approved.
+        'discrepancy_reaudit_enabled' => (bool) env('TRACE_DISCREPANCY_REAUDIT_ENABLED', true),
         // Actions an administrator may close a case with, e.g. "AJUSTE_SAP_REGISTRADO,RECHAZO_FISICO".
         'discrepancy_close_actions' => array_values(array_filter(array_map('trim', explode(',', (string) env('TRACE_DISCREPANCY_CLOSE_ACTIONS', ''))))),
     ],
