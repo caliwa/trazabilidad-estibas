@@ -27,6 +27,8 @@ enum Permission: string
     /** Blind count at the warehouse. Never grants seeing expected quantities. */
     case AuditsCount = 'audits.count';
     case DiscrepanciesResolve = 'discrepancies.resolve';
+    /** Quality: hold labeled pallets before the count, release them or send them to the non-conforming warehouse. */
+    case QualityManage = 'quality.manage';
     /** Stock transfers 04 → 05 are requested by the approved blind count; this retries, reconciles or closes them. */
     case TransfersReconcile = 'transfers.reconcile';
     /** Register sensors and readers and rotate their tokens. */

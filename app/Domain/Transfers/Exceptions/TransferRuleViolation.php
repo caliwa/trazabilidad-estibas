@@ -43,4 +43,9 @@ class TransferRuleViolation extends DomainException
     {
         return new self('No se puede marcar como fallido: SAP no ha demostrado que el documento no exista.');
     }
+
+    public static function heldByQuality(string $code, string $status): self
+    {
+        return new self("La estiba {$code} está «{$status}»: no se traslada a 05.");
+    }
 }

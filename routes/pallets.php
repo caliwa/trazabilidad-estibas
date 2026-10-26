@@ -15,6 +15,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->whereNumber('batch')
         ->name('box-labels.zpl');
 
+    Route::livewire('quality', 'pages::quality.index')->middleware('can:quality.manage')->name('quality.index');
     Route::livewire('cedi/count', 'pages::cedi.count')->middleware('can:audits.count')->name('cedi.count');
     Route::livewire('discrepancies', 'pages::cedi.discrepancies')->middleware('can:discrepancies.resolve')->name('discrepancies.index');
 

@@ -21,8 +21,9 @@ class SendInventoryTransfer implements ShouldQueue
         $this->onQueue('sap');
     }
 
-    public function handle(InventoryTransferLifecycle $lifecycle): void
+    public function handle(): void
     {
-        $lifecycle->send($this->transferId);
+        // To the CEDI or to the non-conforming warehouse: each has its own lifecycle.
+        InventoryTransferLifecycle::for($this->transferId)->send($this->transferId);
     }
 }

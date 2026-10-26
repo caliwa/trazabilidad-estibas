@@ -25,8 +25,9 @@ class ReconcileInventoryTransfer implements ShouldBeUnique, ShouldQueue
         return 'transfer-'.$this->transferId;
     }
 
-    public function handle(InventoryTransferLifecycle $lifecycle): void
+    public function handle(): void
     {
-        $lifecycle->reconcile($this->transferId);
+        // To the CEDI or to the non-conforming warehouse: each has its own lifecycle.
+        InventoryTransferLifecycle::for($this->transferId)->reconcile($this->transferId);
     }
 }

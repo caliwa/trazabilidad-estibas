@@ -5,6 +5,7 @@ namespace Tests\Feature\Schema;
 use App\Domain\Audits\Enums\AuditStatus;
 use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Pallets\Enums\PhysicalStatus;
+use App\Domain\Quality\Enums\QualityStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Transfers\Enums\TransferStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -32,11 +33,12 @@ class StateTransitionsMatchDatabaseTest extends TestCase
             'auditoría' => ['audit', AuditStatus::class],
             'traslado' => ['transfer', TransferStatus::class],
             'documento SAP' => ['sap_document', SapDocumentStatus::class],
+            'calidad' => ['quality', QualityStatus::class],
         ];
     }
 
     /**
-     * @param  class-string<PhysicalStatus|ReceiptStatus|AuditStatus|TransferStatus|SapDocumentStatus>  $enum
+     * @param  class-string<PhysicalStatus|ReceiptStatus|AuditStatus|TransferStatus|SapDocumentStatus|QualityStatus>  $enum
      */
     #[DataProvider('machines')]
     public function test_enum_and_database_agree_on_every_pair(string $dimension, string $enum): void

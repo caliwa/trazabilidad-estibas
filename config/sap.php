@@ -20,6 +20,8 @@ return [
         'production_receipt' => env('SAP_RECEIPT_WAREHOUSE', '04'),
         'transfer_from' => env('SAP_TRANSFER_FROM_WAREHOUSE', '04'),
         'transfer_to' => env('SAP_TRANSFER_TO_WAREHOUSE', '05'),
+        // Non-conforming warehouse: where quality sends the pallets it holds (from 04).
+        'non_conforming' => env('SAP_NON_CONFORMING_WAREHOUSE', '11C'),
     ],
 
     /*

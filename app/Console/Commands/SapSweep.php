@@ -4,7 +4,9 @@ namespace App\Console\Commands;
 
 use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Integration\SapDocumentLifecycle;
+use App\Domain\Quality\NonConformingTransferLifecycle;
 use App\Domain\Receipts\ProductionReceiptLifecycle;
+use App\Domain\Transfers\Enums\TransferPurpose;
 use App\Domain\Transfers\InventoryTransferLifecycle;
 use App\Jobs\ReconcileInventoryTransfer;
 use App\Jobs\ReconcileProductionReceipt;
@@ -28,10 +30,14 @@ use Illuminate\Database\Eloquent\Builder;
 #[Description('Reencola envíos perdidos, pasa a conciliación los envíos colgados y concilia los pendientes.')]
 class SapSweep extends Command
 {
-    public function handle(ProductionReceiptLifecycle $receipts, InventoryTransferLifecycle $transfers): int
+    public function handle(ProductionReceiptLifecycle $receipts, InventoryTransferLifecycle $transfers, NonConformingTransferLifecycle $nonConforming): int
     {
         $r = $this->sweep(ProductionReceipt::query(), $receipts, fn (int $id) => SendProductionReceipt::dispatch($id), fn (int $id) => ReconcileProductionReceipt::dispatch($id));
-        $t = $this->sweep(InventoryTransfer::query(), $transfers, fn (int $id) => SendInventoryTransfer::dispatch($id), fn (int $id) => ReconcileInventoryTransfer::dispatch($id));
+        $t = $this->sweep(InventoryTransfer::query()->where('purpose', TransferPurpose::Cedi), $transfers, fn (int $id) => SendInventoryTransfer::dispatch($id), fn (int $id) => ReconcileInventoryTransfer::dispatch($id));
+        $n = $this->sweep(InventoryTransfer::query()->where('purpose', TransferPurpose::NonConforming), $nonConforming, fn (int $id) => SendInventoryTransfer::dispatch($id), fn (int $id) => ReconcileInventoryTransfer::dispatch($id));
+        foreach ([0, 1, 2] as $i) {
+            $t[$i] += $n[$i];
+        }
 
         $this->info("Recibos · reencolados: {$r[0]} · envíos colgados: {$r[1]} · a conciliar: {$r[2]}");
         $this->info("Traslados · reencolados: {$t[0]} · envíos colgados: {$t[1]} · a conciliar: {$t[2]}");

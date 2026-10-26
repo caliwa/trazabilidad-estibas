@@ -74,4 +74,9 @@ class AuditRuleViolation extends DomainException
     {
         return new self('La reauditoría solo se autoriza sobre una discrepancia abierta.');
     }
+
+    public static function heldByQuality(string $code, string $status): self
+    {
+        return new self("La estiba {$code} está «{$status}»: no se cuenta hasta que calidad la libere.");
+    }
 }
