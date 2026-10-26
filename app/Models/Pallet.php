@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Domain\Audits\Enums\AuditStatus;
 use App\Domain\Pallets\Enums\CloseType;
 use App\Domain\Pallets\Enums\PhysicalStatus;
+use App\Domain\Quality\Enums\QualityStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Transfers\Enums\TransferStatus;
 use Carbon\CarbonImmutable;
@@ -41,6 +42,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property ReceiptStatus $receipt_status
  * @property AuditStatus $audit_status
  * @property TransferStatus $transfer_status
+ * @property QualityStatus $quality_status
  * @property CarbonImmutable $started_at
  * @property CarbonImmutable|null $finished_at
  * @property int|null $closed_by
@@ -69,6 +71,7 @@ class Pallet extends Model
         'receipt_status' => 'SIN_RECIBO',
         'audit_status' => 'PENDIENTE',
         'transfer_status' => 'NO_ELEGIBLE',
+        'quality_status' => 'SIN_NOVEDAD',
         'label_print_count' => 0,
     ];
 
@@ -83,6 +86,7 @@ class Pallet extends Model
             'receipt_status' => ReceiptStatus::class,
             'audit_status' => AuditStatus::class,
             'transfer_status' => TransferStatus::class,
+            'quality_status' => QualityStatus::class,
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
             'palletized_at' => 'datetime',

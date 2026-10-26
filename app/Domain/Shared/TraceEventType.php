@@ -46,6 +46,12 @@ enum TraceEventType: string
     case ProductionOrderRefreshed = 'production_order.refreshed';
     case ProductionOrderReadyToClose = 'production_order.ready_to_close';
     case ProductionOrderClosedInSap = 'production_order.closed_in_sap';
+    case QualityHeld = 'quality.held';
+    case QualityReleased = 'quality.released';
+    case NonConformingRequested = 'quality.non_conforming_requested';
+    case NonConformingPending = 'quality.non_conforming_pending';
+    case NonConformingConfirmed = 'quality.non_conforming_confirmed';
+    case NonConformingFailed = 'quality.non_conforming_failed';
 
     public function label(): string
     {
@@ -83,6 +89,12 @@ enum TraceEventType: string
             self::ProductionOrderRefreshed => 'Orden de fabricación actualizada desde SAP',
             self::ProductionOrderReadyToClose => 'Orden de fabricación lista para cerrar en SAP',
             self::ProductionOrderClosedInSap => 'Orden de fabricación cerrada en SAP',
+            self::QualityHeld => 'Estiba retenida por calidad',
+            self::QualityReleased => 'Estiba liberada por calidad',
+            self::NonConformingRequested => 'Traslado a no conforme solicitado',
+            self::NonConformingPending => 'Traslado a no conforme pendiente de conciliación',
+            self::NonConformingConfirmed => 'Traslado a no conforme confirmado en SAP',
+            self::NonConformingFailed => 'Traslado a no conforme fallido',
         };
     }
 }

@@ -75,6 +75,10 @@ class RequestInventoryTransfers
                     throw TransferRuleViolation::notApproved($pallet->pallet_code);
                 }
 
+                if ($pallet->quality_status->blocksFlow()) {
+                    throw TransferRuleViolation::heldByQuality($pallet->pallet_code, $pallet->quality_status->label());
+                }
+
                 if (! in_array($pallet->transfer_status, [TransferStatus::Ready, TransferStatus::Failed], true)) {
                     throw TransferRuleViolation::notAvailable($pallet->pallet_code, $pallet->transfer_status->label());
                 }

@@ -52,6 +52,10 @@ class StartBlindCount
                 throw AuditRuleViolation::notReceived($pallet->pallet_code);
             }
 
+            if ($pallet->quality_status->blocksFlow()) {
+                throw AuditRuleViolation::heldByQuality($pallet->pallet_code, $pallet->quality_status->label());
+            }
+
             $open = PalletAudit::query()->where('pallet_id', $pallet->id)->where('status', CountStatus::Counting)->first();
 
             if ($open !== null) {

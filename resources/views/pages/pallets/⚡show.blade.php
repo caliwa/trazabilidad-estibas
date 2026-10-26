@@ -9,6 +9,7 @@ use App\Domain\Shared\TraceContext;
 use App\Domain\Transfers\Actions\RequestInventoryTransfers;
 use App\Domain\Transfers\Enums\TransferStatus;
 use App\Domain\Transfers\Exceptions\TransferRuleViolation;
+use App\Domain\Transfers\Enums\TransferPurpose;
 use App\Domain\Transfers\InventoryTransferLifecycle;
 use App\Enums\Permission;
 use App\Jobs\ReconcileInventoryTransfer;
@@ -73,6 +74,7 @@ new #[Title('Detalle de estiba')] class extends Component {
     public function pendingTransfer(): ?InventoryTransfer
     {
         return InventoryTransfer::query()
+            ->where('purpose', TransferPurpose::Cedi)
             ->where('status', SapDocumentStatus::PendingReconciliation)
             ->whereHas('lines', fn ($q) => $q->where('pallet_id', $this->palletId)->where('hold_status', PalletHold::Active))
             ->latest('id')
@@ -164,11 +166,12 @@ new #[Title('Detalle de estiba')] class extends Component {
         <flux:button icon="arrow-left" :href="route('pallets.index')" wire:navigate variant="ghost">Volver al tablero</flux:button>
     </div>
 
-    <dl class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+    <dl class="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Cajas</dt><dd class="text-2xl font-semibold tabular-nums">{{ $pallet->boxes_count }} / {{ $pallet->standard_boxes_snapshot }}</dd><dd class="text-xs text-zinc-500">{{ number_format($pallet->completionPercent(), 1, ',', '.') }} % · estándar v{{ $pallet->standard->version }}</dd></div>
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Físico</dt><dd class="font-medium">{{ $pallet->physical_status->label() }}</dd><dd class="text-xs text-zinc-500">{{ $pallet->close_type?->label() }}</dd></div>
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Recepción</dt><dd class="font-medium">{{ $pallet->receipt_status->label() }}</dd></div>
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Auditoría</dt><dd class="font-medium">{{ $pallet->audit_status->label() }}</dd></div>
+        <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Calidad</dt><dd class="font-medium">{{ $pallet->quality_status->label() }}</dd></div>
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Traslado</dt><dd class="font-medium">{{ $pallet->transfer_status->label() }}</dd></div>
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Lecturas</dt><dd class="font-medium tabular-nums">{{ $scans['accepted'] }} aceptadas</dd><dd class="text-xs text-zinc-500">{{ $scans['late'] }} tardías</dd></div>
     </dl>

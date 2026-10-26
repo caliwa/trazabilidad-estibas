@@ -6,6 +6,7 @@ use App\Domain\Integration\Enums\AttemptOutcome;
 use App\Domain\Integration\Enums\DocumentPhase;
 use App\Domain\Integration\Enums\PalletHold;
 use App\Domain\Integration\Enums\SapDocumentStatus;
+use App\Domain\Quality\Enums\QualityStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
@@ -87,7 +88,7 @@ abstract class SapDocumentLifecycle
     /** Pallet column this document kind moves: receipt_status or transfer_status. */
     abstract protected function palletColumn(): string;
 
-    abstract protected function palletStatus(DocumentPhase $phase): ReceiptStatus|TransferStatus;
+    abstract protected function palletStatus(DocumentPhase $phase): ReceiptStatus|TransferStatus|QualityStatus;
 
     abstract protected function traceEvent(DocumentPhase $phase): TraceEventType;
 

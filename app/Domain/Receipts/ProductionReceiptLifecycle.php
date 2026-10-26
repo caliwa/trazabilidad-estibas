@@ -6,6 +6,7 @@ use App\Domain\Integration\Enums\DocumentPhase;
 use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Integration\SapDocumentLifecycle;
 use App\Domain\Orders\OrderClosureWatch;
+use App\Domain\Quality\Enums\QualityStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Receipts\Exceptions\ReceiptRuleViolation;
 use App\Domain\Shared\TraceContext;
@@ -128,7 +129,7 @@ class ProductionReceiptLifecycle extends SapDocumentLifecycle
         return 'receipt_status';
     }
 
-    protected function palletStatus(DocumentPhase $phase): ReceiptStatus|TransferStatus
+    protected function palletStatus(DocumentPhase $phase): ReceiptStatus|TransferStatus|QualityStatus
     {
         return match ($phase) {
             DocumentPhase::Requested => ReceiptStatus::Requested,

@@ -12,6 +12,7 @@ enum Role: string
     case Admin = 'admin';
     case TraceabilityAdmin = 'traceability_admin';
     case ProductionSupervisor = 'production_supervisor';
+    case Quality = 'quality';
     case ProductionOperator = 'production_operator';
     case LogisticsOperator = 'logistics_operator';
     case Viewer = 'viewer';
@@ -22,6 +23,7 @@ enum Role: string
             self::Admin => 'Administrador del sistema',
             self::TraceabilityAdmin => 'Administrador de trazabilidad',
             self::ProductionSupervisor => 'Supervisor de producción',
+            self::Quality => 'Calidad',
             self::ProductionOperator => 'Operario de producción',
             self::LogisticsOperator => 'Operario logístico',
             self::Viewer => 'Consulta',
@@ -55,6 +57,12 @@ enum Role: string
             self::ProductionSupervisor => [
                 Permission::DiscrepanciesResolve,
                 Permission::OrdersView,
+                Permission::PalletsView,
+                Permission::TraceView,
+            ],
+            // Holds pallets before the count and sees their quantities to decide.
+            self::Quality => [
+                Permission::QualityManage,
                 Permission::PalletsView,
                 Permission::TraceView,
             ],

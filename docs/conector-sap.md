@@ -12,6 +12,7 @@
 | Traer todas las OF liberadas (tablero de OF, `sap:sync-orders`) | `GET /ProductionOrders?$filter=ProductionOrderStatus eq 'boposReleased' and startswith(ItemNo,'PT')` con `Prefer: odata.maxpagesize=500`, siguiendo `odata.nextLink`; productos con `GET /Items?$filter=ItemCode eq '…' or …` de a 20 | Conectado |
 | Traslado de stock 04 → 05 | `POST /StockTransfers` | Conectado |
 | Leer un traslado que SAP dijo haber creado | `GET /StockTransfers(<DocEntry>)` | Conectado |
+| Traslado a no conforme 04 → 11C (calidad) | `POST /StockTransfers`, el mismo cuerpo con `ToWarehouse` 11C | Conectado. Ver `docs/calidad.md` |
 
 Ya se creó un recibo real en el SAP DEV. Ahí se vio que el campo `U_TRZ_UUID` no existe: SAP creó el recibo igual, pero la consulta por ese campo responde 400 (`Property 'U_TRZ_UUID' of 'Document'is invalid`). Las pruebas automáticas usan respuestas simuladas de Service Layer (`Http::fake`).
 

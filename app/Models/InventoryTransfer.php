@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Transfers\Enums\TransferMode;
+use App\Domain\Transfers\Enums\TransferPurpose;
 use Carbon\CarbonImmutable;
 use Database\Factories\InventoryTransferFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -31,6 +32,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property array<string, mixed>|null $reconciliation
  * @property int $attempts
  * @property TransferMode $mode
+ * @property TransferPurpose $purpose
  * @property string $from_warehouse
  * @property string $to_warehouse
  */
@@ -53,6 +55,7 @@ class InventoryTransfer extends Model
             'confirmed_at' => 'datetime',
             'failed_at' => 'datetime',
             'mode' => TransferMode::class,
+            'purpose' => TransferPurpose::class,
         ];
     }
 

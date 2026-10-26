@@ -5,9 +5,12 @@ namespace App\Domain\Transfers;
 use App\Domain\Integration\Enums\DocumentPhase;
 use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Integration\SapDocumentLifecycle;
+use App\Domain\Quality\Enums\QualityStatus;
+use App\Domain\Quality\NonConformingTransferLifecycle;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
+use App\Domain\Transfers\Enums\TransferPurpose;
 use App\Domain\Transfers\Enums\TransferStatus;
 use App\Domain\Transfers\Exceptions\TransferRuleViolation;
 use App\Integrations\Sap\Dto\DocumentLine;
@@ -41,9 +44,20 @@ class InventoryTransferLifecycle extends SapDocumentLifecycle
         }
     }
 
+    /**
+     * The lifecycle that handles this transfer: to the CEDI, or to the
+     * non-conforming warehouse (quality).
+     */
+    public static function for(int $transferId): self
+    {
+        $purpose = InventoryTransfer::query()->whereKey($transferId)->first(['id', 'purpose'])?->purpose;
+
+        return $purpose === TransferPurpose::NonConforming ? app(NonConformingTransferLifecycle::class) : app(self::class);
+    }
+
     protected function documents(): Builder
     {
-        return InventoryTransfer::query();
+        return InventoryTransfer::query()->where('purpose', TransferPurpose::Cedi);
     }
 
     protected function linesOf(ProductionReceipt|InventoryTransfer $document): Builder
@@ -83,7 +97,7 @@ class InventoryTransferLifecycle extends SapDocumentLifecycle
         return 'transfer_status';
     }
 
-    protected function palletStatus(DocumentPhase $phase): ReceiptStatus|TransferStatus
+    protected function palletStatus(DocumentPhase $phase): ReceiptStatus|TransferStatus|QualityStatus
     {
         return match ($phase) {
             DocumentPhase::Requested => TransferStatus::Requested,

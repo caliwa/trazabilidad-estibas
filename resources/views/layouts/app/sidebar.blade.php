@@ -36,8 +36,11 @@
                     </flux:sidebar.group>
                 @endcanany
 
-                @canany(['audits.count', 'discrepancies.resolve'])
+                @canany(['quality.manage', 'audits.count', 'discrepancies.resolve'])
                     <flux:sidebar.group heading="CEDI" class="grid">
+                        @can('quality.manage')
+                            <flux:sidebar.item icon="shield-exclamation" :href="route('quality.index')" :current="request()->routeIs('quality.*')" wire:navigate>Calidad</flux:sidebar.item>
+                        @endcan
                         @can('audits.count')
                             <flux:sidebar.item icon="qr-code" :href="route('cedi.count')" :current="request()->routeIs('cedi.count')" wire:navigate>Conteo ciego</flux:sidebar.item>
                         @endcan
