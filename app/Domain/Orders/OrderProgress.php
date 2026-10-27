@@ -23,7 +23,33 @@ final readonly class OrderProgress
         public int $transferredMicro,
         /** Receipts or transfers waiting for reconciliation with SAP. */
         public int $pendingInSap,
+        /** Boxes read into the order's pallets (scanned or read by hand), received or not. */
+        public int $readBoxes = 0,
+        public int $receivedBoxes = 0,
+        public int $transferredBoxes = 0,
     ) {}
+
+    /** Boxes the planned quantity fills, the last partial one included; null without a factor. */
+    public function plannedBoxes(): ?int
+    {
+        return $this->plannedMicro === null || $this->unitsPerBoxMicro === null || $this->unitsPerBoxMicro === 0
+            ? null
+            : Quantities::boxes($this->plannedMicro, $this->unitsPerBoxMicro);
+    }
+
+    /** Units in the boxes read, at the current factor; null without one. */
+    public function readMicro(): ?int
+    {
+        return $this->unitsPerBoxMicro === null ? null : $this->readBoxes * $this->unitsPerBoxMicro;
+    }
+
+    /** Boxes read against the planned boxes, 0 to 100. */
+    public function readPercent(): int
+    {
+        $planned = $this->plannedBoxes();
+
+        return $planned === null || $planned === 0 ? 0 : (int) min(100, intdiv($this->readBoxes * 100, $planned));
+    }
 
     public function stage(): OrderStage
     {

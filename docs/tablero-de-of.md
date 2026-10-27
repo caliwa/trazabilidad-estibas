@@ -20,7 +20,13 @@ La aplicación **no cierra** la OF: solo avisa. El cierre lo hacen en SAP, como 
 - **Cerradas en SAP:** las OF que llegaron a "Lista para cerrar" en la aplicación y después se cerraron en SAP. Al tocar la tarjeta se filtran.
 - Un aviso si alguna OF tiene recibos o transferencias pendientes de conciliar con SAP.
 
-**Una fila por OF:** OF y fecha de fin, producto, planificado, barra de recibido en 04, barra de transferido a CEDI, y el estado. Las listas para cerrar salen primero. Se puede buscar por OF, código o descripción, y filtrar por estado.
+**Una fila por OF:** OF y fecha de fin, producto, planificado, barras de cajas leídas, recibido en 04 y transferido a CEDI, y el estado.
+
+- Cada etapa muestra **unidades y cajas**, para comparar todo el recorrido:
+  - **Planificado:** la cantidad de SAP y las cajas que llena, contando la última aunque vaya incompleta.
+  - **Cajas leídas:** todas las cajas leídas en las estibas de la OF (sensor o lectura manual), con o sin recibo. Las unidades salen de multiplicar por las unidades por caja vigentes. La barra es contra las cajas planificadas.
+  - **Recibido en 04** y **Transferido a CEDI:** las unidades exactas de los recibos confirmados y las cajas de esas mismas líneas.
+- Sin unidades por caja, las cajas leídas se ven pero sus unidades no, y lo planificado dice "sin unidades por caja". Las listas para cerrar salen primero. Se puede buscar por OF, código o descripción, y filtrar por estado.
 
 Las unidades se suman por unidad de medida de SAP. Si hay OF en unidades distintas, salen tarjetas separadas.
 
@@ -71,7 +77,7 @@ SAP se consulta **solo con el botón** "Actualizar desde SAP" (o con `php artisa
 
 | Prueba | Qué demuestra |
 |---|---|
-| `OrderBoardTest` (13) | Se traen todas las liberadas y ninguna otra; una OF cerrada en SAP sale del tablero; SAP sin respuesta no cambia nada; OF que SAP ya no tiene; avance por recibos y por transferencia a CEDI; un recibo sin confirmar no cuenta; la última caja incompleta; aviso una sola vez y solo a quien tiene el permiso; OF no liberada sin aviso; KPIs; permisos; pantalla; OF lista para cerrar y cerrada en SAP sale como "Cerrada en SAP" con su fecha, y una cerrada sin pasar por el proceso no |
+| `OrderBoardTest` (15) | Se traen todas las liberadas y ninguna otra; una OF cerrada en SAP sale del tablero; SAP sin respuesta no cambia nada; OF que SAP ya no tiene; avance por recibos y por transferencia a CEDI; un recibo sin confirmar no cuenta; la última caja incompleta; aviso una sola vez y solo a quien tiene el permiso; OF no liberada sin aviso; KPIs; permisos; pantalla; OF lista para cerrar y cerrada en SAP sale como "Cerrada en SAP" con su fecha, y una cerrada sin pasar por el proceso no; unidades y cajas de lo planificado, lo leído, lo recibido y lo transferido |
 | `DemoFlowTest` | La demo trae solo las liberadas y deja la OF 33134 lista para cerrar y completa en CEDI, con el aviso enviado |
 
 Al quitar el control de "una sola vez", la prueba del aviso falla.
