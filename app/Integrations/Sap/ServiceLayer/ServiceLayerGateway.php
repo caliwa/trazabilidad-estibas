@@ -53,7 +53,10 @@ class ServiceLayerGateway implements SapGateway
     /** Items read per request when bringing many orders (keeps the URL short). */
     private const ITEMS_PER_REQUEST = 20;
 
-    private const ITEM_FIELDS = 'ItemCode,ItemName,BarCode,InventoryUOM,SalesQtyPerPackUnit,SalesPackagingUnit';
+    /** User field on Items with the real boxes per pallet of each product. */
+    public const ITEM_BOXES_PER_PALLET = 'U_TEC_CajMstXPall';
+
+    private const ITEM_FIELDS = 'ItemCode,ItemName,BarCode,InventoryUOM,SalesQtyPerPackUnit,SalesPackagingUnit,'.self::ITEM_BOXES_PER_PALLET;
 
     /**
      * @param  array{correlation_field: string, costing_code: ?string, costing_code2: ?string, costing_code3: ?string}  $receipt
@@ -550,6 +553,7 @@ class ServiceLayerGateway implements SapGateway
             itemInventoryUom: $uom,
             itemSalesQtyPerPackUnit: isset($item['SalesQtyPerPackUnit']) && is_numeric($item['SalesQtyPerPackUnit']) ? $this->decimal((float) $item['SalesQtyPerPackUnit']) : null,
             itemSalesPackagingUnit: isset($item['SalesPackagingUnit']) && is_string($item['SalesPackagingUnit']) && $item['SalesPackagingUnit'] !== '' ? $item['SalesPackagingUnit'] : null,
+            itemBoxesPerPallet: $this->wholeBoxes($item[self::ITEM_BOXES_PER_PALLET] ?? null),
         );
     }
 
@@ -621,6 +625,21 @@ class ServiceLayerGateway implements SapGateway
     private function mayHaveBeenProcessed(Response $response): bool
     {
         return in_array($response->status(), [401, 408, 429], true) || $response->serverError();
+    }
+
+    /**
+     * Boxes per pallet as SAP has it: a whole number above zero, or null
+     * (empty, zero, negative or with a fraction is not a usable standard).
+     */
+    private function wholeBoxes(mixed $value): ?int
+    {
+        if (! is_numeric($value)) {
+            return null;
+        }
+
+        $number = (float) $value;
+
+        return $number > 0 && $number <= 100_000 && floor($number) === $number ? (int) $number : null;
     }
 
     private function quantity(mixed $value): Quantity

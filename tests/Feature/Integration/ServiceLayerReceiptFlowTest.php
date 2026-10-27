@@ -13,6 +13,7 @@ use App\Integrations\Sap\Contracts\SapGateway;
 use App\Models\BoxConversionFactor;
 use App\Models\Item;
 use App\Models\Pallet;
+use App\Models\PalletStandard;
 use App\Models\ProductionOrder;
 use App\Models\TraceEvent;
 use App\Models\User;
@@ -252,6 +253,58 @@ class ServiceLayerReceiptFlowTest extends TestCase
         $sync();
         $this->assertSame('12.000000', app(ConversionFactors::class)->current($item()->id, now())?->units_per_box);
         $this->assertCount(2, $factors());
+    }
+
+    public function test_boxes_per_pallet_from_sap_becomes_the_versioned_pallet_standard(): void
+    {
+        $boxes = null;
+        Http::fake(function (Request $r) use (&$boxes) {
+            return match (true) {
+                str_ends_with($r->url(), '/Login') => Http::response(['SessionId' => 's1'], 200),
+                str_contains($r->url(), '/ProductionOrders?') => Http::response(['value' => [[
+                    'AbsoluteEntry' => 41659, 'DocumentNumber' => 33128, 'ProductionOrderStatus' => 'boposReleased', 'ItemNo' => 'PT1350023', 'PlannedQuantity' => 800, 'Warehouse' => '04',
+                ]]]),
+                default => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA', 'InventoryUOM' => 'UNIDAD', 'SalesQtyPerPackUnit' => 24, 'U_TEC_CajMstXPall' => $boxes]),
+            };
+        });
+        $answers = [120, 120, 96, 0, null];
+        $sync = function () use (&$answers, &$boxes): void {
+            $boxes = array_shift($answers);
+            $this->assertSame(0, Artisan::call('sap:sync-orders'));
+        };
+        $item = Item::factory()->create(['code' => 'PT1350023']);
+        // The test standard the manual reading creates while SAP has no value, and a pallet already started with it.
+        $test = PalletStandard::factory()->create(['item_id' => $item->id, 'boxes_per_pallet' => 40, 'sap_source_key' => PalletStandard::TEST_SOURCE]);
+        $open = Pallet::factory()->create(['item_id' => $item->id, 'pallet_standard_id' => $test->id]);
+        $standards = fn () => PalletStandard::query()->where('item_id', $item->id)->orderBy('version')->get()
+            ->map(fn (PalletStandard $s) => [$s->version, $s->boxes_per_pallet, $s->sap_source_key, $s->status])->all();
+
+        $sync();
+        $this->assertSame(120, $item->refresh()->boxes_per_pallet);
+        $this->assertEquals([
+            [1, 40, PalletStandard::TEST_SOURCE, MasterStatus::Superseded],
+            [2, 120, 'Items.U_TEC_CajMstXPall', MasterStatus::Current],
+        ], $standards());
+        // The pallet already started keeps what it was created with.
+        $this->assertSame([$test->id, 40], [$open->refresh()->pallet_standard_id, $open->standard_boxes_snapshot]);
+
+        // Same value: no new version.
+        $sync();
+        $this->assertCount(2, $standards());
+
+        // SAP changed it: a new current version, the old one kept.
+        $sync();
+        $this->assertEquals([2, 120, 'Items.U_TEC_CajMstXPall', MasterStatus::Superseded], $standards()[1]);
+        $this->assertEquals([3, 96, 'Items.U_TEC_CajMstXPall', MasterStatus::Current], $standards()[2]);
+        $this->assertSame(2, TraceEvent::query()->where('event', TraceEventType::MastersSynced->value)
+            ->where('subject_type', 'item')->where('subject_id', $item->id)->where('context->source', 'Items.U_TEC_CajMstXPall')->count());
+
+        // Zero or empty in SAP: the current standard stays.
+        $sync();
+        $sync();
+        $this->assertCount(3, $standards());
+        $this->assertSame(96, PalletStandard::query()->where('item_id', $item->id)->where('status', MasterStatus::Current)->sole()->boxes_per_pallet);
+        $this->assertNull($item->refresh()->boxes_per_pallet);
     }
 
     public function test_sap_rejecting_the_receipt_fails_it_and_frees_the_pallet(): void
