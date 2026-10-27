@@ -8,6 +8,7 @@ use App\Domain\Integration\Enums\PalletHold;
 use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
+use App\Domain\Transfers\Enums\TransferPurpose;
 use App\Domain\Transfers\Enums\TransferStatus;
 use App\Models\Pallet;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -108,6 +109,8 @@ class PalletBoardQuery
             ->join($documents, "{$documents}.id", '=', "{$lines}.{$foreignKey}")
             ->whereColumn("{$lines}.pallet_id", 'pallets.id')
             ->where("{$lines}.hold_status", PalletHold::Confirmed->value)
+            // The board's "Traslado" is the one to the CEDI, not the one to the non-conforming warehouse.
+            ->when($lines === 'inventory_transfer_pallets', fn ($q) => $q->where("{$lines}.purpose", TransferPurpose::Cedi->value))
             ->select("{$documents}.sap_doc_num")
             ->limit(1);
     }

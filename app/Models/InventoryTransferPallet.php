@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Domain\Integration\Enums\PalletHold;
+use App\Domain\Transfers\Enums\TransferPurpose;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -12,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $id
  * @property int $pallet_id
  * @property PalletHold $hold_status
+ * @property TransferPurpose $purpose
  * @property int $boxes
  * @property int $box_conversion_factor_id
  * @property string $units_per_box
@@ -31,6 +33,7 @@ class InventoryTransferPallet extends Model
     {
         return [
             'hold_status' => PalletHold::class,
+            'purpose' => TransferPurpose::class,
             'units_per_box' => 'decimal:6',
             'sap_quantity' => 'decimal:6',
         ];

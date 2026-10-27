@@ -6,10 +6,12 @@ use App\Domain\Audits\Enums\AuditStatus;
 use App\Domain\Audits\Enums\CountStatus;
 use App\Domain\Integration\Enums\PalletHold;
 use App\Domain\Integration\Enums\SapDocumentStatus;
+use App\Domain\Quality\Enums\QualityStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
 use App\Domain\Transfers\Enums\TransferMode;
+use App\Domain\Transfers\Enums\TransferPurpose;
 use App\Domain\Transfers\Enums\TransferStatus;
 use App\Domain\Transfers\Exceptions\TransferRuleViolation;
 use App\Enums\Permission;
@@ -27,8 +29,9 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 /**
- * Creates the stock transfer 04 → 05 of audited pallets, one document per
- * pallet.
+ * Creates the stock transfer to 05 of audited pallets, one document per
+ * pallet: from 04, or from the non-conforming warehouse (11C) for a pallet
+ * quality held there and released.
  *
  * The normal path is automatic: SubmitBlindCount calls this inside the
  * same transaction that approves the count, so an approved count without
@@ -105,13 +108,29 @@ class RequestInventoryTransfers
     }
 
     /**
+     * Where the pallet is in SAP before the CEDI: 04 once received, or the
+     * non-conforming warehouse if quality held it there and then released
+     * it (it stays there until this transfer takes it to 05).
+     */
+    private function currentWarehouse(Pallet $pallet): string
+    {
+        $inNonConforming = $pallet->quality_status === QualityStatus::Released
+            && InventoryTransferPallet::query()
+                ->where('pallet_id', $pallet->id)
+                ->whereHas('inventoryTransfer', fn ($q) => $q->where('purpose', TransferPurpose::NonConforming)->where('status', SapDocumentStatus::Confirmed))
+                ->exists();
+
+        return config()->string($inNonConforming ? 'sap.warehouses.non_conforming' : 'sap.warehouses.transfer_from');
+    }
+
+    /**
      * @param  array{ProductionReceiptPallet, PalletAudit}  $source
      */
     private function create(User $user, Pallet $pallet, array $source, TraceContext $ctx): InventoryTransfer
     {
         [$receiptLine, $audit] = $source;
         $uuid = (string) Str::uuid();
-        $from = config()->string('sap.warehouses.transfer_from');
+        $from = $this->currentWarehouse($pallet);
         $to = config()->string('sap.warehouses.transfer_to');
         $quantity = Quantity::ofBoxes($pallet->boxes_count, $receiptLine->units_per_box)->value;
 
@@ -142,6 +161,7 @@ class RequestInventoryTransfers
 
         (new InventoryTransferPallet)->forceFill([
             'inventory_transfer_id' => $transfer->id,
+            'purpose' => TransferPurpose::Cedi,
             'pallet_id' => $pallet->id,
             'pallet_audit_id' => $audit->id,
             'hold_status' => PalletHold::Active,
