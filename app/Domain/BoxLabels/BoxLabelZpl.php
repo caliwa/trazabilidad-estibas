@@ -14,13 +14,12 @@ use Carbon\CarbonImmutable;
  *   │       GELATINA OLIMPICA SIN SABOR      │
  *   │                                        │
  *   │ LOTE: 33128293        ┌──────────────┐ │
- *   │ VENCE: 20/10/2028     │ Tecnoal Logo │ │
+ *   │ VENCE: 10/2028        │ Tecnoal Logo │ │
  *   │ CAJA : 24 UNIDADES    └──────────────┘ │
  *   │                                        │
  *   │  ║│║│║ ITF-14 ║│║│║       ┌────────┐   │
- *   │    1 77 01008 62866 0     │   QR   │   │
+ *   │   (01)17701008628660      │   QR   │   │
  *   │                           └────────┘   │
- *   │                          Caja 0001     │
  *   └────────────────────────────────────────┘
  */
 final class BoxLabelZpl
@@ -49,38 +48,34 @@ final class BoxLabelZpl
     {
         $f = fn (string $text) => self::field($text);
 
+        // Vencimiento en formato MM/AAAA (ej. 10/2028) fiel al formato del .lbl
+        $expirationFormatted = $payload->expirationDate->format('m/Y');
+
         $lines = [
             '^XA',
             '^CI28',
             '^PW'.self::WIDTH_DOTS,
             '^LL'.self::HEIGHT_DOTS,
-            '^LH0,0',
-            // Marco exterior con bordes (100x80mm)
-            '^FO20,16^GB760,608,4^FS',
-            // Encabezado Centrado: Código PT y Descripción
-            '^FO30,36^FB740,1,0,C^A0N,40,40^FD'.$f($payload->itemCode).'^FS',
-            '^FO30,86^FB740,2,4,C^A0N,34,34^FD'.$f($payload->itemDescription).'^FS',
+            '^LS0',
+            // Encabezado Centrado: Código PT y Descripción (Arial Black bold)
+            '^FO30,20^FB740,1,0,C^A0N,46,48^FD'.$f($payload->itemCode).'^FS',
+            '^FO30,75^FB740,2,4,C^A0N,40,42^FD'.$f($payload->itemDescription).'^FS',
             // Bloque izquierdo: Lote, Vencimiento, Unidades por caja
-            '^FO45,190^A0N,36,36^FDLOTE: '.$f($payload->lotCode).'^FS',
-            '^FO45,245^A0N,36,36^FDVENCE: '.$payload->expirationDate->format('d/m/Y').'^FS',
-            '^FO45,300^A0N,36,36^FDCAJA : '.$f($payload->unitsPerBox).' UNIDADES^FS',
-            // Logo Tecnoal a la derecha
-            '^FO530,195'.self::LOGO_TECNOAL.'^FS',
+            '^FO35,190^A0N,42,42^FDLOTE: '.$f($payload->lotCode).'^FS',
+            '^FO35,250^A0N,42,42^FDVENCE: '.$expirationFormatted.'^FS',
+            '^FO35,310^A0N,42,42^FDCAJA : '.$f($payload->unitsPerBox).' UNIDADES^FS',
+            // Logo Tecnoal a la derecha centrado verticalmente
+            '^FO535,215'.self::LOGO_TECNOAL.'^FS',
         ];
 
-        // Código de barras EAN-14 a la izquierda abajo (ITF-14)
+        // Código de barras EAN-14 a la izquierda abajo (ITF-14 / ^B2)
         if (Itf14::isValid($payload->barcode)) {
-            $lines[] = '^FO45,370^BY3,2.5,130^B2N,130,N,N,N^FD'.$payload->barcode.'^FS';
-            $lines[] = '^FO45,515^FB460,1,0,C^A0N,28,28^FD'.Itf14::readable($payload->barcode).'^FS';
+            $lines[] = '^FO35,410^BY4,2.5,150^B2N,150,N,N,N^FD'.$payload->barcode.'^FS';
+            $lines[] = '^FO35,570^FB490,1,0,C^A0N,30,30^FD(01)'.$payload->barcode.'^FS';
         }
 
-        // Código QR a la derecha abajo con token opaco
-        $lines[] = '^FO585,230^BQN,2,4^FH_^FDMA,'.self::hexField($qrContent).'^FS';
-
-        // Identificador de la caja debajo del QR
-        if ($payload->boxCode !== null) {
-            $lines[] = '^FO530,515^FB240,1,0,C^A0N,24,24^FDCaja '.$f($payload->boxCode).'^FS';
-        }
+        // Código QR a la derecha abajo alineado horizontalmente con el código de barras
+        $lines[] = '^FO575,235^BQN,2,4^FH_^FDMA,'.self::hexField($qrContent).'^FS';
 
         $lines[] = '^PQ1,0,1,Y';
         $lines[] = '^XZ';
