@@ -250,11 +250,12 @@ class ServiceLayerGatewayTest extends TestCase
                 'ItemNo' => 'PT1350023', 'PlannedQuantity' => 800.0, 'Warehouse' => '04', 'Priority' => 100,
                 'PostingDate' => '2026-02-17T00:00:00Z', 'StartDate' => '2026-02-17T00:00:00Z', 'DueDate' => '2026-02-24T00:00:00Z', 'ProductionOrderOrigin' => 'bopooManual',
             ]]]),
-            self::URL."/Items('PT1350023')*" => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'BarCode' => '12000013500233', 'InventoryUOM' => 'UNIDAD', 'SalesQtyPerPackUnit' => 24.0, 'SalesPackagingUnit' => 'CAJA']),
+            self::URL."/Items('PT1350023')*" => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'BarCode' => '12000013500233', 'InventoryUOM' => 'UNIDAD', 'SalesQtyPerPackUnit' => 24.0, 'SalesPackagingUnit' => 'CAJA', 'U_TEC_CajMstXPall' => 120.0]),
         ]));
 
         $order = $this->gateway()->findProductionOrder('33128');
-        $this->assertSame(['24', 'CAJA'], [$order?->itemSalesQtyPerPackUnit, $order?->itemSalesPackagingUnit]);
+        $this->assertSame(['24', 'CAJA', 120], [$order?->itemSalesQtyPerPackUnit, $order?->itemSalesPackagingUnit, $order?->itemBoxesPerPallet]);
+        Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), "Items('PT1350023')") && str_contains(urldecode($r->url()), 'SalesPackagingUnit,U_TEC_CajMstXPall'));
         Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), "\$filter=DocumentNumber eq 33128 and startswith(ItemNo,'PT')"));
         Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), "Items('PT1350023')") && str_contains(urldecode($r->url()), 'SalesQtyPerPackUnit,SalesPackagingUnit'));
 
@@ -264,6 +265,25 @@ class ServiceLayerGatewayTest extends TestCase
             [$order->docEntry, $order->docNum, $order->status, $order->type, $order->itemCode, $order->itemDescription, $order->plannedQuantity->value, $order->uomName, $order->warehouse, $order->priority, $order->dueDate?->toDateString(), $order->itemBarcode],
         );
         Http::assertSent(fn (Request $r) => str_contains(urldecode($r->url()), '$filter=DocumentNumber eq 33128'));
+    }
+
+    public function test_boxes_per_pallet_is_only_taken_when_sap_has_a_whole_number_above_zero(): void
+    {
+        $value = null;
+        Http::fake(function (Request $r) use (&$value) {
+            return match (true) {
+                str_ends_with($r->url(), '/Login') => Http::response(['SessionId' => 's1'], 200),
+                str_contains($r->url(), '/ProductionOrders?') => Http::response(['value' => [[
+                    'AbsoluteEntry' => 41659, 'DocumentNumber' => 33128, 'ProductionOrderStatus' => 'boposReleased', 'ItemNo' => 'PT1350023', 'PlannedQuantity' => 800, 'Warehouse' => '04',
+                ]]]),
+                default => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA', 'InventoryUOM' => 'UNIDAD', 'U_TEC_CajMstXPall' => $value]),
+            };
+        });
+
+        foreach ([[120, 120], ['96', 96], [120.5, null], [0, null], [-5, null], ['', null], [null, null], ['abc', null]] as [$sap, $expected]) {
+            $value = $sap;
+            $this->assertSame($expected, $this->gateway()->findProductionOrder('33128')?->itemBoxesPerPallet, var_export($sap, true));
+        }
     }
 
     public function test_the_released_orders_follow_every_page_in_big_pages_and_read_products_in_groups(): void

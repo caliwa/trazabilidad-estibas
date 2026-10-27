@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  *
  * @property string|null $sales_qty_per_pack_unit Items.SalesQtyPerPackUnit
  * @property string|null $sales_packaging_unit Items.SalesPackagingUnit
+ * @property int|null $boxes_per_pallet Items.U_TEC_CajMstXPall
  */
 class Item extends Model
 {

@@ -11,6 +11,7 @@ use App\Integrations\Sap\Enums\ProductionOrderStatus;
 use App\Models\BoxConversionFactor;
 use App\Models\Item;
 use App\Models\Pallet;
+use App\Models\PalletStandard;
 use App\Models\ProductionOrder;
 use App\Models\User;
 use App\Services\TraceLogger;
@@ -23,6 +24,9 @@ use App\Support\Quantities;
  */
 final class ProductionOrderCache
 {
+    /** sap_source_key of a pallet standard that came from SAP. */
+    public const PALLET_STANDARD_SOURCE = 'Items.U_TEC_CajMstXPall';
+
     public function __construct(private readonly TraceLogger $trace) {}
 
     /**
@@ -42,11 +46,13 @@ final class ProductionOrderCache
             'barcode' => $sapOrder->itemBarcode,
             'sales_qty_per_pack_unit' => $sapOrder->itemSalesQtyPerPackUnit,
             'sales_packaging_unit' => $sapOrder->itemSalesPackagingUnit === null ? null : mb_substr($sapOrder->itemSalesPackagingUnit, 0, 30),
+            'boxes_per_pallet' => $sapOrder->itemBoxesPerPallet,
             'active' => true,
             'synced_at' => now(),
         ])->save();
 
         $this->syncUnitsPerBox($item, $sapOrder, $ctx);
+        $this->syncPalletStandard($item, $sapOrder->itemBoxesPerPallet, $ctx);
 
         $order = ProductionOrder::query()->where('ref', $sapOrder->docNum)->lockForUpdate()->first() ?? new ProductionOrder;
 
@@ -152,6 +158,47 @@ final class ProductionOrderCache
             from: $current === null ? null : ['units_per_box' => $current->units_per_box, 'version' => $current->version],
             to: ['units_per_box' => $factor->units_per_box, 'version' => $factor->version],
             context: ['source' => 'Items.SalesQtyPerPackUnit', 'packaging_unit' => $sapOrder->itemSalesPackagingUnit],
+        );
+    }
+
+    /**
+     * Items.U_TEC_CajMstXPall is the real number of boxes per pallet: it
+     * becomes the item's current pallet standard, replacing the test one
+     * (PRUEBA) or an older value. The old version is kept, and pallets
+     * already started keep the one they were created with. When SAP has no
+     * usable value the current standard is left as it is.
+     */
+    private function syncPalletStandard(Item $item, ?int $boxes, TraceContext $ctx): void
+    {
+        if ($boxes === null) {
+            return;
+        }
+
+        $current = PalletStandard::query()->where('item_id', $item->id)->where('status', MasterStatus::Current)->lockForUpdate()->first();
+
+        if ($current !== null && $current->boxes_per_pallet === $boxes && $current->sap_source_key === self::PALLET_STANDARD_SOURCE) {
+            $current->forceFill(['synced_at' => now()])->save();
+
+            return;
+        }
+
+        $current?->forceFill(['status' => MasterStatus::Superseded, 'valid_to' => now(), 'synced_at' => now()])->save();
+
+        $standard = new PalletStandard;
+        $standard->forceFill([
+            'item_id' => $item->id,
+            'version' => (int) PalletStandard::query()->where('item_id', $item->id)->max('version') + 1,
+            'boxes_per_pallet' => $boxes,
+            'sap_source_key' => self::PALLET_STANDARD_SOURCE,
+            'status' => MasterStatus::Current,
+            // No valid_from, like the conversion factor: superseding it later can never fall on the same instant.
+            'synced_at' => now(),
+        ])->save();
+
+        $this->trace->record($ctx, TraceEventType::MastersSynced, $item,
+            from: $current === null ? null : ['boxes_per_pallet' => $current->boxes_per_pallet, 'version' => $current->version, 'source' => $current->sap_source_key],
+            to: ['boxes_per_pallet' => $boxes, 'version' => $standard->version],
+            context: ['source' => self::PALLET_STANDARD_SOURCE],
         );
     }
 }

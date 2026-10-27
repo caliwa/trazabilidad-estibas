@@ -34,6 +34,8 @@ La pantalla muestra lo que se sabe de esa caja (OF, producto, lote, código de c
 
 Mientras el estándar real (cajas por estiba) se carga en SAP, un producto sin estándar recibe uno de prueba: **40 cajas** (`TRACE_TEST_PALLET_BOXES`). Queda marcado `PRUEBA`, se ve como "Estándar de prueba" en la estación y queda en la bitácora. Con `TRACE_TEST_PALLET_BOXES=0` se apaga.
 
+Cuando la sincronización de OF trae `Items.U_TEC_CajMstXPall` con valor, ese pasa a ser el estándar vigente y el de prueba queda reemplazado (ver `docs/conector-sap.md`, sección 5). Las estibas abiertas con el de prueba lo conservan hasta cerrarse.
+
 Si el producto ya tiene un estándar, se usa ese.
 
 ## 4. Configuración

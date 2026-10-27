@@ -35,5 +35,7 @@ final readonly class SapProductionOrder
         // Sales packaging of the product (Items.SalesQtyPerPackUnit, exact decimal, and Items.SalesPackagingUnit).
         public ?string $itemSalesQtyPerPackUnit = null,
         public ?string $itemSalesPackagingUnit = null,
+        // Real boxes per pallet of the product (Items.U_TEC_CajMstXPall); null when SAP has none.
+        public ?int $itemBoxesPerPallet = null,
     ) {}
 }
