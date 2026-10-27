@@ -192,6 +192,7 @@ new #[Title('Tablero de OF')] class extends Component {
                     <flux:table.column>OF</flux:table.column>
                     <flux:table.column>Producto</flux:table.column>
                     <flux:table.column align="end">Planificado</flux:table.column>
+                    <flux:table.column>Cajas leídas</flux:table.column>
                     <flux:table.column>Recibido en 04</flux:table.column>
                     <flux:table.column>Transferido a CEDI</flux:table.column>
                     <flux:table.column>Estado</flux:table.column>
@@ -205,14 +206,18 @@ new #[Title('Tablero de OF')] class extends Component {
                                 @if ($order->due_date)<div class="text-xs text-zinc-500">Fin {{ $order->due_date->format('d/m/Y') }}</div>@endif
                             </flux:table.cell>
                             <flux:table.cell class="max-w-64 whitespace-normal"><div>{{ $order->item->code }}</div><div class="text-xs text-zinc-500">{{ $order->item->description }}</div></flux:table.cell>
-                            <flux:table.cell align="end" class="whitespace-nowrap tabular-nums">{{ Quantities::format((int) $p->plannedMicro) }} <span class="text-xs text-zinc-500">{{ $order->uom_name }}</span></flux:table.cell>
-                            @foreach ([[$p->receivedPercent(), $p->receivedMicro, 'bg-blue-500'], [$p->transferredPercent(), $p->transferredMicro, 'bg-violet-500']] as [$percent, $micro, $color])
+                            <flux:table.cell align="end" class="whitespace-nowrap tabular-nums">
+                                {{ Quantities::format((int) $p->plannedMicro) }} <span class="text-xs text-zinc-500">{{ $order->uom_name }}</span>
+                                <div class="text-xs text-zinc-500">{{ $p->plannedBoxes() === null ? 'sin unidades por caja' : number_format($p->plannedBoxes(), 0, ',', '.').' cajas' }}</div>
+                            </flux:table.cell>
+                            {{-- Same layout for each stage: progress bar, then units and boxes. --}}
+                            @foreach ([[$p->readPercent(), $p->readMicro(), $p->readBoxes, 'bg-amber-500'], [$p->receivedPercent(), $p->receivedMicro, $p->receivedBoxes, 'bg-blue-500'], [$p->transferredPercent(), $p->transferredMicro, $p->transferredBoxes, 'bg-violet-500']] as [$percent, $micro, $boxes, $color])
                                 <flux:table.cell class="min-w-44">
                                     <div class="flex items-center gap-2">
                                         <div class="h-2.5 w-28 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"><div class="h-full rounded-full {{ $color }}" style="width: {{ $percent }}%"></div></div>
                                         <span class="w-10 text-end text-sm font-medium tabular-nums">{{ $percent }}%</span>
                                     </div>
-                                    <div class="mt-0.5 text-xs text-zinc-500 tabular-nums">{{ Quantities::format($micro) }} {{ $order->uom_name }}</div>
+                                    <div class="mt-0.5 text-xs text-zinc-500 tabular-nums">{{ $micro === null ? '—' : Quantities::format($micro) }} {{ $order->uom_name }} · {{ number_format($boxes, 0, ',', '.') }} {{ $boxes === 1 ? 'caja' : 'cajas' }}</div>
                                 </flux:table.cell>
                             @endforeach
                             <flux:table.cell>

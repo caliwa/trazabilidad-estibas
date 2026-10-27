@@ -360,4 +360,34 @@ class OrderBoardTest extends TestCase
             ->assertSee('el 24/10/2026')
             ->assertDontSee('33131');
     }
+
+    public function test_each_stage_shows_units_and_boxes_from_read_to_the_cedi(): void
+    {
+        $this->sync();
+        $order = $this->order('33128');
+        // 40 boxes at 10 per box: received and later in the CEDI.
+        $this->transferToCedi($this->receive($order, 'L-1'));
+        // Another 40 boxes read but not received yet.
+        $this->labeledPallets(['L-2'], unitsPerBox: '10', order: $order);
+
+        $p = $this->progress($order);
+        $this->assertSame([80, 80, 40, 40], [$p->plannedBoxes(), $p->readBoxes, $p->receivedBoxes, $p->transferredBoxes]);
+        $this->assertSame([800_000_000, 100], [$p->readMicro(), $p->readPercent()]);
+        $this->assertSame([400_000_000, 400_000_000], [$p->receivedMicro, $p->transferredMicro]);
+
+        Livewire::actingAs($this->admin)->test('pages::orders.index')
+            ->assertSee('Cajas leídas')
+            ->assertSee('80 cajas')
+            ->assertSee('800 UNIDAD · 80 cajas')
+            ->assertSee('400 UNIDAD · 40 cajas');
+    }
+
+    public function test_without_units_per_box_the_boxes_still_show_and_the_units_do_not(): void
+    {
+        $progress = new OrderProgress(1, 'LIBERADO', 800_000_000, null, 0, 0, 0, readBoxes: 12);
+
+        $this->assertNull($progress->plannedBoxes());
+        $this->assertNull($progress->readMicro());
+        $this->assertSame([12, 0], [$progress->readBoxes, $progress->readPercent()]);
+    }
 }

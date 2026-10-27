@@ -36,13 +36,21 @@ class OrderProgressQuery
         $received = $this->keyed(
             "SELECT r.production_order_id AS id,
                 sum(l.sap_quantity) AS received,
-                coalesce(sum(l.sap_quantity) FILTER (WHERE p.transfer_status = ?), 0) AS transferred
+                coalesce(sum(l.sap_quantity) FILTER (WHERE p.transfer_status = ?), 0) AS transferred,
+                sum(l.boxes) AS received_boxes,
+                coalesce(sum(l.boxes) FILTER (WHERE p.transfer_status = ?), 0) AS transferred_boxes
              FROM production_receipt_pallets l
              JOIN production_receipts r ON r.id = l.production_receipt_id
              JOIN pallets p ON p.id = l.pallet_id
              WHERE l.hold_status = ? AND r.production_order_id IN ({$in})
              GROUP BY r.production_order_id",
-            [TransferStatus::Confirmed->value, PalletHold::Confirmed->value, ...$orderIds],
+            [TransferStatus::Confirmed->value, TransferStatus::Confirmed->value, PalletHold::Confirmed->value, ...$orderIds],
+        );
+
+        // Every box read into the order's pallets, whether the pallet is closed or received yet.
+        $read = $this->keyed(
+            "SELECT production_order_id AS id, sum(boxes_count) AS boxes FROM pallets WHERE production_order_id IN ({$in}) GROUP BY production_order_id",
+            $orderIds,
         );
 
         $pending = $this->keyed(
@@ -77,6 +85,9 @@ class OrderProgressQuery
                 receivedMicro: Quantities::toMicro($received[$id]->received ?? null),
                 transferredMicro: Quantities::toMicro($received[$id]->transferred ?? null),
                 pendingInSap: (int) ($pending[$id]->pending ?? 0),
+                readBoxes: (int) ($read[$id]->boxes ?? 0),
+                receivedBoxes: (int) ($received[$id]->received_boxes ?? 0),
+                transferredBoxes: (int) ($received[$id]->transferred_boxes ?? 0),
             );
         }
 
