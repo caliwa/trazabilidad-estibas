@@ -7,19 +7,20 @@ use Carbon\CarbonImmutable;
 /**
  * ZPL II for a 100 × 80 mm box label on a 203 dpi Zebra (8 dots per mm,
  * 800 × 640 dots) matching the exact layout and margins of
- * GELATINA YIA LIMON X 12 G SIN IMP.lbl:
+ * GELATINA YIA LIMON X 12 G SIN IMP.lbl with QR in middle-right (large)
+ * and Tecnoal Logo in bottom-right:
  *
  *   ┌────────────────────────────────────────┐
  *   │               PT1350023                │
  *   │       GELATINA OLIMPICA SIN SABOR      │
  *   │                                        │
- *   │ LOTE: 33128293        ┌──────────────┐ │
- *   │ VENCE: 10/2028        │ Tecnoal Logo │ │
- *   │ CAJA : 24 UNIDADES    └──────────────┘ │
- *   │                                        │
- *   │  ║│║│║ ITF-14 ║│║│║       ┌────────┐   │
- *   │   (01)17701008628660      │   QR   │   │
- *   │                           └────────┘   │
+ *   │ LOTE: 33128293           ┌──────────┐  │
+ *   │ VENCE: 10/2028           │    QR    │  │
+ *   │ CAJA : 24 UNIDADES       │ (Grande) │  │
+ *   │                          └──────────┘  │
+ *   │  ║│║│║ ITF-14 ║│║│║     ┌────────────┐ │
+ *   │   (01)17701008628660    │Tecnoal Logo│ │
+ *   │                         └────────────┘ │
  *   └────────────────────────────────────────┘
  */
 final class BoxLabelZpl
@@ -64,8 +65,8 @@ final class BoxLabelZpl
             '^FO35,190^A0N,42,42^FDLOTE: '.$f($payload->lotCode).'^FS',
             '^FO35,250^A0N,42,42^FDVENCE: '.$expirationFormatted.'^FS',
             '^FO35,310^A0N,42,42^FDCAJA : '.$f($payload->unitsPerBox).' UNIDADES^FS',
-            // Logo Tecnoal a la derecha centrado verticalmente
-            '^FO535,215'.self::LOGO_TECNOAL.'^FS',
+            // Código QR a la derecha en el bloque medio (más grande, ampliación 6)
+            '^FO545,150^BQN,2,6^FH_^FDMA,'.self::hexField($qrContent).'^FS',
         ];
 
         // Código de barras EAN-14 a la izquierda abajo (ITF-14 / ^B2)
@@ -74,8 +75,8 @@ final class BoxLabelZpl
             $lines[] = '^FO35,570^FB490,1,0,C^A0N,30,30^FD(01)'.$payload->barcode.'^FS';
         }
 
-        // Código QR a la derecha abajo alineado horizontalmente con el código de barras
-        $lines[] = '^FO575,235^BQN,2,4^FH_^FDMA,'.self::hexField($qrContent).'^FS';
+        // Logo Tecnoal abajo a la derecha (donde estaba el QR)
+        $lines[] = '^FO535,445'.self::LOGO_TECNOAL.'^FS';
 
         $lines[] = '^PQ1,0,1,Y';
         $lines[] = '^XZ';

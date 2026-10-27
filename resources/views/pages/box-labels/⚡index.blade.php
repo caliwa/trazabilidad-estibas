@@ -413,18 +413,18 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                         <div>VENCE: <span class="font-mono">{{ $preview?->expirationDate->format('m/Y') ?? '' }}</span></div>
                                         <div>CAJA : {{ $preview?->unitsPerBox ?? ($this->factor ? (new Quantity((string) $this->factor->units_per_box))->display() : '') }} UNIDADES</div>
                                     </div>
-                                    <div class="shrink-0">
-                                        <img src="/images/logo.png" alt="Tecnoal" class="h-12 w-auto object-contain grayscale contrast-200" />
+                                    <div class="shrink-0 flex items-center justify-center">
+                                        <div class="h-24 w-24 [&_svg]:h-full [&_svg]:w-full">{!! BoxLabelQr::svg($shownQr) !!}</div>
                                     </div>
                                 </div>
-                                <div class="grid grid-cols-12 gap-2 items-end">
+                                <div class="grid grid-cols-12 gap-2 items-center">
                                     <div class="col-span-8 flex flex-col items-center">
                                         @if (Itf14::isValid($ean))
                                             <div class="w-full [&_svg]:h-16 [&_svg]:w-full">{!! Itf14::svg($ean) !!}</div>
                                         @endif
                                     </div>
-                                    <div class="col-span-4 flex justify-end">
-                                        <div class="h-20 w-20 [&_svg]:h-full [&_svg]:w-full">{!! BoxLabelQr::svg($shownQr) !!}</div>
+                                    <div class="col-span-4 flex justify-center items-center">
+                                        <img src="/images/logo.png" alt="Tecnoal" class="h-12 w-auto object-contain grayscale contrast-200" />
                                     </div>
                                 </div>
                             </div>
