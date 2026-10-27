@@ -103,8 +103,8 @@ class QualityTest extends TestCase
         $hold->refresh();
         $this->assertSame([QualityHoldStatus::NonConforming, 'Cajas golpeadas', $this->quality->id, $transfer->id], [$hold->status, $hold->reason, $hold->held_by, $hold->inventory_transfer_id]);
         $this->assertSame(['04', '11C'], [collect($this->sap()->transfers())->sole()->fromWarehouse, collect($this->sap()->transfers())->sole()->lines[0]->warehouse]);
-        $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::QualityHeld->value)->where('subject_id', $pallet->id)->count());
-        $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::NonConformingConfirmed->value)->where('subject_id', $pallet->id)->count());
+        $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::QualityHeld->value)->where('subject_type', 'pallet')->where('subject_id', $pallet->id)->count());
+        $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::NonConformingConfirmed->value)->where('subject_type', 'pallet')->where('subject_id', $pallet->id)->count());
 
         // In 11C it is not counted.
         $this->refused(fn () => $this->countPallet($pallet), 'no se cuenta hasta que calidad la libere');
