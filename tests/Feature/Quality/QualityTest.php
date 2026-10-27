@@ -9,7 +9,6 @@ use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Pallets\PalletQr;
 use App\Domain\Quality\Actions\HoldPallet;
 use App\Domain\Quality\Actions\ReleasePallet;
-use App\Domain\Quality\Actions\SendToNonConforming;
 use App\Domain\Quality\Enums\QualityHoldStatus;
 use App\Domain\Quality\Enums\QualityStatus;
 use App\Domain\Quality\Exceptions\QualityRuleViolation;
@@ -37,9 +36,11 @@ use Tests\Concerns\CreatesUsers;
 use Tests\TestCase;
 
 /**
- * Quality before the blind count: hold a labeled pallet, release it, or send
- * it from 04 to the non-conforming warehouse (11C) with a SAP transfer that
- * is verified like any other. A held pallet is neither counted nor sent to 05.
+ * Quality before the blind count. Holding a pallet moves it from 04 to the
+ * non-conforming warehouse (11C) with a SAP transfer verified like any
+ * other; held means in 11C. Released, it goes on to the count, whose
+ * transfer then leaves from 11C to 05. A held pallet is neither counted
+ * nor sent to 05.
  */
 class QualityTest extends TestCase
 {
@@ -65,6 +66,11 @@ class QualityTest extends TestCase
         return app(HoldPallet::class)->handle($this->quality, $pallet->id, $reason, $this->ctx());
     }
 
+    private function release(Pallet $pallet, string $notes = 'Revisada, está conforme'): QualityHold
+    {
+        return app(ReleasePallet::class)->handle($this->quality, $pallet->id, $notes, $this->ctx());
+    }
+
     private function refused(callable $attempt, string $message): void
     {
         try {
@@ -75,103 +81,116 @@ class QualityTest extends TestCase
         }
     }
 
-    public function test_a_held_pallet_is_neither_counted_nor_sent_to_05(): void
+    private function transferOfPurpose(Pallet $pallet, TransferPurpose $purpose): InventoryTransfer
     {
-        $pallet = $this->receivedPallets(['L-1'])->sole();
+        return InventoryTransfer::query()->where('purpose', $purpose)->whereHas('lines', fn ($q) => $q->where('pallet_id', $pallet->id))->latest('id')->firstOrFail();
+    }
+
+    public function test_holding_moves_the_pallet_from_04_to_11c_with_what_sap_received(): void
+    {
+        $pallet = $this->receivedPallets(['L-1'], unitsPerBox: '12')->sole();
 
         $hold = $this->hold($pallet);
 
-        $this->assertSame(QualityStatus::Held, $pallet->refresh()->quality_status);
-        $this->assertSame([QualityHoldStatus::Open, 'Cajas golpeadas', $this->quality->id], [$hold->status, $hold->reason, $hold->held_by]);
-        $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::QualityHeld->value)->where('subject_id', $pallet->id)->count());
+        $transfer = $this->transferOfPurpose($pallet, TransferPurpose::NonConforming);
+        $this->assertSame(['04', '11C', SapDocumentStatus::Confirmed], [$transfer->from_warehouse, $transfer->to_warehouse, $transfer->status]);
+        $this->assertSame((string) ($pallet->boxes_count * 12), $transfer->payload['lines'][0]['quantity']);
+        $this->assertNotNull($transfer->sap_doc_num);
 
+        // Held means in 11C. The transfer to the CEDI is untouched.
+        $pallet->refresh();
+        $this->assertSame([QualityStatus::NonConforming, TransferStatus::NotEligible], [$pallet->quality_status, $pallet->transfer_status]);
+        $hold->refresh();
+        $this->assertSame([QualityHoldStatus::NonConforming, 'Cajas golpeadas', $this->quality->id, $transfer->id], [$hold->status, $hold->reason, $hold->held_by, $hold->inventory_transfer_id]);
+        $this->assertSame(['04', '11C'], [collect($this->sap()->transfers())->sole()->fromWarehouse, collect($this->sap()->transfers())->sole()->lines[0]->warehouse]);
+        $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::QualityHeld->value)->where('subject_type', 'pallet')->where('subject_id', $pallet->id)->count());
+        $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::NonConformingConfirmed->value)->where('subject_type', 'pallet')->where('subject_id', $pallet->id)->count());
+
+        // In 11C it is not counted.
         $this->refused(fn () => $this->countPallet($pallet), 'no se cuenta hasta que calidad la libere');
         $this->assertSame(AuditStatus::Pending, $pallet->refresh()->audit_status);
     }
 
-    public function test_a_released_pallet_goes_on_to_the_count_and_to_05(): void
-    {
-        $pallet = $this->receivedPallets(['L-1'])->sole();
-        $this->hold($pallet);
-
-        $hold = app(ReleasePallet::class)->handle($this->quality, $pallet->id, 'Revisada, está bien', $this->ctx());
-
-        $this->assertSame([QualityHoldStatus::Released, $this->quality->id, 'Revisada, está bien'], [$hold->status, $hold->resolved_by, $hold->resolution_notes]);
-        $this->assertSame(QualityStatus::Released, $pallet->refresh()->quality_status);
-        $this->assertSame(BlindCountOutcome::Approved, $this->countPallet($pallet));
-        $this->assertSame(TransferStatus::Confirmed, $pallet->refresh()->transfer_status);
-    }
-
-    public function test_a_held_pallet_goes_from_04_to_11c_with_what_sap_received(): void
+    public function test_a_released_pallet_is_counted_and_goes_from_11c_to_05(): void
     {
         $pallet = $this->receivedPallets(['L-1'], unitsPerBox: '12')->sole();
         $this->hold($pallet);
 
-        $transfer = app(SendToNonConforming::class)->handle($this->quality, $pallet->id, 'Producto fuera de especificación', $this->ctx());
+        $hold = $this->release($pallet);
 
-        $transfer->refresh();
-        $this->assertSame([TransferPurpose::NonConforming, '04', '11C', SapDocumentStatus::Confirmed], [$transfer->purpose, $transfer->from_warehouse, $transfer->to_warehouse, $transfer->status]);
-        $this->assertSame((string) ($pallet->boxes_count * 12), $transfer->payload['lines'][0]['quantity']);
-        $this->assertSame('11C', $transfer->payload['lines'][0]['warehouse']);
-        $this->assertNotNull($transfer->sap_doc_num);
+        // Releasing moves nothing in SAP: it waits in 11C for the count.
+        $this->assertSame([QualityHoldStatus::Released, $this->quality->id, 'Revisada, está conforme'], [$hold->status, $hold->released_by, $hold->release_notes]);
+        $this->assertSame(QualityStatus::Released, $pallet->refresh()->quality_status);
+        $this->assertCount(1, $this->sap()->transfers());
 
-        // The pallet is in 11C; the transfer to the CEDI never happened.
-        $pallet->refresh();
-        $this->assertSame([QualityStatus::NonConforming, TransferStatus::NotEligible], [$pallet->quality_status, $pallet->transfer_status]);
+        $this->assertSame(BlindCountOutcome::Approved, $this->countPallet($pallet));
 
-        $hold = QualityHold::sole();
-        $this->assertSame([QualityHoldStatus::NonConforming, $this->quality->id, $transfer->id, 'Producto fuera de especificación'], [$hold->status, $hold->resolved_by, $hold->inventory_transfer_id, $hold->resolution_notes]);
-        $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::NonConformingConfirmed->value)->where('subject_id', $pallet->id)->count());
-
-        $sent = collect($this->sap()->transfers())->sole();
-        $this->assertSame(['04', '11C'], [$sent->fromWarehouse, $sent->lines[0]->warehouse]);
-
-        // In 11C it is out of the flow: no count, no release, no second hold.
-        $this->refused(fn () => $this->countPallet($pallet), 'En no conforme');
-        $this->refused(fn () => app(ReleasePallet::class)->handle($this->quality, $pallet->id, 'x', $this->ctx()), 'solo se libera');
-        $this->refused(fn () => $this->hold($pallet), 'no se puede retener');
+        $toCedi = $this->transferOfPurpose($pallet, TransferPurpose::Cedi);
+        $this->assertSame(['11C', '05', SapDocumentStatus::Confirmed], [$toCedi->from_warehouse, $toCedi->to_warehouse, $toCedi->status]);
+        $this->assertSame(TransferStatus::Confirmed, $pallet->refresh()->transfer_status);
+        $this->assertSame('11C', collect($this->sap()->transfers())->last()->fromWarehouse);
     }
 
-    public function test_when_sap_refuses_the_transfer_the_pallet_stays_held(): void
+    public function test_a_pallet_quality_never_touched_still_goes_from_04_to_05(): void
     {
         $pallet = $this->receivedPallets(['L-1'])->sole();
-        $this->hold($pallet);
+
+        $this->assertSame(BlindCountOutcome::Approved, $this->countPallet($pallet));
+
+        $this->assertSame(['04', '05'], [$this->transferOfPurpose($pallet, TransferPurpose::Cedi)->from_warehouse, $this->transferOfPurpose($pallet, TransferPurpose::Cedi)->to_warehouse]);
+    }
+
+    public function test_holding_a_released_pallet_again_moves_nothing(): void
+    {
+        $pallet = $this->receivedPallets(['L-1'])->sole();
+        $first = $this->hold($pallet);
+        $this->release($pallet);
+
+        $again = $this->hold($pallet, 'Apareció otra novedad');
+
+        $this->assertSame([QualityHoldStatus::NonConforming, $first->refresh()->inventory_transfer_id], [$again->status, $again->inventory_transfer_id]);
+        $this->assertSame(QualityStatus::NonConforming, $pallet->refresh()->quality_status);
+        $this->assertCount(1, $this->sap()->transfers());
+        $this->assertSame(1, InventoryTransfer::query()->where('purpose', TransferPurpose::NonConforming)->count());
+    }
+
+    public function test_when_sap_refuses_the_transfer_nothing_moved_and_it_can_be_held_again(): void
+    {
+        $pallet = $this->receivedPallets(['L-1'])->sole();
         $this->sap()->queueTransferScenarios(FakeScenario::Reject);
 
-        $transfer = app(SendToNonConforming::class)->handle($this->quality, $pallet->id, 'No conforme', $this->ctx());
+        $hold = $this->hold($pallet);
 
-        $this->assertSame(SapDocumentStatus::Failed, $transfer->refresh()->status);
-        $this->assertSame(QualityStatus::Held, $pallet->refresh()->quality_status);
-        $this->assertSame(QualityHoldStatus::Open, QualityHold::sole()->status);
+        $this->assertSame(QualityStatus::None, $pallet->refresh()->quality_status);
+        $hold->refresh();
+        $this->assertSame(QualityHoldStatus::Cancelled, $hold->status);
+        $this->assertStringContainsString('SAP no hizo el traslado', (string) $hold->resolution_notes);
+        $this->refused(fn () => $this->release($pallet), 'solo se libera una estiba retenida');
 
-        // Still held: it can be released, or sent again.
-        $again = app(SendToNonConforming::class)->handle($this->quality, $pallet->id, 'Otra vez', $this->ctx());
-        $this->assertSame(SapDocumentStatus::Confirmed, $again->refresh()->status);
+        $this->hold($pallet, 'Otra vez');
         $this->assertSame(QualityStatus::NonConforming, $pallet->refresh()->quality_status);
     }
 
     public function test_a_transfer_without_an_answer_is_reconciled_by_its_own_lifecycle(): void
     {
         $pallet = $this->receivedPallets(['L-1'])->sole();
-        $this->hold($pallet);
         $this->sap()->queueTransferScenarios(FakeScenario::CreateThenTimeout);
 
-        $transfer = app(SendToNonConforming::class)->handle($this->quality, $pallet->id, 'No conforme', $this->ctx());
+        $this->hold($pallet);
         $this->assertSame(QualityStatus::NonConformingPending, $pallet->refresh()->quality_status);
+        $this->refused(fn () => $this->countPallet($pallet), 'no se cuenta');
 
-        ReconcileInventoryTransfer::dispatchSync($transfer->id);
+        ReconcileInventoryTransfer::dispatchSync($this->transferOfPurpose($pallet, TransferPurpose::NonConforming)->id);
 
-        $this->assertSame(SapDocumentStatus::Confirmed, $transfer->refresh()->status);
         $this->assertSame(QualityStatus::NonConforming, $pallet->refresh()->quality_status);
         $this->assertSame(TransferStatus::NotEligible, $pallet->transfer_status);
+        $this->assertSame(QualityHoldStatus::NonConforming, QualityHold::sole()->status);
     }
 
-    public function test_quality_acts_after_the_label_and_before_the_count(): void
+    public function test_quality_acts_on_received_pallets_before_the_count(): void
     {
-        // Labeled but without a receipt yet: it can be held, but not moved (it is not in 04).
         $labeled = $this->labeledPallets(['L-1'])->sole();
-        $this->hold($labeled);
-        $this->refused(fn () => app(SendToNonConforming::class)->handle($this->quality, $labeled->id, 'x', $this->ctx()), 'no tiene recibo de producción confirmado');
+        $this->refused(fn () => $this->hold($labeled), 'no tiene recibo de producción confirmado');
 
         $notLabeled = Pallet::factory()->palletized()->create();
         $this->refused(fn () => $this->hold($notLabeled), 'todavía no tiene la etiqueta confirmada');
@@ -180,6 +199,7 @@ class QualityTest extends TestCase
         $this->refused(fn () => $this->hold($counted), 'ya pasó el conteo ciego');
 
         $this->assertSame(0, InventoryTransfer::query()->where('purpose', TransferPurpose::NonConforming)->count());
+        $this->assertSame(0, QualityHold::count());
     }
 
     public function test_only_quality_holds_and_quality_never_counts(): void
@@ -197,30 +217,37 @@ class QualityTest extends TestCase
         $this->actingAs($this->userWithRole(Role::LogisticsOperator))->get(route('quality.index'))->assertForbidden();
     }
 
-    public function test_the_page_reads_the_qr_shows_boxes_and_units_and_holds(): void
+    public function test_the_page_reads_several_pallets_and_holds_and_releases_them_together(): void
     {
-        $pallet = $this->receivedPallets(['L-1'], unitsPerBox: '12')->sole();
-        $units = Quantity::ofBoxes($pallet->boxes_count, '12')->display();
+        [$a, $b] = $this->receivedPallets(['L-1', 'L-2'], unitsPerBox: '12')->all();
+        $notReceived = $this->labeledPallets(['L-3'])->sole();
+        $units = Quantity::ofBoxes($a->boxes_count, '12')->display();
 
         $page = Livewire::actingAs($this->quality)->test('pages::quality.index')
             ->call('scanFrom', 'basura', (string) Str::uuid())
             ->assertSee('no es el QR de una estiba')
-            ->call('scanFrom', PalletQr::payload($pallet), (string) Str::uuid())
-            ->assertSee($pallet->pallet_code)
-            ->assertSee((string) $pallet->boxes_count)
+            ->call('scanFrom', PalletQr::payload($a), (string) Str::uuid())
+            ->call('scanFrom', PalletQr::payload($b), (string) Str::uuid())
+            ->call('scanFrom', PalletQr::payload($a), (string) Str::uuid())
+            ->call('scanFrom', PalletQr::payload($notReceived), (string) Str::uuid())
+            ->assertSet('selected', [$a->id, $b->id, $notReceived->id])
+            ->assertSee('Estibas leídas (3)')
             ->assertSee($units)
-            ->assertSee('12 por caja, según el recibo en SAP')
-            ->assertSee('Sin novedad')
+            ->assertSee('12 por caja, según el recibo')
             ->call('hold')->assertHasErrors(['reason' => 'required'])
-            ->set('reason', 'Empaque roto')->call('hold')->assertHasNoErrors()
-            ->assertSee('Retenida por calidad')
-            ->assertSee('Empaque roto')
-            ->assertSee('Enviar a no conforme (11C)');
+            ->set('reason', 'Sello de calidad roto')->call('hold')->assertHasNoErrors()
+            // Each on its own: the one without a receipt says why, the others are held.
+            ->assertSee('no tiene recibo de producción confirmado')
+            ->assertSee('Retenida por calidad (en no conforme)');
 
-        $this->assertSame(QualityStatus::Held, $pallet->refresh()->quality_status);
+        $this->assertSame([QualityStatus::NonConforming, QualityStatus::NonConforming, QualityStatus::None], [$a->refresh()->quality_status, $b->refresh()->quality_status, $notReceived->refresh()->quality_status]);
+        $this->assertSame(2, InventoryTransfer::query()->where('purpose', TransferPurpose::NonConforming)->count());
 
-        $page->set('reason', 'No conforme')->call('sendToNonConforming')->assertHasNoErrors()
-            ->assertSee('En no conforme')
-            ->assertSee('04 → 11C');
+        $page->call('clear')->assertSet('selected', [])
+            ->call('addAllHeld')->assertSet('selected', [$b->id, $a->id])
+            ->set('reason', 'Revisadas, conformes')->call('release')->assertHasNoErrors()
+            ->assertSee('Liberada: sigue al conteo ciego.');
+
+        $this->assertSame([QualityStatus::Released, QualityStatus::Released], [$a->refresh()->quality_status, $b->refresh()->quality_status]);
     }
 }

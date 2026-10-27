@@ -351,6 +351,8 @@ abstract class SapDocumentLifecycle
 
         $this->trace->record($ctx, $this->traceEvent(DocumentPhase::Failed), $document,
             to: ['status' => SapDocumentStatus::Failed->value], result: TraceResult::Error, reason: "{$code}: {$message}");
+
+        $this->afterFailed($document, "{$code}: {$message}");
     }
 
     private function toConfirmed(ProductionReceipt|InventoryTransfer $document, SapDocument $found): void
@@ -383,6 +385,9 @@ abstract class SapDocumentLifecycle
 
     /** Runs inside the confirming transaction. Nothing by default. */
     protected function afterConfirmed(ProductionReceipt|InventoryTransfer $document): void {}
+
+    /** Called inside the transaction that marks the document failed. */
+    protected function afterFailed(ProductionReceipt|InventoryTransfer $document, string $why): void {}
 
     private function setPallets(ProductionReceipt|InventoryTransfer $document, DocumentPhase $phase): void
     {

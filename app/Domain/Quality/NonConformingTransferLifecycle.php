@@ -16,7 +16,7 @@ use App\Models\QualityHold;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * Stock transfers 04 → 11C (non-conforming warehouse) requested by quality.
+ * Stock transfers 04 → 11C (non-conforming warehouse): holding a pallet.
  * Same SAP document and the same rules as the transfer to the CEDI: it is
  * confirmed only after the document SAP has was verified. What it moves is
  * the pallet's quality status, never transfer_status, so the CEDI keeps
@@ -40,20 +40,31 @@ class NonConformingTransferLifecycle extends InventoryTransferLifecycle
             DocumentPhase::Requested => QualityStatus::NonConformingRequested,
             DocumentPhase::Pending => QualityStatus::NonConformingPending,
             DocumentPhase::Confirmed => QualityStatus::NonConforming,
-            // SAP refused it: the pallet is held again, to retry or release.
-            DocumentPhase::Failed => QualityStatus::Held,
+            // SAP refused it: nothing moved.
+            DocumentPhase::Failed => QualityStatus::None,
         };
     }
 
     /**
-     * SAP confirmed it: the hold that asked for it closes as non-conforming.
+     * SAP confirmed it: the pallet is held in the non-conforming warehouse.
      */
     protected function afterConfirmed(ProductionReceipt|InventoryTransfer $document): void
     {
         QualityHold::query()
             ->where('inventory_transfer_id', $document->id)
-            ->where('status', QualityHoldStatus::Open)
+            ->where('status', QualityHoldStatus::Requested)
             ->update(['status' => QualityHoldStatus::NonConforming, 'resolved_by' => $document->requested_by, 'resolved_at' => now(), 'updated_at' => now()]);
+    }
+
+    /**
+     * SAP refused it: nothing moved, so the hold is cancelled and the pallet is as it was.
+     */
+    protected function afterFailed(ProductionReceipt|InventoryTransfer $document, string $why): void
+    {
+        QualityHold::query()
+            ->where('inventory_transfer_id', $document->id)
+            ->where('status', QualityHoldStatus::Requested)
+            ->update(['status' => QualityHoldStatus::Cancelled, 'resolved_by' => $document->requested_by, 'resolved_at' => now(), 'resolution_notes' => mb_substr('SAP no hizo el traslado: '.$why, 0, 1000), 'updated_at' => now()]);
     }
 
     protected function traceEvent(DocumentPhase $phase): TraceEventType

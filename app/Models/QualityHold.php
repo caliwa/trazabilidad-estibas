@@ -8,8 +8,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * A pallet held by quality and how it ended: released back to the flow or
- * sent to the non-conforming warehouse. Once closed it never changes.
+ * A pallet held by quality: moved to the non-conforming warehouse
+ * (resolved_* is when SAP confirmed it), and released by quality when it
+ * is fine (released_*). Cancelled if SAP refused the transfer. Once closed
+ * it never changes.
  *
  * @property int $id
  * @property int $pallet_id
@@ -21,6 +23,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable|null $resolved_at
  * @property string|null $resolution_notes
  * @property int|null $inventory_transfer_id
+ * @property int|null $released_by
+ * @property CarbonImmutable|null $released_at
+ * @property string|null $release_notes
  */
 class QualityHold extends Model
 {
@@ -33,6 +38,7 @@ class QualityHold extends Model
             'status' => QualityHoldStatus::class,
             'held_at' => 'datetime',
             'resolved_at' => 'datetime',
+            'released_at' => 'datetime',
         ];
     }
 
@@ -58,6 +64,14 @@ class QualityHold extends Model
     public function resolver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'resolved_by');
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function releaser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'released_by');
     }
 
     /**

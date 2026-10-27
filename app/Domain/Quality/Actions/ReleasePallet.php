@@ -16,7 +16,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Quality releases a held pallet: it goes on to the blind count.
+ * Quality checked a held pallet and it is fine: it goes on to the blind
+ * count. Nothing moves in SAP now; the pallet stays in the non-conforming
+ * warehouse until the approved count transfers it from there to 05.
  */
 class ReleasePallet
 {
@@ -29,23 +31,23 @@ class ReleasePallet
         return DB::transaction(function () use ($user, $palletId, $notes, $ctx): QualityHold {
             $pallet = Pallet::query()->lockForUpdate()->findOrFail($palletId);
 
-            if ($pallet->quality_status !== QualityStatus::Held) {
+            if ($pallet->quality_status !== QualityStatus::NonConforming) {
                 throw QualityRuleViolation::notHeld($pallet->pallet_code, $pallet->quality_status->label());
             }
 
-            $hold = QualityHold::query()->where('pallet_id', $pallet->id)->where('status', QualityHoldStatus::Open)->lockForUpdate()->firstOrFail();
+            $hold = QualityHold::query()->where('pallet_id', $pallet->id)->where('status', QualityHoldStatus::NonConforming)->lockForUpdate()->firstOrFail();
             $hold->forceFill([
                 'status' => QualityHoldStatus::Released,
-                'resolved_by' => $user->id,
-                'resolved_at' => now(),
-                'resolution_notes' => trim($notes),
+                'released_by' => $user->id,
+                'released_at' => now(),
+                'release_notes' => trim($notes),
             ])->save();
 
             $pallet->forceFill(['quality_status' => QualityStatus::Released])->save();
 
             $this->trace->record($ctx, TraceEventType::QualityReleased, $pallet,
-                from: ['quality_status' => QualityStatus::Held->value], to: ['quality_status' => QualityStatus::Released->value],
-                reason: trim($notes), context: ['quality_hold_id' => $hold->id]);
+                from: ['quality_status' => QualityStatus::NonConforming->value], to: ['quality_status' => QualityStatus::Released->value],
+                reason: trim($notes), context: ['quality_hold_id' => $hold->id, 'warehouse' => config()->string('sap.warehouses.non_conforming')]);
 
             return $hold;
         });

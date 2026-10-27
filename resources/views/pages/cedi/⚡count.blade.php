@@ -139,7 +139,7 @@ new #[Title('Conteo ciego')] class extends Component {
             <div role="status" class="flex flex-col items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 p-8 text-center dark:border-emerald-800 dark:bg-emerald-950">
                 <flux:icon.check-circle class="size-12 text-emerald-600" />
                 <div class="text-2xl font-semibold text-emerald-800 dark:text-emerald-200">Conteo aprobado</div>
-                <div class="text-emerald-700 dark:text-emerald-300">La estiba {{ $pallet['code'] ?? '' }} se transfiere en SAP de la bodega {{ config('sap.warehouses.transfer_from') }} a la {{ config('sap.warehouses.transfer_to') }}.</div>
+                <div class="text-emerald-700 dark:text-emerald-300">La estiba {{ $pallet['code'] ?? '' }} se transfiere en SAP a la bodega {{ config('sap.warehouses.transfer_to') }}.</div>
             </div>
         @else
             <div role="status" class="flex flex-col items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-8 text-center dark:border-amber-800 dark:bg-amber-950">

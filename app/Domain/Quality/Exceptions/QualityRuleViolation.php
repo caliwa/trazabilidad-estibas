@@ -42,11 +42,11 @@ class QualityRuleViolation extends DomainException
 
     public static function notHeld(string $code, string $status): self
     {
-        return new self("La estiba {$code} está «{$status}»: solo se libera o se envía a no conforme una estiba retenida.");
+        return new self("La estiba {$code} está «{$status}»: solo se libera una estiba retenida que ya está en no conforme.");
     }
 
     public static function notReceived(string $code): self
     {
-        return new self("La estiba {$code} no tiene recibo de producción confirmado en SAP: todavía no está en la bodega 04 y no se puede trasladar. Pide el recibo primero.");
+        return new self("La estiba {$code} no tiene recibo de producción confirmado en SAP: todavía no está en la bodega 04 y no se puede retener (retener la traslada a no conforme). Pide el recibo primero.");
     }
 }
