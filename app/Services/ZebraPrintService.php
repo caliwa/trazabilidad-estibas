@@ -6,6 +6,8 @@ class ZebraPrintService
 {
     /**
      * Reemplaza variables parametrizables {variable} en una plantilla ZPL
+     *
+     * @param  array<string, mixed>  $variables
      */
     public function interpolate(string $templateZpl, array $variables): string
     {
@@ -23,16 +25,20 @@ class ZebraPrintService
 
     /**
      * Extrae todas las variables {variable} encontradas en una plantilla ZPL
+     *
+     * @return list<string>
      */
     public function extractVariables(string $templateZpl): array
     {
         preg_match_all('/\{{1,2}\s*([a-zA-Z0-9_\-]+)\s*\}{1,2}/', $templateZpl, $matches);
 
-        return array_values(array_unique($matches[1] ?? []));
+        return array_values(array_unique($matches[1]));
     }
 
     /**
      * Envía ZPL directamente a la IP y puerto de la Zebra por Socket TCP RAW
+     *
+     * @return array<string, mixed>
      */
     public function printToSocket(string $ip, int $port = 9100, string $zpl = '', int $timeout = 3): array
     {
@@ -88,6 +94,8 @@ class ZebraPrintService
 
     /**
      * Consulta el estado en tiempo real de la Zebra mediante comandos nativos ~HS y SGD (Link-OS)
+     *
+     * @return array<string, mixed>
      */
     public function getPrinterStatus(string $ip, int $port = 9100, float $timeout = 1.5): array
     {
@@ -151,7 +159,7 @@ class ZebraPrintService
         $latency = round((microtime(true) - $startTime) * 1000, 2);
 
         preg_match_all("/\x02([^\x03]+)\x03/", $buffer, $matches);
-        $lines = $matches[1] ?? [];
+        $lines = $matches[1];
 
         $paperOut = false;
         $paused = false;
@@ -178,8 +186,8 @@ class ZebraPrintService
         $deviceName = 'Zebra ZT411';
         $sgdStatus = 'ready';
 
-        if (preg_match_all('/"([^"]+)"/', $buffer, $sgdMatches) && ! empty($sgdMatches[1])) {
-            $deviceName = $sgdMatches[1][0] ?? 'Zebra ZT411';
+        if (preg_match_all('/"([^"]+)"/', $buffer, $sgdMatches)) {
+            $deviceName = $sgdMatches[1][0];
             $sgdStatus = strtolower(trim($sgdMatches[1][1] ?? 'ready'));
         }
 

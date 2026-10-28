@@ -6,13 +6,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class ZebraPreviewController extends Controller
 {
     /**
      * Proxies ZPL code to Labelary API to avoid CORS issues and provide caching/fallback.
      */
-    public function preview(Request $request)
+    public function preview(Request $request): SymfonyResponse
     {
         $zpl = $request->input('zpl');
         $dpmm = $request->input('dpmm', '8dpmm'); // 203 DPI = 8dpmm
