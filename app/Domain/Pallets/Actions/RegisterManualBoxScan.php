@@ -44,6 +44,11 @@ use Illuminate\Support\Str;
  * The box code is the read's event id: the database accepts it once, so
  * reading the same box again, a retried request or a reader firing twice
  * never counts twice.
+ *
+ * A fixed reader on the line (fromReader) goes through the same rules and
+ * records its reads under the same device, so a box read by the line and
+ * again by hand, in either order, is still counted once. The read keeps
+ * the reader that read it (pallet_scan_events.read_by_device_id).
  */
 class RegisterManualBoxScan
 {
@@ -59,6 +64,23 @@ class RegisterManualBoxScan
     {
         Gate::forUser($user)->authorize(Permission::PalletsOperate->value);
 
+        return $this->count($scanned, $ctx);
+    }
+
+    /**
+     * A box label read by a fixed reader on the line (a LECTOR device).
+     */
+    public function fromReader(Device $reader, string $scanned, TraceContext $ctx): ManualBoxScan
+    {
+        if (! $reader->active || $reader->kind !== 'LECTOR' || $reader->code === self::DEVICE_CODE) {
+            throw new \InvalidArgumentException("El dispositivo {$reader->code} no es un lector de cajas activo.");
+        }
+
+        return $this->count($scanned, $ctx);
+    }
+
+    private function count(string $scanned, TraceContext $ctx): ManualBoxScan
+    {
         // The QR only names the box; everything else comes from the label printed for it.
         $token = BoxQr::tokenFrom($scanned)
             ?? throw (PalletQr::tokenFrom($scanned) !== null ? PalletRuleViolation::palletQrInBoxField() : PalletRuleViolation::notABoxLabel());

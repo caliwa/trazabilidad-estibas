@@ -92,7 +92,7 @@ class PalletRuleViolation extends DomainException
 
     public static function boxAlreadyRead(string $code, string $palletCode): self
     {
-        return new self("La caja {$code} ya fue leída y está en la estiba {$palletCode}. No se cuenta otra vez.");
+        return new BoxAlreadyRead("La caja {$code} ya fue leída y está en la estiba {$palletCode}. No se cuenta otra vez.");
     }
 
     public static function boxHasRejectedRead(string $code): self

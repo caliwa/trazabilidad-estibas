@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\BoxLabelController;
 use App\Http\Controllers\PalletLabelController;
+use App\Http\Controllers\ZebraPreviewController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'verified'])->group(function () {
@@ -10,7 +11,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::livewire('orders', 'pages::orders.index')->middleware('can:orders.view')->name('orders.index');
 
     Route::livewire('box-labels', 'pages::box-labels.index')->middleware('can:box_labels.print')->name('box-labels.index');
-    Route::post('box-labels/preview', [\App\Http\Controllers\ZebraPreviewController::class, 'preview'])
+    Route::post('box-labels/preview', [ZebraPreviewController::class, 'preview'])
         ->middleware('can:box_labels.print')
         ->name('box-labels.preview');
     Route::get('box-labels/batches/{batch}/zpl', [BoxLabelController::class, 'zpl'])

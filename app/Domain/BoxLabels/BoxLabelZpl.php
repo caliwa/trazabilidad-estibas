@@ -18,6 +18,7 @@ use Carbon\CarbonImmutable;
  *   │ VENCE: 10/2028           │    QR    │  │
  *   │ CAJA : 24 UNIDADES       │ (Grande) │  │
  *   │                          └──────────┘  │
+ *   │                       Caja 33128293-0001│
  *   │  ║│║│║ ITF-14 ║│║│║     ┌────────────┐ │
  *   │   (01)17701008628660    │Tecnoal Logo│ │
  *   │                         └────────────┘ │
@@ -69,6 +70,11 @@ final class BoxLabelZpl
             '^FO545,150^BQN,2,6^FH_^FDMA,'.self::hexField($qrContent).'^FS',
         ];
 
+        // Código de caja legible debajo del QR: con él una persona identifica la caja si el QR no lee.
+        if ($payload->boxCode !== null) {
+            $lines[] = '^FO492,345^FB280,1,0,C^A0N,30,30^FDCaja '.$f($payload->boxCode).'^FS';
+        }
+
         // Código de barras EAN-14 a la izquierda abajo (ITF-14 / ^B2)
         if (Itf14::isValid($payload->barcode)) {
             $lines[] = '^FO35,410^BY4,2.5,150^B2N,150,N,N,N^FD'.$payload->barcode.'^FS';
@@ -81,9 +87,9 @@ final class BoxLabelZpl
         $lines[] = '^PQ1,0,1,Y';
         $lines[] = '^XZ';
 
-        return implode("
-", $lines)."
-";
+        return implode('
+', $lines).'
+';
     }
 
     /**
@@ -91,8 +97,9 @@ final class BoxLabelZpl
      */
     private static function field(string $text): string
     {
-        return trim(str_replace(['^', '~', "", "
-"], ' ', $text));
+        return trim(str_replace(['^', '~', '
+', '
+'], ' ', $text));
     }
 
     /**
@@ -100,7 +107,8 @@ final class BoxLabelZpl
      */
     private static function hexField(string $text): string
     {
-        return str_replace(['_', "
-"], ['_5F', '_0A'], str_replace(['^', '~', ""], ' ', $text));
+        return str_replace(['_', '
+'], ['_5F', '_0A'], str_replace(['^', '~', '
+'], ' ', $text));
     }
 }

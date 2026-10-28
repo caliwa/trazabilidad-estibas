@@ -115,6 +115,7 @@ class ProcessScanEvent
             'rejection_reason' => null,
             'processed_at' => $now,
             'is_late' => $data->occurredAt->lessThan($pallet->started_at),
+            'read_by_device_id' => $this->readBy($device, $ctx),
         ];
 
         if ($existing !== null) {
@@ -200,6 +201,7 @@ class ProcessScanEvent
                 'rejection_reason' => $reason->value,
                 'processed_at' => null,
                 'is_late' => false,
+                'read_by_device_id' => $this->readBy($device, $ctx),
             ]);
 
             if ($stored === 0) {
@@ -260,6 +262,15 @@ class ProcessScanEvent
             ->where('device_id', $device->id)
             ->where('external_event_id', $externalEventId)
             ->first();
+    }
+
+    /**
+     * The fixed reader that read a box counted under the shared box-read
+     * device (RegisterManualBoxScan::fromReader); null otherwise.
+     */
+    private function readBy(Device $device, TraceContext $ctx): ?int
+    {
+        return $ctx->deviceId !== null && $ctx->deviceId !== $device->id ? $ctx->deviceId : null;
     }
 
     /**

@@ -32,6 +32,8 @@ SELECT attempt_number, operation, outcome, latency_ms, error_code, error_message
 | Lecturas rechazadas | Atención | Más de 10 en 15 min | `/pallets/rejected-scans`: el motivo dice qué maestro falta (orden, lote, producto). Corregir el maestro y reprocesar |
 | Lecturas rechazadas por estándar | Crítica | Un producto sin estándar vigente: su producción no se cuenta | Cargar o corregir el estándar del producto y reprocesar las lecturas rechazadas |
 | Órdenes abiertas sin estándar | Atención | Va a pasar lo anterior en cuanto se produzca | Cargar el estándar antes de que arranque la orden |
+| El lector de cajas X no está conectado | Crítica | Un lector fijo que estuvo conectado lleva más de 3 min sin conexión | `supervisorctl status`; revisar `lector-*.log`, la red y el lector. Ver `docs/lectura-automatica.md` |
+| Cajas no contadas por el lector | Atención | Una lectura del lector fijo no sumó caja (lectura fallida, etiqueta desconocida, OF no liberada) | Bitácora del lector (`scan.rejected`). Leer esas cajas a mano |
 | Duplicados anormales | Atención | Más de 50 lecturas repetidas en 15 min | Un sensor está reenviando. No suma cajas (son idempotentes), pero indica un problema de red o de configuración del equipo |
 | Errores en llamadas a SAP | Atención | Rechazos, timeouts o consultas fallidas en la última hora | `integration_attempts.error_code`. Si es credencial o SAP caído, avisar a SAP. Los documentos quedan pendientes y se concilian solos |
 | Pendientes de conciliación | Atención | Documentos que llevan más de 30 min sin saberse si existen en SAP | Ver sección 3 |

@@ -26,9 +26,9 @@ final readonly class TraceContext
         return new self(ActorType::User, $user->id, null, $origin, $correlationId, $ip);
     }
 
-    public static function forDevice(Device $device, string $correlationId, ?string $ip = null): self
+    public static function forDevice(Device $device, string $correlationId, ?string $ip = null, Origin $origin = Origin::Api): self
     {
-        return new self(ActorType::Device, null, $device->id, Origin::Api, $correlationId, $ip);
+        return new self(ActorType::Device, null, $device->id, $origin, $correlationId, $ip);
     }
 
     public static function system(Origin $origin, string $correlationId): self

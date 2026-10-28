@@ -28,6 +28,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $rejection_reason
  * @property string $payload_hash
  * @property bool $is_late
+ * @property int|null $read_by_device_id Fixed reader that read the box, when counted from boxes:reader
  */
 class PalletScanEvent extends Model
 {
