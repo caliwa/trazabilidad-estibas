@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'zebra' => [
+        'ip' => env('ZEBRA_PRINTER_IP', '192.168.1.154'),
+        'port' => (int) env('ZEBRA_PRINTER_PORT', 9100),
+    ],
+
 ];

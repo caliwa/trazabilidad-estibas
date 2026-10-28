@@ -4,6 +4,7 @@ use App\Domain\BoxLabels\Actions\ConsultProductionOrder;
 use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
 use App\Domain\BoxLabels\BoxLabelPayload;
 use App\Domain\BoxLabels\BoxLabelQr;
+use App\Domain\BoxLabels\BoxLabelZpl;
 use App\Domain\BoxLabels\BoxLot;
 use App\Domain\BoxLabels\BoxQr;
 use App\Domain\BoxLabels\Itf14;
@@ -18,6 +19,7 @@ use App\Models\BoxConversionFactor;
 use App\Models\BoxLabel;
 use App\Models\BoxLabelBatch;
 use App\Models\ProductionOrder;
+use App\Services\ZebraPrintService;
 use App\Support\Correlation\CorrelationId;
 use Carbon\CarbonImmutable;
 use Flux\Flux;
@@ -53,9 +55,47 @@ new #[Title('Etiquetas de caja')] class extends Component {
     #[Locked]
     public ?int $batchId = null;
 
+    public string $printerIp = '192.168.1.154';
+
+    public int $printerPort = 9100;
+
+    public ?array $printerStatus = null;
+
     public function mount(): void
     {
         $this->productionDate = today()->toDateString();
+        $this->printerIp = (string) config('services.zebra.ip', env('ZEBRA_PRINTER_IP', '192.168.1.154'));
+        $this->printerPort = (int) config('services.zebra.port', env('ZEBRA_PRINTER_PORT', 9100));
+        $this->checkPrinter();
+    }
+
+    public function checkPrinter(): void
+    {
+        $zebra = app(ZebraPrintService::class);
+        $this->printerStatus = $zebra->getPrinterStatus($this->printerIp, $this->printerPort);
+    }
+
+    public function printBatchDirect(?int $batchId = null): void
+    {
+        $targetBatch = $batchId !== null
+            ? BoxLabelBatch::query()->find($batchId)
+            : $this->batch;
+
+        if ($targetBatch === null || empty($targetBatch->zpl)) {
+            Flux::toast(variant: 'danger', text: 'No hay etiquetas ZPL disponibles para imprimir.');
+            return;
+        }
+
+        $zebra = app(ZebraPrintService::class);
+        $result = $zebra->printToSocket($this->printerIp, $this->printerPort, $targetBatch->zpl);
+
+        if ($result['success']) {
+            Flux::toast(variant: 'success', text: "{$targetBatch->labels} etiquetas transmitidas a la Zebra ({$this->printerIp}).");
+        } else {
+            Flux::toast(variant: 'danger', text: $result['message']);
+        }
+
+        $this->checkPrinter();
     }
 
     private function context(): TraceContext
@@ -175,7 +215,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
         $this->batchId = $batch->id;
         unset($this->order, $this->batch);
-        Flux::toast(variant: 'success', text: "{$batch->labels} etiquetas generadas. Descarga el archivo ZPL para la Zebra.");
+        Flux::toast(variant: 'success', text: "{$batch->labels} etiquetas generadas. Lista para imprimir en Zebra o descargar ZPL.");
     }
 }; ?>
 
@@ -193,12 +233,41 @@ new #[Title('Etiquetas de caja')] class extends Component {
         : $preview?->withBox((string) $nextBox)->encode();
     // Before generating there is no token yet: the preview QR shows the format with a sample.
     $shownQr = BoxQr::payload($boxes->first()?->qr_token ?? str_repeat('0', 32));
+
+    // Código ZPL exacto de la primera etiqueta para la simulación térmica física
+    $sampleZpl = null;
+    if ($this->batch !== null && !empty($this->batch->zpl)) {
+        $firstZplEnd = strpos($this->batch->zpl, '^XZ');
+        $sampleZpl = $firstZplEnd !== false ? substr($this->batch->zpl, 0, $firstZplEnd + 3) : $this->batch->zpl;
+    } elseif ($preview !== null) {
+        $sampleZpl = BoxLabelZpl::render($preview->withBox((string) ($nextBox ?? '0001')), today(), $shownQr);
+    }
 @endphp
 
 <section class="flex w-full flex-col gap-6">
-    <div>
-        <flux:heading size="xl" level="1">Etiquetas de caja</flux:heading>
-        <flux:subheading>QR para las cajas de producto. Etiqueta de 10 × 8 cm para impresora Zebra (ZPL)</flux:subheading>
+    <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+            <flux:heading size="xl" level="1">Etiquetas de caja</flux:heading>
+            <flux:subheading>QR para las cajas de producto. Formato exacto 10 × 8 cm para impresora Zebra (ZPL)</flux:subheading>
+        </div>
+
+        {{-- Estado en tiempo real de la Zebra --}}
+        <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+            @if ($printerStatus && ($printerStatus['online'] ?? false))
+                <span class="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span class="text-xs font-medium text-zinc-700 dark:text-zinc-200">
+                    Zebra ZT411 ({{ $printerIp }}): <strong class="text-emerald-600 dark:text-emerald-400">{{ $printerStatus['status_label'] }}</strong>
+                </span>
+            @else
+                <span class="inline-block h-2.5 w-2.5 rounded-full bg-rose-500"></span>
+                <span class="text-xs font-medium text-zinc-700 dark:text-zinc-200">
+                    Zebra ({{ $printerIp }}): <strong class="text-rose-600 dark:text-rose-400">{{ $printerStatus['status_label'] ?? 'Sin conexión' }}</strong>
+                </span>
+            @endif
+            <flux:button size="xs" variant="ghost" icon="arrow-path" wire:click="checkPrinter" wire:loading.attr="disabled" wire:target="checkPrinter">
+                Verificar
+            </flux:button>
+        </div>
     </div>
 
     <form wire:submit="consult" class="flex max-w-xl flex-col gap-2">
@@ -269,43 +338,114 @@ new #[Title('Etiquetas de caja')] class extends Component {
             </div>
 
             <div class="flex flex-col gap-3">
-                <flux:heading size="lg" level="2">{{ $this->batch ? 'Etiquetas generadas' : 'Vista previa' }}</flux:heading>
-                @if ($shownPayload !== null)
+                <div class="flex items-center justify-between">
+                    <flux:heading size="lg" level="2">{{ $this->batch ? 'Etiquetas generadas' : 'Vista previa' }}</flux:heading>
+                    @if ($sampleZpl !== null)
+                        <span class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                            <span class="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>
+                            Simulación Zebra ZT411 · 100 × 80 mm
+                        </span>
+                    @endif
+                </div>
+
+                @if ($sampleZpl !== null)
                     @php($data = BoxLabelPayload::decode($shownPayload))
                     @php($ean = $this->batch?->barcode ?? (string) Itf14::forBox($order->item->barcode, Itf14::indicator()))
-                    {{-- 10 × 8 cm at screen scale, same layout as the ZPL: text and QR on top, ITF-14 below. --}}
-                    <div class="flex aspect-[10/8] w-full max-w-md flex-col rounded-md border-2 border-zinc-800 bg-white p-4 text-black">
-                        <div class="flex flex-1 justify-between gap-3">
-                            <div class="flex min-w-0 flex-col gap-0.5 text-xs">
-                                <div class="text-xl font-bold leading-tight">OF {{ $data['order'] ?? '' }}</div>
-                                <div class="text-sm font-semibold">{{ $data['item'] ?? '' }}</div>
-                                <div class="leading-snug">{{ $data['description'] ?? '' }}</div>
-                                <div class="mt-1 text-sm">Lote: <b>{{ $data['lot'] ?? '' }}</b></div>
-                                <div class="text-sm">Vence: <b>{{ $data['expiration'] ?? '' }}</b></div>
-                                <div>Contenido: <b>{{ $data['content'] ?? '' }}</b></div>
+
+                    {{-- Visor térmico reactivo fiel al resultado de la Zebra (igual que zebra.test) --}}
+                    <div x-data="{
+                        zpl: @js($sampleZpl),
+                        imgUrl: null,
+                        loading: false,
+                        init() {
+                            this.loadThermal();
+                            this.$watch('zpl', () => this.loadThermal());
+                        },
+                        async loadThermal() {
+                            if (!this.zpl) return;
+                            this.loading = true;
+                            try {
+                                const res = await fetch('{{ route('box-labels.preview') }}', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                                    },
+                                    body: JSON.stringify({ zpl: this.zpl, dpmm: '8dpmm', width: '4', height: '3.15' })
+                                });
+                                if (res.ok) {
+                                    const blob = await res.blob();
+                                    if (this.imgUrl) URL.revokeObjectURL(this.imgUrl);
+                                    this.imgUrl = URL.createObjectURL(blob);
+                                }
+                            } catch (e) {
+                                console.error('Thermal preview error:', e);
+                            } finally {
+                                this.loading = false;
+                            }
+                        }
+                    }" class="w-full max-w-md rounded-xl border border-zinc-200 bg-zinc-50 p-2 shadow-md dark:border-zinc-700 dark:bg-zinc-800/50">
+                        <div class="relative flex items-center justify-center min-h-[250px] rounded-lg bg-white p-1 border border-zinc-300 dark:border-zinc-600 shadow-sm overflow-hidden">
+                            {{-- Indicador de carga --}}
+                            <div x-show="loading && !imgUrl" class="absolute inset-0 flex flex-col items-center justify-center bg-white/95 gap-2 text-zinc-600 z-10">
+                                <svg class="animate-spin h-6 w-6 text-emerald-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                <span class="text-xs font-semibold">Generando simulación física Zebra ZT411...</span>
                             </div>
-                            <div class="w-[38%] shrink-0 text-center [&_svg]:h-auto [&_svg]:w-full">
-                                {!! BoxLabelQr::svg($shownQr) !!}
-                                @if ($data['box'] ?? null)<div class="text-xs font-semibold">Caja {{ $data['box'] }}</div>@endif
+
+                            {{-- Render térmico oficial del motor ZPL --}}
+                            <template x-if="imgUrl">
+                                <img :src="imgUrl" alt="Etiqueta Zebra ZT411 100x80mm" class="w-full h-auto block select-none" />
+                            </template>
+
+                            {{-- Respaldo visual con fuentes y márgenes idénticos a ZebraDesigner si aún no carga --}}
+                            <div x-show="!imgUrl && !loading" class="w-full aspect-[10/8] p-4 text-black flex flex-col justify-between select-none font-sans">
+                                <div class="text-center">
+                                    <div class="text-xl font-black tracking-wide leading-none uppercase">
+                                        {{ $data['item'] ?? ($preview?->itemCode ?? '') }}
+                                    </div>
+                                    <div class="text-sm font-black leading-tight mt-1 uppercase line-clamp-2">
+                                        {{ $data['description'] ?? ($preview?->itemDescription ?? '') }}
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-between gap-2 px-1">
+                                    <div class="space-y-1 text-sm font-black tracking-tight">
+                                        <div>LOTE: <span class="font-mono">{{ $data['lot'] ?? ($preview?->lotCode ?? '') }}</span></div>
+                                        <div>VENCE: <span class="font-mono">{{ $preview?->expirationDate->format('m/Y') ?? '' }}</span></div>
+                                        <div>CAJA : {{ $preview?->unitsPerBox ?? ($this->factor ? (new Quantity((string) $this->factor->units_per_box))->display() : '') }} UNIDADES</div>
+                                    </div>
+                                    <div class="shrink-0 flex items-center justify-center">
+                                        <div class="h-24 w-24 [&_svg]:h-full [&_svg]:w-full">{!! BoxLabelQr::svg($shownQr) !!}</div>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-12 gap-2 items-center">
+                                    <div class="col-span-8 flex flex-col items-center">
+                                        @if (Itf14::isValid($ean))
+                                            <div class="w-full [&_svg]:h-16 [&_svg]:w-full">{!! Itf14::svg($ean) !!}</div>
+                                        @endif
+                                    </div>
+                                    <div class="col-span-4 flex justify-center items-center">
+                                        <img src="/images/logo.png" alt="Tecnoal" class="h-12 w-auto object-contain grayscale contrast-200" />
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                        <div class="mt-2 border-t-2 border-zinc-800 pt-2">
-                            @if (Itf14::isValid($ean))
-                                <div class="mx-auto w-4/5 [&_svg]:h-auto [&_svg]:w-full">{!! Itf14::svg($ean) !!}</div>
-                            @else
-                                <div class="text-center text-xs text-red-700">Código EAN-14 no válido: {{ $ean ?: 'sin código' }}</div>
-                            @endif
                         </div>
                     </div>
+
                     <flux:text class="text-xs">
                         El QR lleva solo el código único de la caja; la OF, el PT, el lote y el vencimiento se toman de la aplicación al leerlo.
                         @if ($boxes->count() > 1) Cajas de {{ $boxes->first()->code }} a {{ $boxes->last()->code }}.@endif
-                        Lo que escribe el lector{{ $this->batch ? ' con la primera etiqueta' : ' (ejemplo)' }}:
+                        Caja de muestra: <strong>Caja {{ $data['box'] ?? ($boxes->first()?->code ?? ($nextBox ?? '0001')) }}</strong> · EAN legible: <strong>{{ Itf14::readable($ean) }}</strong>
                     </flux:text>
                     <pre class="rounded bg-zinc-100 p-2 font-mono text-xs dark:bg-zinc-800">{{ $shownQr }}</pre>
+
                     @if ($this->batch)
-                        <div>
-                            <flux:button variant="primary" icon="arrow-down-tray" :href="route('box-labels.zpl', $this->batch)">Descargar ZPL ({{ $this->batch->labels }} etiquetas)</flux:button>
+                        <div class="flex flex-wrap items-center gap-2 pt-1">
+                            <flux:button variant="primary" icon="printer" wire:click="printBatchDirect" wire:loading.attr="disabled" wire:target="printBatchDirect">
+                                Imprimir en Zebra ({{ $this->batch->labels }} etiquetas)
+                            </flux:button>
+                            <flux:button variant="subtle" icon="arrow-down-tray" :href="route('box-labels.zpl', $this->batch)">
+                                Descargar ZPL ({{ $this->batch->labels }} etiquetas)
+                            </flux:button>
                         </div>
                     @endif
                 @else
@@ -324,7 +464,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                         <flux:table.column>Vence</flux:table.column>
                         <flux:table.column align="end">Etiquetas</flux:table.column>
                         <flux:table.column>Por</flux:table.column>
-                        <flux:table.column><span class="sr-only">Descargar</span></flux:table.column>
+                        <flux:table.column align="end"><span class="sr-only">Acciones</span></flux:table.column>
                     </flux:table.columns>
                     <flux:table.rows>
                         @foreach ($order->boxLabelBatches->sortByDesc('id') as $b)
@@ -334,7 +474,12 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                 <flux:table.cell>{{ $b->expiration_date->format('d/m/Y') }}</flux:table.cell>
                                 <flux:table.cell align="end" class="tabular-nums">{{ $b->labels }}</flux:table.cell>
                                 <flux:table.cell>{{ $b->generator->name }}</flux:table.cell>
-                                <flux:table.cell align="end"><flux:button size="sm" variant="ghost" icon="arrow-down-tray" :href="route('box-labels.zpl', $b)">ZPL</flux:button></flux:table.cell>
+                                <flux:table.cell align="end">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <flux:button size="sm" variant="ghost" icon="printer" wire:click="printBatchDirect({{ $b->id }})" title="Imprimir directo en Zebra">Imprimir</flux:button>
+                                        <flux:button size="sm" variant="ghost" icon="arrow-down-tray" :href="route('box-labels.zpl', $b)">ZPL</flux:button>
+                                    </div>
+                                </flux:table.cell>
                             </flux:table.row>
                         @endforeach
                     </flux:table.rows>
