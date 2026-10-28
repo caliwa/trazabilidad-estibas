@@ -37,6 +37,12 @@ class Heartbeat
         return "worker:{$queue}";
     }
 
+    /** A fixed box reader's connection (boxes:reader). */
+    public static function reader(string $deviceCode): string
+    {
+        return "reader:{$deviceCode}";
+    }
+
     private static function key(string $name): string
     {
         return "ops:heartbeat:{$name}";

@@ -166,6 +166,8 @@ Hay dos workers:
 | `trazabilidad-sap` | `sap` | Envío y conciliación de recibos y traslados. Un intento por job (`--tries=1`): los reintentos los decide la conciliación, nunca la cola |
 | `trazabilidad-default` | `default` | Correos, notificaciones, traslado automático |
 
+**Lectores fijos de cajas.** Cada lector corre su propio programa (`boxes:reader`), con `deploy/supervisor/lectores-de-cajas.conf` como modelo. Ver `docs/lectura-automatica.md`.
+
 Los tiempos están ajustados entre sí: `--timeout=75` alcanza para crear y verificar en SAP (30 s cada llamada), y es menor que `DB_QUEUE_RETRY_AFTER=90`, así otro worker nunca toma un job que sigue corriendo. Aun si pasara, el estado ENVIANDO lo frena.
 
 Para más volumen se sube `numprocs`. Es seguro: los envíos se protegen con bloqueos en PostgreSQL, no con el número de workers.

@@ -6,8 +6,11 @@ use App\Domain\Audits\Enums\DiscrepancyStatus;
 use App\Domain\Integration\Enums\AttemptOutcome;
 use App\Domain\Integration\Enums\MasterStatus;
 use App\Domain\Integration\Enums\SapDocumentStatus;
+use App\Domain\Pallets\Actions\RegisterManualBoxScan;
 use App\Domain\Pallets\Enums\ScanEventStatus;
 use App\Domain\Pallets\Enums\ScanRejection;
+use App\Domain\Shared\TraceEventType;
+use App\Models\Device;
 use App\Models\DiscrepancyCase;
 use App\Models\IntegrationAttempt;
 use App\Models\InventoryTransfer;
@@ -15,6 +18,7 @@ use App\Models\PalletScanEvent;
 use App\Models\PalletStandard;
 use App\Models\ProductionOrder;
 use App\Models\ProductionReceipt;
+use App\Models\TraceEvent;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -32,6 +36,8 @@ class OperationalChecks
         return array_values(array_filter([
             $this->scheduler(),
             ...$this->workers(),
+            ...$this->boxReaders(),
+            $this->boxesNotCountedByReaders(),
             $this->queueBacklog(),
             $this->failedJobs(),
             $this->rejectedScans(),
@@ -64,6 +70,31 @@ class OperationalChecks
             "worker:{$queue}", AlertLevel::Critical, "No hay worker procesando la cola {$queue}",
             'Los trabajos se acumulan sin procesarse. Revisar Supervisor.', 1,
         ), config()->array('operations.worker_queues')));
+    }
+
+    /**
+     * A fixed box reader that was connected (boxes:reader) and no longer is.
+     * A reader that never connected is not flagged: it may not be installed yet.
+     *
+     * @return list<Alert|null>
+     */
+    private function boxReaders(): array
+    {
+        return Device::query()->where('kind', 'LECTOR')->where('active', true)->where('code', '!=', RegisterManualBoxScan::DEVICE_CODE)->orderBy('code')->get()
+            ->map(fn (Device $reader) => Heartbeat::last(Heartbeat::reader($reader->code)) === null || Heartbeat::isFresh(Heartbeat::reader($reader->code)) ? null : new Alert(
+                "reader:{$reader->code}", AlertLevel::Critical, "El lector de cajas {$reader->code} no está conectado",
+                'Las cajas que pasan por esa línea no se están contando. Revisar el lector, la red y el proceso boxes:reader en Supervisor.', 1,
+            ))->values()->all();
+    }
+
+    private function boxesNotCountedByReaders(): ?Alert
+    {
+        $window = config()->integer('operations.rejected_scans.window');
+        $count = TraceEvent::query()->where('event', TraceEventType::ScanRejected->value)->where('subject_type', 'device')
+            ->where('occurred_at', '>=', now()->subMinutes($window))->count();
+
+        return $count === 0 ? null : new Alert('reader_not_counted', AlertLevel::Warning, 'Cajas no contadas por el lector',
+            "{$count} lecturas del lector fijo en los últimos {$window} min no sumaron caja (lectura fallida, etiqueta desconocida u OF no liberada). Ver la bitácora del lector.", $count);
     }
 
     private function queueBacklog(): ?Alert

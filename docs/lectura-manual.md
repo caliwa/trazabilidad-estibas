@@ -42,7 +42,8 @@ Si el producto ya tiene un estándar, se usa ese.
 
 - `TRACE_LABEL_CONFIRMATION=scan`: la etiqueta se confirma leyendo su QR (DP-03). Es el valor por defecto. Revisa que en el `.env` no esté vacío.
 - `TRACE_TEST_PALLET_BOXES=40`: estándar de prueba.
-- La lectura manual no depende de `TRACE_SCAN_INGESTION_ENABLED` (DP-01), que es solo para el sensor automático de la línea.
+- La lectura manual no depende de `TRACE_SCAN_INGESTION_ENABLED` (DP-01), que es solo para el endpoint de sensores.
+- Un lector fijo en la línea lee el mismo QR y cuenta con estas mismas reglas: ver `docs/lectura-automatica.md`. Una caja leída por el lector y a mano cuenta una vez.
 
 ## 5. Pruebas
 
