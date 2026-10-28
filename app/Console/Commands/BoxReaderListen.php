@@ -39,7 +39,13 @@ class BoxReaderListen extends Command
     public function handle(RegisterManualBoxScan $scan, TraceLogger $trace): int
     {
         $code = mb_strtoupper(trim((string) $this->argument('device')));
-        $modes = array_filter(['connect' => $this->option('connect'), 'listen' => $this->option('listen'), 'serial' => $this->option('serial')], fn ($v) => is_string($v) && $v !== '');
+        $modes = [];
+        foreach (['connect', 'listen', 'serial'] as $name) {
+            $value = $this->option($name);
+            if (is_string($value) && $value !== '') {
+                $modes[$name] = $value;
+            }
+        }
 
         if (count($modes) !== 1) {
             $this->error('Indica una sola forma de conexión: --connect, --listen o --serial.');
@@ -54,7 +60,7 @@ class BoxReaderListen extends Command
         }
 
         $mode = (string) array_key_first($modes);
-        $target = (string) $modes[$mode];
+        $target = $modes[$mode] ?? '';
         $server = null;
         $backoff = 1;
 

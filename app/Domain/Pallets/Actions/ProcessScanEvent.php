@@ -265,11 +265,6 @@ class ProcessScanEvent
     }
 
     /**
-     * INSERT ... ON CONFLICT DO NOTHING. Returns 0 when the event already exists.
-     *
-     * @param  array<string, mixed>  $outcome
-     */
-    /**
      * The fixed reader that read a box counted under the shared box-read
      * device (RegisterManualBoxScan::fromReader); null otherwise.
      */
@@ -278,6 +273,11 @@ class ProcessScanEvent
         return $ctx->deviceId !== null && $ctx->deviceId !== $device->id ? $ctx->deviceId : null;
     }
 
+    /**
+     * INSERT ... ON CONFLICT DO NOTHING. Returns 0 when the event already exists.
+     *
+     * @param  array<string, mixed>  $outcome
+     */
     private function insert(Device $device, ScanEventData $data, CarbonImmutable $now, array $outcome): int
     {
         return PalletScanEvent::query()->insertOrIgnore([

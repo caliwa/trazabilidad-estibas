@@ -80,11 +80,11 @@ class OperationalChecks
      */
     private function boxReaders(): array
     {
-        return Device::query()->where('kind', 'LECTOR')->where('active', true)->where('code', '!=', RegisterManualBoxScan::DEVICE_CODE)->orderBy('code')->get()
+        return array_values(Device::query()->where('kind', 'LECTOR')->where('active', true)->where('code', '!=', RegisterManualBoxScan::DEVICE_CODE)->orderBy('code')->get()
             ->map(fn (Device $reader) => Heartbeat::last(Heartbeat::reader($reader->code)) === null || Heartbeat::isFresh(Heartbeat::reader($reader->code)) ? null : new Alert(
                 "reader:{$reader->code}", AlertLevel::Critical, "El lector de cajas {$reader->code} no está conectado",
                 'Las cajas que pasan por esa línea no se están contando. Revisar el lector, la red y el proceso boxes:reader en Supervisor.', 1,
-            ))->values()->all();
+            ))->all());
     }
 
     private function boxesNotCountedByReaders(): ?Alert
