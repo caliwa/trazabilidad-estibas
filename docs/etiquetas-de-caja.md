@@ -37,7 +37,7 @@ TRZB:6f1c2b9e0d4a47c58e3b2a1f9c7d6e5b
 ```
 
 - Cada etiqueta tiene su propio código opaco (32 caracteres al azar), guardado en `box_labels.qr_token`. Al leerlo, la aplicación busca la caja y de ahí saca la OF, el PT, el lote y el vencimiento.
-- El texto para las personas va impreso a la izquierda (OF, PT, descripción, lote, vence, contenido) y el código de caja legible, por ejemplo `Caja 33128294-0007`, debajo del QR. Ese texto no va dentro del QR.
+- Etiqueta de 100 × 80 mm: PT y descripción arriba, lote, vence (MM/AAAA) y unidades por caja a la izquierda, el QR grande a la derecha con el código de caja legible debajo (por ejemplo `Caja 33128294-0007`), el ITF-14 con `(01)` y los dígitos abajo a la izquierda y el logo abajo a la derecha. Ese texto no va dentro del QR.
 - El código de caja legible es lote + consecutivo de 4 dígitos, que sigue entre tandas del mismo lote. Con él una caja se cuenta una sola vez (ver `docs/lectura-manual.md`).
 - Un QR corto se imprime con módulos más grandes y se lee más fácil.
 - El EAN-14 va en su propio código de barras.

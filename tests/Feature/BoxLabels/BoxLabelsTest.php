@@ -229,17 +229,16 @@ class BoxLabelsTest extends TestCase
         $this->assertStringContainsString('^PW800', $batch->zpl);
         $this->assertStringContainsString('^LL640', $batch->zpl);
         $this->assertStringContainsString('^CI28', $batch->zpl);
-        // The QR carries only the box token (like the pallet QR), sized to fit its 250-dot box.
-        $magnification = BoxLabelZpl::qrMagnification($first);
-        $this->assertGreaterThanOrEqual(4, $magnification);
-        $this->assertStringContainsString('^BQN,2,'.$magnification.'^FH_^FDMA,'.$first.'^FS', $batch->zpl);
+        // The QR carries only the box token (like the pallet QR).
+        $this->assertStringContainsString('^BQN,2,6^FH_^FDMA,'.$first.'^FS', $batch->zpl);
         $this->assertStringNotContainsString('^FDMA,OF 33128', $batch->zpl);
-        // EAN-14 as ITF-14: check digit already in the data, digits underneath, no bearer-bar box.
-        $this->assertStringContainsString('^BY4,2.5^B2N,140,N,N,N^FD'.$batch->barcode.'^FS', $batch->zpl);
-        $this->assertSame(25, substr_count($batch->zpl, '^GB'), 'Solo la línea separadora de cada etiqueta, sin recuadro alrededor del código');
-        $this->assertStringContainsString('^FD'.Itf14::readable($batch->barcode).'^FS', $batch->zpl);
+        // EAN-14 as ITF-14: check digit already in the data, (01) and the digits underneath, no bearer-bar box.
+        $this->assertStringContainsString('^B2N,150,N,N,N^FD'.$batch->barcode.'^FS', $batch->zpl);
+        $this->assertSame(0, substr_count($batch->zpl, '^GB'), 'Sin recuadro alrededor del código');
+        $this->assertStringContainsString('^FD(01)'.$batch->barcode.'^FS', $batch->zpl);
         $this->assertStringContainsString('^FDGELATINA OLIMPICA SIN SABOR 30 GR^FS', $batch->zpl);
-        $this->assertStringContainsString('^FDContenido: 24 UNIDAD por caja^FS', $batch->zpl);
+        $this->assertStringContainsString('^FDLOTE: 33128293^FS', $batch->zpl);
+        $this->assertStringContainsString('^FDCAJA : 24 UNIDADES^FS', $batch->zpl);
         // One label per box: its own token in the QR and its box code printed under it.
         $this->assertSame(25, substr_count($batch->zpl, '^XA'));
         $this->assertSame(25, substr_count($batch->zpl, '^PQ1,0,1,Y'));
@@ -359,7 +358,7 @@ class BoxLabelsTest extends TestCase
 
         $this->assertSame('17700304364722', $batch->barcode);
         $this->assertStringContainsString('^FD17700304364722^FS', $batch->zpl);
-        $this->assertStringContainsString('1 77 00304 36472 2', $batch->zpl);
+        $this->assertStringContainsString('^FD(01)17700304364722^FS', $batch->zpl);
     }
 
     public function test_a_generated_batch_is_evidence_and_never_changes(): void

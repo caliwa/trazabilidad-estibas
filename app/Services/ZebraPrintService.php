@@ -12,10 +12,10 @@ class ZebraPrintService
         $replace = [];
         foreach ($variables as $key => $val) {
             $cleanVal = trim((string) $val);
-            $replace['{' . $key . '}'] = $cleanVal;
-            $replace['{{' . $key . '}}'] = $cleanVal;
-            $replace['{{ ' . $key . ' }}'] = $cleanVal;
-            $replace['{ ' . $key . ' }'] = $cleanVal;
+            $replace['{'.$key.'}'] = $cleanVal;
+            $replace['{{'.$key.'}}'] = $cleanVal;
+            $replace['{{ '.$key.' }}'] = $cleanVal;
+            $replace['{ '.$key.' }'] = $cleanVal;
         }
 
         return strtr($templateZpl, $replace);
@@ -27,6 +27,7 @@ class ZebraPrintService
     public function extractVariables(string $templateZpl): array
     {
         preg_match_all('/\{{1,2}\s*([a-zA-Z0-9_\-]+)\s*\}{1,2}/', $templateZpl, $matches);
+
         return array_values(array_unique($matches[1] ?? []));
     }
 
@@ -52,14 +53,15 @@ class ZebraPrintService
 
         $socket = @fsockopen($ip, $port, $errno, $errstr, $timeout);
 
-        if (!$socket) {
+        if (! $socket) {
             $latency = round((microtime(true) - $startTime) * 1000, 2);
+
             return [
                 'success' => false,
                 'status' => 'CONNECTION_FAILED',
                 'error_code' => $errno,
                 'message' => "Fallo de conexión con la impresora Zebra en {$ip}:{$port}. ({$errstr})",
-                'details' => "Verifique que la impresora esté encendida, con cable de red conectado y en el mismo segmento IP.",
+                'details' => 'Verifique que la impresora esté encendida, con cable de red conectado y en el mismo segmento IP.',
                 'bytes_sent' => 0,
                 'latency_ms' => $latency,
             ];
@@ -107,7 +109,7 @@ class ZebraPrintService
 
         $socket = @fsockopen($ip, $port, $errno, $errstr, $timeout);
 
-        if (!$socket) {
+        if (! $socket) {
             $latency = round((microtime(true) - $startTime) * 1000, 2);
             $explanation = ($errno === 64 || $errno === 65 || str_contains(strtolower($errstr), 'route') || str_contains(strtolower($errstr), 'down'))
                 ? "El dispositivo en {$ip} no responde en la red (ARP/Ruta no alcanzable)."
@@ -118,7 +120,7 @@ class ZebraPrintService
                 'ip' => $ip,
                 'port' => $port,
                 'status' => 'OFFLINE',
-                'status_label' => 'Sin enlace (' . $ip . ')',
+                'status_label' => 'Sin enlace ('.$ip.')',
                 'badge_color' => 'rose',
                 'error_code' => $errno,
                 'error_explanation' => $explanation,
@@ -176,7 +178,7 @@ class ZebraPrintService
         $deviceName = 'Zebra ZT411';
         $sgdStatus = 'ready';
 
-        if (preg_match_all('/"([^"]+)"/', $buffer, $sgdMatches) && !empty($sgdMatches[1])) {
+        if (preg_match_all('/"([^"]+)"/', $buffer, $sgdMatches) && ! empty($sgdMatches[1])) {
             $deviceName = $sgdMatches[1][0] ?? 'Zebra ZT411';
             $sgdStatus = strtolower(trim($sgdMatches[1][1] ?? 'ready'));
         }

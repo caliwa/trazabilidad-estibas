@@ -23,7 +23,7 @@ class ZebraPreviewController extends Controller
             return response()->json(['error' => 'No se proporcionó código ZPL'], 400);
         }
 
-        $cacheKey = 'zpl_prev_' . md5($zpl . $dpmm . $width . $height);
+        $cacheKey = 'zpl_prev_'.md5($zpl.$dpmm.$width.$height);
         $cachedPng = Cache::get($cacheKey);
         if ($cachedPng !== null) {
             return Response::make($cachedPng, 200, [
@@ -37,8 +37,8 @@ class ZebraPreviewController extends Controller
             $response = Http::withHeaders([
                 'Accept' => 'image/png',
             ])->withBody($zpl, 'application/x-www-form-urlencoded')
-              ->timeout(8)
-              ->post($url);
+                ->timeout(8)
+                ->post($url);
 
             if ($response->successful()) {
                 Cache::put($cacheKey, $response->body(), now()->addDay());
@@ -50,13 +50,13 @@ class ZebraPreviewController extends Controller
             }
 
             return response()->json([
-                'error' => 'Labelary API retornó error: ' . $response->status(),
-                'details' => $response->body()
+                'error' => 'Labelary API retornó error: '.$response->status(),
+                'details' => $response->body(),
             ], $response->status());
         } catch (\Throwable $e) {
             return response()->json([
                 'error' => 'Fallo al conectar con el motor de renderizado ZPL',
-                'details' => $e->getMessage()
+                'details' => $e->getMessage(),
             ], 500);
         }
     }
