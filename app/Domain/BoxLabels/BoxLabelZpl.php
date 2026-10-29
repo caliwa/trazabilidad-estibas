@@ -66,13 +66,13 @@ final class BoxLabelZpl
             '^FO35,190^A0N,42,42^FDLOTE: '.$f($payload->lotCode).'^FS',
             '^FO35,250^A0N,42,42^FDVENCE: '.$expirationFormatted.'^FS',
             '^FO35,310^A0N,42,42^FDCAJA : '.$f($payload->unitsPerBox).' UNIDADES^FS',
-            // Código QR a la derecha en el bloque medio (más grande, ampliación 6)
-            '^FO545,150^BQN,2,6^FH_^FDMA,'.self::hexField($qrContent).'^FS',
+            // Código QR a la derecha en el bloque medio (ampliación 5 para dejar espacio libre a la caja legible y logo)
+            '^FO540,140^BQN,2,5^FH_^FDMA,'.self::hexField($qrContent).'^FS',
         ];
 
         // Código de caja legible debajo del QR: con él una persona identifica la caja si el QR no lee.
         if ($payload->boxCode !== null) {
-            $lines[] = '^FO492,345^FB280,1,0,C^A0N,30,30^FDCaja '.$f($payload->boxCode).'^FS';
+            $lines[] = '^FO490,350^FB300,1,0,C^A0N,28,28^FDCaja '.$f($payload->boxCode).'^FS';
         }
 
         // Código de barras EAN-14 a la izquierda abajo (ITF-14 / ^B2)
@@ -81,8 +81,8 @@ final class BoxLabelZpl
             $lines[] = '^FO35,570^FB490,1,0,C^A0N,30,30^FD(01)'.$payload->barcode.'^FS';
         }
 
-        // Logo Tecnoal abajo a la derecha (donde estaba el QR)
-        $lines[] = '^FO535,445'.self::LOGO_TECNOAL.'^FS';
+        // Logo Tecnoal abajo a la derecha
+        $lines[] = '^FO540,430'.self::LOGO_TECNOAL.'^FS';
 
         $lines[] = '^PQ1,0,1,Y';
         $lines[] = '^XZ';
