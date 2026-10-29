@@ -68,8 +68,8 @@ final class BoxLabelZpl
             '^FO35,310^A0N,42,42^FDCAJA : '.$f($payload->unitsPerBox).' UNIDADES^FS',
             // Código QR a la derecha en el bloque medio (ampliación 5, totalmente libre y sin texto encima)
             '^FO550,140^BQN,2,5^FH_^FDMA,'.self::hexField($qrContent).'^FS',
-            // Logo Tecnoal con más altura (ubicado justo entre el QR y el código de caja)
-            '^FO535,380'.self::LOGO_TECNOAL.'^FS',
+            // Logo Tecnoal separado del QR (Y=430 para dejar margen amplio respecto al QR)
+            '^FO535,430'.self::LOGO_TECNOAL.'^FS',
         ];
 
         // Código de caja legible DEBAJO de Tecnoal (alineado horizontalmente con el texto del código de barras)
