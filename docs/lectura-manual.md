@@ -10,7 +10,7 @@
 
 Las tres usan el mismo campo de escáner:
 - **Lector de mano** USB o Bluetooth, de los que escriben como teclado. Se deja el cursor en el campo y se lee; la lectura se envía sola cuando el lector deja de escribir.
-- **Cámara del celular:** al leer el QR de la estiba (confirmar etiqueta pegada, el diálogo "Confirmar etiqueta aplicada", conteo ciego y calidad) aparece el botón "Cámara" o "Leer con la cámara" en cualquier celular: Chrome en Android, Safari en iPhone y otros. Abre la cámara trasera, lee el QR y lo envía solo. Donde el navegador no trae lector de QR propio, lo decodifica la aplicación (jsQR). En la lectura de cajas el botón sigue apareciendo solo en Chrome para Android, como antes.
+- **Cámara del celular:** al leer las cajas y el QR de la estiba (confirmar etiqueta pegada, el diálogo "Confirmar etiqueta aplicada", conteo ciego y calidad) aparece el botón "Cámara" o "Leer con la cámara" en cualquier celular: Chrome en Android, Safari en iPhone y otros. Abre la cámara trasera, lee el QR y lo envía solo. Donde el navegador no trae lector de QR propio, lo decodifica la aplicación (jsQR).
 - La cámara solo funciona si la aplicación se abre por **HTTPS** (o en `localhost`). Por `http://` el navegador no la ofrece y el botón no aparece. La aplicación permite la cámara solo para sus propias páginas (`Permissions-Policy: camera=(self)`).
 
 ## 2. Lectura de una caja

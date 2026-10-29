@@ -10,7 +10,7 @@ use Tests\TestCase;
 /**
  * The QR of the pallet can be read with the phone camera (any browser,
  * window.QrCamera) when confirming the label at the station, in the blind
- * count and in quality. The box reading keeps its scanner as it was.
+ * count, in quality and when reading the boxes at the station.
  */
 class QrCameraTest extends TestCase
 {
@@ -30,13 +30,13 @@ class QrCameraTest extends TestCase
         $this->assertSame('camera=(self), microphone=(), geolocation=()', $response->headers->get('Permissions-Policy'));
     }
 
-    public function test_the_station_offers_the_camera_to_confirm_the_label_but_not_for_boxes(): void
+    public function test_the_station_offers_the_camera_for_boxes_and_to_confirm_the_label(): void
     {
         $html = (string) $this->actingAs($this->userWithRole(Role::TraceabilityAdmin))->get(route('production.station'))->assertOk()->getContent();
 
         $this->assertStringContainsString('Etiqueta de la caja', $html);
-        // The "Confirmar etiqueta pegada" scanner and the "Confirmar etiqueta aplicada" dialog.
-        $this->assertSame(2, substr_count($html, 'data-qr-camera'));
+        // The box scanner, the "Confirmar etiqueta pegada" scanner and the "Confirmar etiqueta aplicada" dialog.
+        $this->assertSame(3, substr_count($html, 'data-qr-camera'));
         $this->assertStringContainsString('Leer con la cámara', $html);
     }
 

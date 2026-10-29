@@ -92,7 +92,8 @@
             class="block w-full resize-none rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-base text-zinc-900 shadow-xs focus:border-zinc-500 focus:outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"></textarea>
         <template x-if="canUseCamera">
             <button type="button" @click="camera ? closeCamera() : openCamera()" title="Leer con la cámara" @if ($camera) data-qr-camera @endif
-                class="shrink-0 rounded-lg border border-zinc-300 px-3 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/5">
+                class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-300 px-3 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/5">
+                <flux:icon.camera variant="mini" class="size-5" />
                 <span x-text="camera ? 'Cerrar cámara' : 'Cámara'"></span>
             </button>
         </template>
