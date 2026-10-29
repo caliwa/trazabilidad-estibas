@@ -208,7 +208,7 @@ new #[Title('Calidad')] class extends Component {
     <div class="grid gap-6 lg:grid-cols-3">
         <div class="flex flex-col gap-4 lg:col-span-2">
             <div class="rounded-xl border border-zinc-200 p-5 dark:border-zinc-700">
-                <x-scanner action="scanFrom" label="Etiqueta de la estiba" placeholder="Lee el QR de cada estiba; se van sumando a la lista" />
+                <x-scanner action="scanFrom" label="Etiqueta de la estiba" placeholder="Lee el QR de cada estiba; se van sumando a la lista" camera />
             </div>
 
             @if ($error)

@@ -152,7 +152,7 @@ new #[Title('Conteo ciego')] class extends Component {
     @elseif ($pallet === null)
         {{-- Keys on each step: the scanner is wire:ignore, and without them Livewire reused it for the pallet card. --}}
         <div wire:key="step-scan" class="flex flex-col gap-4 rounded-xl border border-zinc-200 p-5 dark:border-zinc-700">
-            <x-scanner action="scanFrom" label="Etiqueta de la estiba" placeholder="Lee el QR de la etiqueta de la estiba" />
+            <x-scanner action="scanFrom" label="Etiqueta de la estiba" placeholder="Lee el QR de la etiqueta de la estiba" camera />
             <div wire:loading wire:target="scanFrom" class="text-sm text-zinc-500">Buscando la estiba…</div>
         </div>
     @else

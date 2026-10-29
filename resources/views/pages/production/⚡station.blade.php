@@ -373,7 +373,7 @@ new #[Title('Producción')] class extends Component {
                 <div class="flex flex-col gap-3">
                     <flux:heading size="lg" level="2">Confirmar etiqueta pegada</flux:heading>
                     <flux:text>Después de pegar la etiqueta en la estiba paletizada, lee su QR. Con eso queda etiquetada.</flux:text>
-                    <x-scanner action="scanLabel" label="QR de la estiba" placeholder="Lee el QR de la etiqueta de la estiba" />
+                    <x-scanner action="scanLabel" label="QR de la estiba" placeholder="Lee el QR de la etiqueta de la estiba" camera />
                 </div>
                 <div aria-live="polite">
                     @if ($labelScanMessage)
@@ -468,6 +468,7 @@ new #[Title('Producción')] class extends Component {
             @if ($this->labelMode() === LabelConfirmation::Scan)
                 <flux:text>Lee con el escáner el QR de la etiqueta ya pegada en la estiba.</flux:text>
                 <flux:input wire:model="scannedQr" label="Código leído" autofocus autocomplete="off" />
+                <x-qr-camera-button model="scannedQr" submit="confirmLabel" />
             @else
                 <flux:text>Confirma que la etiqueta quedó pegada y legible en la estiba.</flux:text>
             @endif
