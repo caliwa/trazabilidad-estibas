@@ -5,6 +5,8 @@
     'placeholder' => 'Lee el código con el escáner',
     // The box QR has several lines: Enter is part of the text, the read ends when the reader stops typing.
     'multiline' => false,
+    // Camera on any phone browser (window.QrCamera, with jsQR where there is no BarcodeDetector).
+    'camera' => false,
 ])
 
 {{--
@@ -20,8 +22,10 @@
         value: '',
         timer: null,
         camera: false,
-        canUseCamera: 'BarcodeDetector' in window && !! navigator.mediaDevices,
+        anyCamera: @js((bool) $camera),
+        canUseCamera: @js((bool) $camera) ? !! window.QrCamera?.available() : ('BarcodeDetector' in window && !! navigator.mediaDevices),
         stream: null,
+        stopCamera: null,
         multiline: @js((bool) $multiline),
         id() {
             return (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
@@ -43,6 +47,14 @@
             this.$nextTick(() => this.$refs.field?.focus());
         },
         async openCamera() {
+            if (this.anyCamera) {
+                this.camera = true;
+                await this.$nextTick();
+                try {
+                    this.stopCamera = await window.QrCamera.start(this.$refs.video, (text) => { this.closeCamera(); this.send(text); });
+                } catch (e) { this.camera = false; alert('No se pudo abrir la cámara: ' + e.message); }
+                return;
+            }
             try {
                 this.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             } catch (e) { alert('No se pudo abrir la cámara: ' + e.message); return; }
@@ -63,6 +75,8 @@
         },
         closeCamera() {
             this.camera = false;
+            this.stopCamera?.();
+            this.stopCamera = null;
             this.stream?.getTracks().forEach(t => t.stop());
             this.stream = null;
             this.$nextTick(() => this.$refs.field?.focus());
@@ -77,7 +91,7 @@
             rows="{{ $multiline ? 3 : 1 }}" placeholder="{{ $placeholder }}" autocomplete="off" autocapitalize="off" spellcheck="false"
             class="block w-full resize-none rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-base text-zinc-900 shadow-xs focus:border-zinc-500 focus:outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"></textarea>
         <template x-if="canUseCamera">
-            <button type="button" @click="camera ? closeCamera() : openCamera()" title="Leer con la cámara"
+            <button type="button" @click="camera ? closeCamera() : openCamera()" title="Leer con la cámara" @if ($camera) data-qr-camera @endif
                 class="shrink-0 rounded-lg border border-zinc-300 px-3 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/5">
                 <span x-text="camera ? 'Cerrar cámara' : 'Cámara'"></span>
             </button>
