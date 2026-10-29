@@ -39,8 +39,6 @@ final class PalletLabelZpl
         $expiration = $expiration ?? ($pallet->exists ? LotDates::expiration($pallet->production_order_id, $pallet->lot_code) : null);
         $expirationFormatted = $expiration ? $expiration->format('m/Y') : '—';
 
-        $boxesCount = (string) $pallet->boxes_count;
-
         $printNumber = $print?->print_number ?? max(1, $pallet->label_print_count);
         $isReprint = $printNumber > 1;
         $tz = function_exists('config') && app()->bound('config') ? config('app.timezone', 'America/Bogota') : 'America/Bogota';
@@ -55,47 +53,45 @@ final class PalletLabelZpl
             '^LS0',
             '^FWR', // Rotación a 90° para orientación vertical
             // 1. Cabecera vertical: Código de la estiba centrado
-            '^FO730,30^FB580,1,0,C^A0R,52,50^FD'.$palletCode.'^FS',
+            '^FO730,30^FB580,1,0,C^A0R,54,52^FD'.$palletCode.'^FS',
             // 2. Código QR centrado horizontalmente
-            '^FO485,205^BQR,2,7^FH_^FDMA,'.self::hexField($qrPayload).'^FS',
+            '^FO475,200^BQR,2,7^FH_^FDMA,'.self::hexField($qrPayload).'^FS',
             // 3. Línea divisoria superior
-            '^FO460,35^GB2,570,2^FS',
+            '^FO450,35^GB2,570,2^FS',
             // 4. Datos de la orden y producto
-            '^FO415,40^A0R,34,34^FDORDEN: '.$orderRef.'^FS',
-            '^FO370,40^A0R,34,34^FDPRODUCTO: '.$itemCode.'^FS',
+            '^FO400,40^A0R,36,36^FDORDEN: '.$orderRef.'^FS',
+            '^FO350,40^A0R,36,36^FDPRODUCTO: '.$itemCode.'^FS',
         ];
 
         // Descripción dinámica (1 o 2 líneas según longitud)
         $descLen = mb_strlen($itemDesc);
         if ($descLen > 50) {
-            $lines[] = '^FO325,40^FB560,2,2,L^A0R,24,24^FD'.$itemDesc.'^FS';
-            $currentX = 265;
+            $lines[] = '^FO300,40^FB560,2,2,L^A0R,26,26^FD'.$itemDesc.'^FS';
+            $currentX = 235;
         } elseif ($descLen > 30) {
-            $lines[] = '^FO325,40^FB560,2,2,L^A0R,26,26^FD'.$itemDesc.'^FS';
-            $currentX = 265;
+            $lines[] = '^FO300,40^FB560,2,2,L^A0R,28,28^FD'.$itemDesc.'^FS';
+            $currentX = 235;
         } else {
-            $lines[] = '^FO325,40^FB560,1,0,L^A0R,28,28^FD'.$itemDesc.'^FS';
-            $currentX = 275;
+            $lines[] = '^FO300,40^FB560,1,0,L^A0R,30,30^FD'.$itemDesc.'^FS';
+            $currentX = 245;
         }
 
-        $lines[] = '^FO'.$currentX.',40^A0R,34,34^FDLOTE: '.$lotCode.'^FS';
-        $currentX -= 45;
-        $lines[] = '^FO'.$currentX.',40^A0R,34,34^FDVENCE: '.$expirationFormatted.'^FS';
+        $lines[] = '^FO'.$currentX.',40^A0R,36,36^FDLOTE: '.$lotCode.'^FS';
         $currentX -= 55;
-        $lines[] = '^FO'.$currentX.',40^A0R,46,46^FDCAJAS: '.$boxesCount.'^FS';
+        $lines[] = '^FO'.$currentX.',40^A0R,36,36^FDVENCE: '.$expirationFormatted.'^FS';
 
         // 5. Línea divisoria inferior
-        $currentX -= 30;
+        $currentX -= 40;
         $lines[] = '^FO'.$currentX.',35^GB2,570,2^FS';
 
         // 6. Pie de página: Metadatos de impresión y motivo de reimpresión si aplica
-        $currentX -= 32;
+        $currentX -= 35;
         $metaText = 'Impresion #'.$printNumber.' - '.$printDate;
         if ($isReprint) {
-            $lines[] = '^FO'.$currentX.',40^A0R,22,22^FD'.$metaText.'^FS';
-            $currentX -= 28;
+            $lines[] = '^FO'.$currentX.',40^A0R,24,24^FD'.$metaText.'^FS';
+            $currentX -= 30;
             $reasonText = $reason ? 'REIMPRESION: '.mb_substr($reason, 0, 45) : '*** REIMPRESION ***';
-            $lines[] = '^FO'.$currentX.',40^A0R,24,24^FD'.$reasonText.'^FS';
+            $lines[] = '^FO'.$currentX.',40^A0R,26,26^FD'.$reasonText.'^FS';
         } else {
             $lines[] = '^FO'.$currentX.',40^A0R,24,24^FD'.$metaText.'^FS';
         }
