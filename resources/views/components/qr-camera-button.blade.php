@@ -39,7 +39,8 @@
 >
     <template x-if="available">
         <button type="button" data-qr-camera @click="open ? close() : start()"
-            class="self-start rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/5">
+            class="inline-flex items-center gap-1.5 self-start rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-white/10 dark:text-zinc-200 dark:hover:bg-white/5">
+            <flux:icon.camera variant="mini" class="size-5" />
             <span x-text="open ? 'Cerrar cámara' : 'Leer con la cámara'"></span>
         </button>
     </template>
