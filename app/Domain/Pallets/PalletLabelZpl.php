@@ -82,7 +82,7 @@ final class PalletLabelZpl
         $currentX -= 45;
         $lines[] = '^FO'.$currentX.',40^A0R,34,34^FDVENCE: '.$expirationFormatted.'^FS';
         $currentX -= 55;
-        $lines[] = '^FO'.$currentX.',40^A0R,46,46^FDCAJAS: '.$boxesCount.' UNIDADES^FS';
+        $lines[] = '^FO'.$currentX.',40^A0R,46,46^FDCAJAS: '.$boxesCount.'^FS';
 
         // 5. Línea divisoria inferior
         $currentX -= 30;
