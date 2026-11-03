@@ -5,6 +5,7 @@ namespace Tests\Feature\Pages;
 use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Enums\Role;
 use App\Models\Pallet;
+use App\Models\PalletLabelPrint;
 use App\Models\PalletScanEvent;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
