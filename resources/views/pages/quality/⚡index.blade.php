@@ -17,6 +17,8 @@ use App\Models\InventoryTransfer;
 use App\Models\Pallet;
 use App\Models\ProductionReceiptPallet;
 use App\Models\QualityHold;
+use App\Domain\Integration\SapWait;
+use App\Livewire\Concerns\WaitsForSap;
 use App\Support\Correlation\CorrelationId;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection;
@@ -34,6 +36,8 @@ use Livewire\Component;
  * and stays in each pallet's trace.
  */
 new #[Title('Calidad')] class extends Component {
+    use WaitsForSap;
+
     public function boot(): void
     {
         abort_unless(Auth::user()?->can(Permission::QualityManage->value), 403);
@@ -182,6 +186,7 @@ new #[Title('Calidad')] class extends Component {
 
         $codes = Pallet::query()->whereKey($this->selected)->pluck('pallet_code', 'id');
         $ok = 0;
+        $lastTransfer = SapWait::lastTransferId();
 
         foreach ($this->selected as $id) {
             try {
@@ -194,12 +199,15 @@ new #[Title('Calidad')] class extends Component {
         }
 
         Flux::toast(variant: $ok === count($this->selected) ? 'success' : 'warning', text: "{$ok} de ".count($this->selected).' estibas listas.');
+        // Holding moves the pallets to non-conforming in SAP: wait for its answer before going on.
+        $this->waitForSap('Traslado a no conforme ('.config('sap.warehouses.non_conforming').')', SapWait::transfersFor($this->selected, $lastTransfer));
         $this->reset('reason');
         unset($this->selection, $this->held);
     }
 }; ?>
 
 <section class="flex w-full flex-col gap-6">
+    <x-sap-wait :status="$this->sapWaitStatus()" :title="$sapWait['title'] ?? ''" />
     <div>
         <flux:heading size="xl" level="1">Calidad</flux:heading>
         <flux:subheading>Lee las estibas antes del conteo ciego. Retener las traslada en SAP de {{ config('sap.warehouses.transfer_from') }} a no conforme ({{ config('sap.warehouses.non_conforming') }}). Liberarlas las deja seguir al conteo, y de ahí van de {{ config('sap.warehouses.non_conforming') }} a {{ config('sap.warehouses.transfer_to') }}.</flux:subheading>

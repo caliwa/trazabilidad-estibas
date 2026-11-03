@@ -7,6 +7,9 @@
     'multiline' => false,
     // Camera on any phone browser (window.QrCamera, with jsQR where there is no BarcodeDetector).
     'camera' => false,
+    // The field takes the cursor back on its own whenever nothing else is being typed in or no
+    // dialog is open, so a hand reader always types into it without clicking it first.
+    'keepFocus' => false,
 ])
 
 {{--
@@ -44,7 +47,26 @@
             this.value = '';
             if (read.trim() === '') return;
             $wire.call(@js($action), read, this.id());
-            this.$nextTick(() => this.$refs.field?.focus());
+            // After any read the cursor goes to the field that keeps it, if the page has one.
+            this.$nextTick(() => (window.scannerKeepsFocus?.isConnected ? window.scannerKeepsFocus : this.$refs.field)?.focus());
+        },
+        keepFocus() {
+            const field = this.$refs.field;
+            window.scannerKeepsFocus = field;
+            // On phones the field would keep opening the keyboard over the screen; there the camera is used.
+            if (! window.matchMedia('(pointer: fine)').matches) return;
+            const reclaim = () => {
+                if (! field.isConnected || document.hidden || this.camera || field === document.activeElement) return;
+                const active = document.activeElement;
+                const typing = active && active.matches('input, textarea, select, [contenteditable=true]');
+                if (typing || document.querySelector('dialog[open]')) return;
+                field.focus({ preventScroll: true });
+            };
+            document.addEventListener('focusout', () => setTimeout(reclaim, 100));
+            window.addEventListener('focus', reclaim);
+            document.addEventListener('visibilitychange', reclaim);
+            // Clicks on the page, dialogs closing and refreshes of the page around the field.
+            const timer = setInterval(() => field.isConnected ? reclaim() : clearInterval(timer), 700);
         },
         async openCamera() {
             if (this.anyCamera) {
@@ -82,7 +104,7 @@
             this.$nextTick(() => this.$refs.field?.focus());
         },
     }"
-    x-init="$nextTick(() => $refs.field?.focus())"
+    x-init="@if ($keepFocus) keepFocus(); @endif $nextTick(() => (window.scannerKeepsFocus?.isConnected ? window.scannerKeepsFocus : $refs.field)?.focus())"
     {{ $attributes->class('flex flex-col gap-2') }}
 >
     <label class="text-sm font-medium text-zinc-800 dark:text-white">{{ $label }}</label>

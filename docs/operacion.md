@@ -42,6 +42,8 @@ SELECT attempt_number, operation, outcome, latency_ms, error_code, error_message
 
 ## 3. Conciliación de recibos y traslados
 
+**Espera de la respuesta de SAP en pantalla.** Al pedir recibos, al retener en calidad, al aprobar un conteo ciego, al volver a pedir una transferencia y al conciliar, la pantalla muestra "Esperando respuesta de SAP" sobre todo y no deja continuar hasta que SAP responda cada documento: verde si confirmó (con el número de documento), rojo si lo rechazó (con el motivo) y ámbar si quedó pendiente de conciliación. Se cierra con "Entendido, continuar". Si en 90 segundos no hay respuesta (SAP caído o sin worker), se desbloquea con el aviso "Sin respuesta de SAP": el documento sigue en proceso, hay que revisar su estado antes de repetir nada.
+
 Un documento queda en **PENDIENTE_CONCILIACION** cuando no se sabe si SAP lo creó: timeout, respuesta ambigua o worker caído a mitad de envío. Mientras tanto la estiba queda retenida y no se puede pedir otra vez.
 
 ### 3.1 Lo que hace el sistema solo
