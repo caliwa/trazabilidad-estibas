@@ -8,6 +8,9 @@ use App\Domain\Audits\Exceptions\AuditRuleViolation;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Enums\Permission;
+use App\Domain\Integration\SapWait;
+use App\Models\PalletAudit;
+use App\Livewire\Concerns\WaitsForSap;
 use App\Support\Correlation\CorrelationId;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Locked;
@@ -20,6 +23,8 @@ use Livewire\Component;
  * operator typed and the outcome. The system quantity stays on the server.
  */
 new #[Title('Conteo ciego')] class extends Component {
+    use WaitsForSap;
+
     public function boot(): void
     {
         abort_unless(Auth::user()?->can(Permission::AuditsCount->value), 403);
@@ -86,6 +91,9 @@ new #[Title('Conteo ciego')] class extends Component {
     {
         $this->validate(['counted' => ['required', 'integer', 'min:0', 'max:'.SubmitBlindCount::MAX_BOXES]], attributes: ['counted' => 'cajas contadas']);
 
+        $palletId = (int) PalletAudit::query()->whereKey((int) $this->auditId)->value('pallet_id');
+        $lastTransfer = SapWait::lastTransferId();
+
         try {
             $result = $submit->handle(Auth::user(), (int) $this->auditId, (int) $this->counted, $this->context());
         } catch (AuditRuleViolation $e) {
@@ -105,6 +113,11 @@ new #[Title('Conteo ciego')] class extends Component {
 
         $this->outcome = $result->value;
         $this->reset('auditId', 'counted', 'triesLeft');
+
+        // An approved count sends the pallet's transfer to SAP: wait for its answer before the next pallet.
+        if ($result === BlindCountOutcome::Approved) {
+            $this->waitForSap('Traslado de la estiba contada', SapWait::transfersFor([$palletId], $lastTransfer));
+        }
     }
 
     public function cancel(CancelBlindCount $cancel): void
@@ -125,6 +138,7 @@ new #[Title('Conteo ciego')] class extends Component {
 }; ?>
 
 <section class="mx-auto flex w-full max-w-xl flex-col gap-6">
+    <x-sap-wait :status="$this->sapWaitStatus()" :title="$sapWait['title'] ?? ''" />
     <div>
         <flux:heading size="xl" level="1">Conteo ciego</flux:heading>
         <flux:subheading>Lee la etiqueta, cuenta las cajas y registra lo que contaste</flux:subheading>

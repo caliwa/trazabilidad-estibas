@@ -18,6 +18,8 @@ use App\Models\InventoryTransfer;
 use App\Models\Pallet;
 use App\Models\PalletLabelPrint;
 use App\Queries\PalletTimeline;
+use App\Domain\Integration\SapWait;
+use App\Livewire\Concerns\WaitsForSap;
 use App\Services\ZebraPrintService;
 use App\Support\Correlation\CorrelationId;
 use Flux\Flux;
@@ -37,6 +39,8 @@ use Livewire\Component;
  * reconciled or closed as failed.
  */
 new #[Title('Detalle de estiba')] class extends Component {
+    use WaitsForSap;
+
     #[Locked]
     public int $palletId;
 
@@ -92,6 +96,8 @@ new #[Title('Detalle de estiba')] class extends Component {
     {
         abort_unless(Auth::user()?->can(Permission::TransfersReconcile->value), 403);
 
+        $lastTransfer = SapWait::lastTransferId();
+
         try {
             $request->handle(Auth::user(), [$this->palletId], $this->context());
         } catch (TransferRuleViolation $e) {
@@ -100,7 +106,7 @@ new #[Title('Detalle de estiba')] class extends Component {
             return;
         }
 
-        Flux::toast(variant: 'success', text: 'Transferencia solicitada. Se envía a SAP en segundo plano.');
+        $this->waitForSap('Transferencia enviada a SAP', SapWait::transfersFor([$this->palletId], $lastTransfer));
         unset($this->pallet, $this->pendingTransfer);
     }
 
@@ -110,7 +116,7 @@ new #[Title('Detalle de estiba')] class extends Component {
 
         if ($this->pendingTransfer !== null) {
             ReconcileInventoryTransfer::dispatch($this->pendingTransfer->id);
-            Flux::toast(text: 'Conciliación en cola.');
+            $this->waitForSap('Conciliación de la transferencia con SAP', [['type' => 'transfer', 'id' => $this->pendingTransfer->id]], reconcile: true);
         }
     }
 
@@ -174,6 +180,7 @@ new #[Title('Detalle de estiba')] class extends Component {
 @endphp
 
 <section class="flex w-full flex-col gap-6">
+    <x-sap-wait :status="$this->sapWaitStatus()" :title="$sapWait['title'] ?? ''" />
     <div class="flex flex-wrap items-end justify-between gap-4">
         <div>
             <flux:heading size="xl" level="1" class="font-mono">{{ $pallet->pallet_code }}</flux:heading>
