@@ -34,8 +34,8 @@ class PalletLabelController extends Controller
             'widthMm' => config()->integer('traceability.label.width_mm'),
             'heightMm' => config()->integer('traceability.label.height_mm'),
             'zpl' => $zpl,
-            'printerIp' => config('services.zebra.ip', env('ZEBRA_PRINTER_IP', '192.168.1.154')),
-            'printerPort' => (int) config('services.zebra.port', env('ZEBRA_PRINTER_PORT', 9100)),
+            'printerIp' => (string) config('services.zebra.ip', '192.168.1.154'),
+            'printerPort' => (int) config('services.zebra.port', 9100),
         ]);
     }
 
@@ -57,8 +57,8 @@ class PalletLabelController extends Controller
         $pallet->loadMissing('item:id,description');
         $zpl = PalletLabelZpl::render($pallet, $record);
 
-        $ip = (string) config('services.zebra.ip', env('ZEBRA_PRINTER_IP', '192.168.1.154'));
-        $port = (int) config('services.zebra.port', env('ZEBRA_PRINTER_PORT', 9100));
+        $ip = (string) config('services.zebra.ip', '192.168.1.154');
+        $port = (int) config('services.zebra.port', 9100);
 
         $res = $zebra->printToSocket($ip, $port, $zpl);
 

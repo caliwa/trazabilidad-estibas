@@ -37,63 +37,75 @@ final class BoxLabelZpl
      * One label per box, in order.
      *
      * @param  list<array{code: string, token: string}>  $boxes
+     * @param  array<string, mixed>|null  $overrideConfig
      */
-    public static function renderBoxes(BoxLabelPayload $payload, CarbonImmutable $productionDate, array $boxes): string
+    public static function renderBoxes(BoxLabelPayload $payload, CarbonImmutable $productionDate, array $boxes, ?array $overrideConfig = null): string
     {
-        return implode('', array_map(fn (array $box) => self::render($payload->withBox($box['code']), $productionDate, BoxQr::payload($box['token'])), $boxes));
+        return implode('', array_map(fn (array $box) => self::render($payload->withBox($box['code']), $productionDate, BoxQr::payload($box['token']), $overrideConfig), $boxes));
     }
 
     /**
      * One label: the text of $payload and a QR with $qrContent.
+     *
+     * @param  array<string, mixed>|null  $overrideConfig
      */
-    public static function render(BoxLabelPayload $payload, CarbonImmutable $productionDate, string $qrContent): string
+    public static function render(BoxLabelPayload $payload, CarbonImmutable $productionDate, string $qrContent, ?array $overrideConfig = null): string
     {
+        $cfg = $overrideConfig ?? LabelFormatConfig::box();
         $f = fn (string $text) => self::field($text);
 
         // Vencimiento en formato MM/AAAA (ej. 10/2028) fiel al formato del .lbl
         $expirationFormatted = $payload->expirationDate->format('m/Y');
 
         // Ajuste dinamico de descripcion para evitar solapamiento en titulos largos
-        $isLongDesc = mb_strlen($payload->itemDescription) > 50;
-        $descFont = $isLongDesc ? '30,32' : '38,40';
+        $longThreshold = (int) ($cfg['desc_long_threshold'] ?? 50);
+        $isLongDesc = mb_strlen($payload->itemDescription) > $longThreshold;
+        $descFontH = $isLongDesc ? ($cfg['desc_font_h_long'] ?? 30) : ($cfg['desc_font_h'] ?? 38);
+        $descFontW = $isLongDesc ? ($cfg['desc_font_w_long'] ?? 32) : ($cfg['desc_font_w'] ?? 40);
         $descLines = $isLongDesc ? 3 : 2;
+
+        $width = (int) ($cfg['width_dots'] ?? self::WIDTH_DOTS);
+        $height = (int) ($cfg['height_dots'] ?? self::HEIGHT_DOTS);
 
         $lines = [
             '^XA',
             '^CI28',
-            '^PW'.self::WIDTH_DOTS,
-            '^LL'.self::HEIGHT_DOTS,
+            '^PW'.$width,
+            '^LL'.$height,
             '^LS0',
-            // Encabezado Centrado: Código PT (fuente más grande) y Descripción (Arial Black bold)
-            '^FO30,18^FB740,1,0,C^A0N,54,56^FD'.$f($payload->itemCode).'^FS',
-            '^FO30,76^FB740,'.$descLines.',2,C^A0N,'.$descFont.'^FD'.$f($payload->itemDescription).'^FS',
+            // Encabezado Centrado: Código PT y Descripción
+            '^FO'.($cfg['pt_x'] ?? 30).','.($cfg['pt_y'] ?? 18).'^FB'.($cfg['pt_w'] ?? 740).',1,0,C^A0N,'.($cfg['pt_font_h'] ?? 54).','.($cfg['pt_font_w'] ?? 56).'^FD'.$f($payload->itemCode).'^FS',
+            '^FO'.($cfg['desc_x'] ?? 30).','.($cfg['desc_y'] ?? 76).'^FB'.($cfg['desc_w'] ?? 740).','.$descLines.',2,C^A0N,'.$descFontH.','.$descFontW.'^FD'.$f($payload->itemDescription).'^FS',
             // Bloque izquierdo: Lote, Vencimiento, Unidades por caja
-            '^FO35,190^A0N,40,40^FDLOTE: '.$f($payload->lotCode).'^FS',
-            '^FO35,248^A0N,40,40^FDVENCE: '.$expirationFormatted.'^FS',
-            '^FO35,306^A0N,40,40^FDCAJA : '.$f($payload->unitsPerBox).' UNIDADES^FS',
-            // Código QR a la derecha en el bloque medio (ampliación 5, totalmente libre y sin texto encima)
-            '^FO550,140^BQN,2,5^FH_^FDMA,'.self::hexField($qrContent).'^FS',
-            // Logo Tecnoal separado del QR (Y=430 para dejar margen amplio respecto al QR)
-            '^FO535,430'.self::LOGO_TECNOAL.'^FS',
+            '^FO'.($cfg['details_x'] ?? 35).','.($cfg['lot_y'] ?? 190).'^A0N,'.($cfg['details_font_size'] ?? 40).','.($cfg['details_font_size'] ?? 40).'^FDLOTE: '.$f($payload->lotCode).'^FS',
+            '^FO'.($cfg['details_x'] ?? 35).','.($cfg['vence_y'] ?? 248).'^A0N,'.($cfg['details_font_size'] ?? 40).','.($cfg['details_font_size'] ?? 40).'^FDVENCE: '.$expirationFormatted.'^FS',
+            '^FO'.($cfg['details_x'] ?? 35).','.($cfg['caja_units_y'] ?? 306).'^A0N,'.($cfg['details_font_size'] ?? 40).','.($cfg['details_font_size'] ?? 40).'^FDCAJA : '.$f($payload->unitsPerBox).' UNIDADES^FS',
+            // Código QR a la derecha en el bloque medio
+            '^FO'.($cfg['qr_x'] ?? 550).','.($cfg['qr_y'] ?? 140).'^BQN,2,'.($cfg['qr_mag'] ?? 5).'^FH_^FDMA,'.self::hexField($qrContent).'^FS',
         ];
 
-        // Código de caja legible DEBAJO de Tecnoal (alineado horizontalmente con el texto del código de barras)
-        if ($payload->boxCode !== null) {
-            $lines[] = '^FO530,560^A0N,28,22^FDCaja '.$f($payload->boxCode).'^FS';
+        // Logo Tecnoal
+        if ($cfg['logo_show'] ?? true) {
+            $lines[] = '^FO'.($cfg['logo_x'] ?? 535).','.($cfg['logo_y'] ?? 430).self::LOGO_TECNOAL.'^FS';
         }
 
-        // Código de barras EAN-14 a la izquierda abajo (ITF-14 / ^B2): altura moderada (90) y proporcion adecuada dentro del margen
+        // Código de caja legible DEBAJO de Tecnoal
+        if ($payload->boxCode !== null) {
+            $lines[] = '^FO'.($cfg['box_code_x'] ?? 530).','.($cfg['box_code_y'] ?? 560).'^A0N,'.($cfg['box_code_font_h'] ?? 28).','.($cfg['box_code_font_w'] ?? 22).'^FDCaja '.$f($payload->boxCode).'^FS';
+        }
+
+        // Código de barras EAN-14 a la izquierda abajo (ITF-14 / ^B2)
         if (Itf14::isValid($payload->barcode)) {
-            $lines[] = '^FO40,440^BY3,2.5,90^B2N,90,N,N,N^FD'.$payload->barcode.'^FS';
-            $lines[] = '^FO40,560^FB460,1,0,C^A0N,28,28^FD(01)'.$payload->barcode.'^FS';
+            $barcodeH = (int) ($cfg['barcode_height'] ?? 90);
+            $barcodeW = (int) ($cfg['barcode_by_w'] ?? 3);
+            $lines[] = '^FO'.($cfg['barcode_x'] ?? 40).','.($cfg['barcode_y'] ?? 440).'^BY'.$barcodeW.',2.5,'.$barcodeH.'^B2N,'.$barcodeH.',N,N,N^FD'.$payload->barcode.'^FS';
+            $lines[] = '^FO'.($cfg['barcode_text_x'] ?? 40).','.($cfg['barcode_text_y'] ?? 560).'^FB'.($cfg['barcode_text_w'] ?? 460).',1,0,C^A0N,'.($cfg['barcode_text_font'] ?? 28).','.($cfg['barcode_text_font'] ?? 28).'^FD(01)'.$payload->barcode.'^FS';
         }
 
         $lines[] = '^PQ1,0,1,Y';
         $lines[] = '^XZ';
 
-        return implode('
-', $lines).'
-';
+        return implode("\n", $lines)."\n";
     }
 
     /**

@@ -57,6 +57,10 @@ class ZebraPrintService
             ];
         }
 
+        $totalBytes = strlen($zpl);
+        // Timeout dinámico según tamaño: al menos $timeout seg, con margen para lotes grandes
+        $effectiveTimeout = max($timeout, min(90, (int) ceil($totalBytes / 8000) + $timeout));
+
         $socket = @fsockopen($ip, $port, $errno, $errstr, $timeout);
 
         if (! $socket) {
@@ -73,13 +77,62 @@ class ZebraPrintService
             ];
         }
 
-        stream_set_timeout($socket, $timeout);
+        stream_set_blocking($socket, true);
+        stream_set_timeout($socket, $effectiveTimeout);
 
-        $bytesSent = fwrite($socket, $zpl);
-        fflush($socket);
-        fclose($socket);
+        // Envío fragmentado en bloques (chunks) para evitar errno=11 (Resource temporarily unavailable)
+        // en lotes con muchas etiquetas (ej. 156 etiquetas = ~166 KB) cuando se satura el búfer de la Zebra
+        $bytesSent = 0;
+        $chunkSize = 8192;
+        $writeFailed = false;
+
+        while ($bytesSent < $totalBytes && ! feof($socket)) {
+            $chunk = substr($zpl, $bytesSent, $chunkSize);
+            $written = @fwrite($socket, $chunk);
+
+            if ($written === false || $written === 0) {
+                // El búfer de la Zebra está lleno; esperamos con stream_select a que vuelva a aceptar datos
+                $writeStreams = [$socket];
+                $null = null;
+                $ready = @stream_select($null, $writeStreams, $null, 2);
+
+                if ($ready === false || $ready === 0) {
+                    $writeFailed = true;
+                    break;
+                }
+
+                $written = @fwrite($socket, $chunk);
+                if ($written === false || $written === 0) {
+                    $writeFailed = true;
+                    break;
+                }
+            }
+
+            $bytesSent += $written;
+
+            if ((microtime(true) - $startTime) > $effectiveTimeout) {
+                $writeFailed = true;
+                break;
+            }
+        }
+
+        @fflush($socket);
+        @fclose($socket);
 
         $latency = round((microtime(true) - $startTime) * 1000, 2);
+
+        if ($writeFailed || $bytesSent < $totalBytes) {
+            return [
+                'success' => false,
+                'status' => 'WRITE_INCOMPLETE',
+                'message' => "Transmisión incompleta a la Zebra: se enviaron {$bytesSent} de {$totalBytes} bytes tras {$latency} ms.",
+                'details' => 'El búfer de la impresora no pudo recibir todos los datos a tiempo.',
+                'bytes_sent' => $bytesSent,
+                'ip' => $ip,
+                'port' => $port,
+                'latency_ms' => $latency,
+            ];
+        }
 
         return [
             'success' => true,
