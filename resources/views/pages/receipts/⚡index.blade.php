@@ -15,6 +15,7 @@ use App\Jobs\ReconcileProductionReceipt;
 use App\Models\Pallet;
 use App\Models\ProductionOrder;
 use App\Models\ProductionReceipt;
+use App\Livewire\Concerns\WaitsForSap;
 use App\Support\Correlation\CorrelationId;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection;
@@ -30,6 +31,8 @@ use Livewire\Component;
  * a job: this page never waits for SAP.
  */
 new #[Title('Recibos de producción')] class extends Component {
+    use WaitsForSap;
+
     public function boot(): void
     {
         abort_unless(Auth::user()?->can(Permission::ReceiptsRequest->value), 403);
@@ -140,7 +143,7 @@ new #[Title('Recibos de producción')] class extends Component {
             return;
         }
 
-        Flux::toast(variant: 'success', text: count($created) === 1 ? 'Recibo solicitado. Se envía a SAP en segundo plano.' : count($created).' recibos solicitados. Se envían a SAP en segundo plano.');
+        $this->waitForSap(count($created) === 1 ? 'Recibo de producción enviado a SAP' : count($created).' recibos de producción enviados a SAP', array_map(fn ($r) => ['type' => 'receipt', 'id' => $r->id], $created));
         $this->selected = [];
         unset($this->eligible, $this->orders, $this->receipts);
 
@@ -155,7 +158,7 @@ new #[Title('Recibos de producción')] class extends Component {
         abort_unless(Auth::user()?->can(Permission::ReceiptsReconcile->value), 403);
 
         ReconcileProductionReceipt::dispatch($receiptId);
-        Flux::toast(text: 'Conciliación en cola.');
+        $this->waitForSap('Conciliación del recibo con SAP', [['type' => 'receipt', 'id' => $receiptId]], reconcile: true);
         unset($this->receipts);
     }
 
@@ -189,6 +192,7 @@ new #[Title('Recibos de producción')] class extends Component {
 }; ?>
 
 <section class="flex w-full flex-col gap-6">
+    <x-sap-wait :status="$this->sapWaitStatus()" :title="$sapWait['title'] ?? ''" />
     <div>
         <flux:heading size="xl" level="1">Recibos de producción</flux:heading>
         <flux:subheading>Estibas etiquetadas que entran al almacén {{ config('sap.warehouses.production_receipt') }} en SAP</flux:subheading>

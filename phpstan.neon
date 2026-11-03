@@ -17,3 +17,7 @@ parameters:
         -
             identifier: trait.unused
             path: app/Concerns/ProfileValidationRules.php
+        # Used only by the Livewire single-file pages that send documents to SAP (resources/views).
+        -
+            identifier: trait.unused
+            path: app/Livewire/Concerns/WaitsForSap.php
