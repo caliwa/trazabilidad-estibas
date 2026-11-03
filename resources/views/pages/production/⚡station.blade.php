@@ -399,7 +399,7 @@ new #[Title('Producción')] class extends Component {
             </div>
 
             @if (! config('traceability.decisions.scan_ingestion_enabled'))
-                <flux:badge color="amber" icon="exclamation-triangle" size="lg">Sensor apagado (DP-01)</flux:badge>
+                <flux:badge color="amber" icon="exclamation-triangle" size="lg">Sensor automático apagado (DP-01): usa la lectura manual</flux:badge>
             @endif
         </div>
     </div>
