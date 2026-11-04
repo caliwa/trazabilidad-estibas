@@ -71,6 +71,8 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
     public ?int $activeJobId = null;
 
+    public ?int $resumeSequence = null;
+
     public ?array $printerStatus = null;
 
     public function mount(): void
@@ -100,16 +102,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
     #[Computed]
     public function activeJob(): ?BoxLabelPrintJob
     {
-        if ($this->activeJobId === null) {
-            return null;
-        }
-
-        $job = BoxLabelPrintJob::query()->with('batch')->find($this->activeJobId);
-        if ($job && $job->status === 'paused_error') {
-            app(ManagePrintJob::class)->syncPhysicalOdometer($job);
-        }
-
-        return $job;
+        return $this->activeJobId === null ? null : BoxLabelPrintJob::query()->with('batch')->find($this->activeJobId);
     }
 
     public function openJobMonitor(int $jobId): void
@@ -117,7 +110,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
         $this->activeJobId = $jobId;
         $job = BoxLabelPrintJob::query()->find($jobId);
         if ($job) {
-            app(ManagePrintJob::class)->syncPhysicalOdometer($job);
+            $this->resumeSequence = $job->next_sequence;
         }
         Flux::modal('zebra-print-monitor-modal')->show();
     }
@@ -136,6 +129,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
         $manageJob = app(ManagePrintJob::class);
         $job = $manageJob->createOrGetJob(Auth::user(), $targetBatch->id, $this->printerIp, $this->printerPort, 25);
         $this->activeJobId = $job->id;
+        $this->resumeSequence = $job->next_sequence;
 
         // Si ya estaba completado, permitir reimprimir reiniciando el trabajo
         if ($job->status === 'completed') {
@@ -149,6 +143,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                 'started_at' => now(),
                 'completed_at' => null,
             ])->save();
+            $this->resumeSequence = $job->start_sequence;
         }
 
         // Si es un lote pequeño (<= 25 etiquetas) y no hay error previo, procesar directamente
@@ -158,6 +153,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
             $this->checkPrinter();
 
             if ($res['success'] && (($res['status'] ?? '') === 'completed')) {
+                $this->activeJobId = null;
                 Flux::toast(variant: 'success', text: "{$job->total_labels} etiquetas impresas exitosamente en la Zebra.");
                 return;
             }
@@ -184,11 +180,13 @@ new #[Title('Etiquetas de caja')] class extends Component {
         $this->checkPrinter();
 
         if (($result['status'] ?? '') === 'completed') {
+            $this->activeJobId = null;
+            Flux::modal('zebra-print-monitor-modal')->close();
             Flux::toast(variant: 'success', text: "¡Trabajo completado! Se imprimieron {$job->total_labels} etiquetas en la Zebra.");
         }
     }
 
-    public function resumePrintJob(?int $jobId = null): void
+    public function resumePrintJob(?int $jobId = null, ?int $fromSeq = null): void
     {
         $id = $jobId ?? $this->activeJobId;
         if (! $id) {
@@ -197,8 +195,10 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
         $job = BoxLabelPrintJob::query()->find($id);
         if ($job) {
-            app(ManagePrintJob::class)->resumeJob($job);
+            $targetSeq = $fromSeq ?? $this->resumeSequence ?? $job->next_sequence;
+            app(ManagePrintJob::class)->resumeJob($job, (int) $targetSeq);
             $this->activeJobId = $job->id;
+            $this->resumeSequence = $job->fresh()->next_sequence;
             Flux::modal('zebra-print-monitor-modal')->show();
             $this->processActivePrintJob();
         }
@@ -1001,10 +1001,21 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
                 <div class="flex items-center justify-between pt-2">
                     @if ($job->status === 'paused_error')
-                        <flux:button variant="danger" icon="play" wire:click="resumePrintJob({{ $job->id }})">
-                            Reanudar desde Caja #{{ str_pad((string)$job->next_sequence, 4, '0', STR_PAD_LEFT) }} ({{ $job->pending_labels }} pendientes)
-                        </flux:button>
-                        <flux:button variant="ghost" wire:click="cancelPrintJob({{ $job->id }})">Cancelar restantes</flux:button>
+                        <div class="flex flex-col gap-2.5 w-full">
+                            <div class="flex items-end gap-2">
+                                <div class="w-36">
+                                    <flux:input wire:model="resumeSequence" type="number" min="{{ $job->start_sequence }}" max="{{ $job->end_sequence }}" label="Desde Caja #" />
+                                </div>
+                                <div class="flex-1">
+                                    <flux:button variant="danger" icon="play" class="w-full" wire:click="resumePrintJob({{ $job->id }}, $wire.resumeSequence)">
+                                        Reanudar desde Caja #{{ str_pad((string)($resumeSequence ?? $job->next_sequence), 4, '0', STR_PAD_LEFT) }} ({{ max(1, $job->end_sequence - (int)($resumeSequence ?? $job->next_sequence) + 1) }} pendientes)
+                                    </flux:button>
+                                </div>
+                            </div>
+                            <div class="flex justify-end">
+                                <flux:button variant="ghost" size="sm" wire:click="cancelPrintJob({{ $job->id }})">Cancelar etiquetas restantes</flux:button>
+                            </div>
+                        </div>
                     @elseif ($job->status === 'printing')
                         <div class="flex items-center gap-2 text-xs text-zinc-500">
                             <flux:icon icon="arrow-path" class="size-4 animate-spin text-blue-500" />
