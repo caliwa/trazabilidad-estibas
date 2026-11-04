@@ -54,6 +54,8 @@ final class PalletLabelZpl
 
         $width = (int) ($cfg['width_dots'] ?? self::WIDTH_DOTS);
         $height = (int) ($cfg['height_dots'] ?? self::HEIGHT_DOTS);
+        $speed = (int) ($cfg['print_speed'] ?? (function_exists('config') && app()->bound('config') ? config('services.zebra.speed', 4) : 4));
+        $speed = max(2, min(8, $speed));
         $detailsFont = (int) ($cfg['details_font'] ?? 36);
         $textY = (int) ($cfg['text_y'] ?? 40);
 
@@ -63,6 +65,7 @@ final class PalletLabelZpl
             '^PW'.$width,
             '^LL'.$height,
             '^LS0',
+            '^PR'.$speed.','.$speed.','.$speed,
             '^FWR', // Rotación a 90° para orientación vertical
             // 1. Cabecera vertical: Código de la estiba centrado
             '^FO'.($cfg['pallet_code_x'] ?? 730).','.($cfg['pallet_code_y'] ?? 30).'^FB'.($cfg['pallet_code_w'] ?? 580).',1,0,C^A0R,'.($cfg['pallet_code_font_h'] ?? 54).','.($cfg['pallet_code_font_w'] ?? 52).'^FD'.$palletCode.'^FS',

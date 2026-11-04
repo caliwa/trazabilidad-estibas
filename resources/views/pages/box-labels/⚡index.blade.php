@@ -371,6 +371,8 @@ new #[Title('Etiquetas de caja')] class extends Component {
                 <span class="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                 <span class="text-xs font-medium text-zinc-700 dark:text-zinc-200">
                     Zebra ZT411 ({{ $printerIp }}): <strong class="text-emerald-600 dark:text-emerald-400">{{ $printerStatus['status_label'] }}</strong>
+                    <span class="text-zinc-400">·</span>
+                    <span class="text-zinc-500">Velocidad: <strong class="text-zinc-700 dark:text-zinc-300">{{ config('services.zebra.speed', 4) }} ips</strong></span>
                 </span>
             @else
                 <span class="inline-block h-2.5 w-2.5 rounded-full bg-rose-500"></span>

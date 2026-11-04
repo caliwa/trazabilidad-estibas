@@ -27,6 +27,7 @@ final class LabelFormatConfig
             'height_dots' => 640,
             'dpmm' => 8, // 8 dpmm = 203 DPI
             'scale' => 100, // Escala general en %
+            'print_speed' => (int) (function_exists('config') && app()->bound('config') ? config('services.zebra.speed', 4) : 4),
             // Código PT
             'pt_font_h' => 54,
             'pt_font_w' => 56,
@@ -85,6 +86,7 @@ final class LabelFormatConfig
             'height_dots' => 640,
             'dpmm' => 8,
             'scale' => 100,
+            'print_speed' => (int) (function_exists('config') && app()->bound('config') ? config('services.zebra.speed', 4) : 4),
             // Código de estiba (EST-XXXXXXXX)
             'pallet_code_font_h' => 54,
             'pallet_code_font_w' => 52,

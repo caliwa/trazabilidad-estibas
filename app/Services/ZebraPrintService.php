@@ -36,6 +36,25 @@ class ZebraPrintService
     }
 
     /**
+     * Asegura que el flujo ZPL tenga configurada la velocidad de impresión (^PRp,s,b).
+     * Si no la tiene, la inyecta después de cada ^XA para evitar que la Zebra ZT411 imprima
+     * a su velocidad máxima descontrolada (14 ips) y en su lugar imprima a ritmo controlado (ej: 4 ips).
+     */
+    public function ensurePrintSpeed(string $zpl, ?int $speed = null): string
+    {
+        $configured = $speed ?? (int) (function_exists('config') && app()->bound('config') ? config('services.zebra.speed', 4) : 4);
+        $speedVal = max(2, min(8, $configured));
+
+        // Si ya contiene algún comando ^PR explícito, respetar la configuración existente
+        if (preg_match('/\^PR[0-9A-Za-z,]+/i', $zpl) === 1) {
+            return $zpl;
+        }
+
+        // Inyectar ^PR{speed},{speed},{speed} justo después de cada ^XA
+        return preg_replace('/(\^XA)/i', "$1\n^PR{$speedVal},{$speedVal},{$speedVal}", $zpl) ?? $zpl;
+    }
+
+    /**
      * Envía ZPL directamente a la IP y puerto de la Zebra por Socket TCP RAW
      *
      * @return array<string, mixed>
@@ -56,6 +75,9 @@ class ZebraPrintService
                 'latency_ms' => 0,
             ];
         }
+
+        // Asegurar velocidad de impresión configurada (evita que la Zebra imprima a máxima velocidad descontrolada)
+        $zpl = $this->ensurePrintSpeed($zpl);
 
         $totalBytes = strlen($zpl);
         // Timeout dinámico según tamaño: al menos $timeout seg, con margen para lotes grandes

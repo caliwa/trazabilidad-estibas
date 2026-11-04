@@ -66,6 +66,8 @@ final class BoxLabelZpl
 
         $width = (int) ($cfg['width_dots'] ?? self::WIDTH_DOTS);
         $height = (int) ($cfg['height_dots'] ?? self::HEIGHT_DOTS);
+        $speed = (int) ($cfg['print_speed'] ?? (function_exists('config') && app()->bound('config') ? config('services.zebra.speed', 4) : 4));
+        $speed = max(2, min(8, $speed));
 
         $lines = [
             '^XA',
@@ -73,6 +75,7 @@ final class BoxLabelZpl
             '^PW'.$width,
             '^LL'.$height,
             '^LS0',
+            '^PR'.$speed.','.$speed.','.$speed,
             // Encabezado Centrado: Código PT y Descripción
             '^FO'.($cfg['pt_x'] ?? 30).','.($cfg['pt_y'] ?? 18).'^FB'.($cfg['pt_w'] ?? 740).',1,0,C^A0N,'.($cfg['pt_font_h'] ?? 54).','.($cfg['pt_font_w'] ?? 56).'^FD'.$f($payload->itemCode).'^FS',
             '^FO'.($cfg['desc_x'] ?? 30).','.($cfg['desc_y'] ?? 76).'^FB'.($cfg['desc_w'] ?? 740).','.$descLines.',2,C^A0N,'.$descFontH.','.$descFontW.'^FD'.$f($payload->itemDescription).'^FS',

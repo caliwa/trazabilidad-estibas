@@ -38,6 +38,7 @@ return [
     'zebra' => [
         'ip' => env('ZEBRA_PRINTER_IP', '192.168.1.154'),
         'port' => (int) env('ZEBRA_PRINTER_PORT', 9100),
+        'speed' => (int) env('ZEBRA_PRINT_SPEED', 4), // Velocidad de impresión en pulgadas/segundo (2 a 6 ips; 4 es el estándar controlado)
     ],
 
 ];

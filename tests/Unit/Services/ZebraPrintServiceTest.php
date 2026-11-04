@@ -43,4 +43,22 @@ class ZebraPrintServiceTest extends TestCase
         $this->assertFalse($result['success']);
         $this->assertSame('CONNECTION_FAILED', $result['status']);
     }
+
+    public function test_ensure_print_speed_injects_pr_command(): void
+    {
+        $service = new ZebraPrintService;
+        $zpl = "^XA\n^FO50,50^FDTEST^FS\n^XZ";
+        $result = $service->ensurePrintSpeed($zpl, 4);
+
+        $this->assertStringContainsString('^PR4,4,4', $result);
+    }
+
+    public function test_ensure_print_speed_does_not_duplicate_existing_pr(): void
+    {
+        $service = new ZebraPrintService;
+        $zpl = "^XA\n^PR3,3,3\n^FO50,50^FDTEST^FS\n^XZ";
+        $result = $service->ensurePrintSpeed($zpl, 4);
+
+        $this->assertSame($zpl, $result);
+    }
 }
