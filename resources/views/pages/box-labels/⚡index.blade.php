@@ -230,7 +230,61 @@ new #[Title('Etiquetas de caja')] class extends Component {
         }
     }
 
-    public function generate(GenerateBoxLabels $generate): void
+    public function currentLastSequence(): int
+    {
+        if ($this->order === null) {
+            return 0;
+        }
+
+        $lot = $this->lot();
+        if ($lot === null) {
+            return (int) ($this->order->last_box_sequence ?? 0);
+        }
+
+        $currentRun = (int) ($this->order->current_box_run ?? 1);
+        if ($currentRun < 1) {
+            $currentRun = 1;
+        }
+
+        $maxSeq = (int) BoxLabel::query()
+            ->where('production_order_id', $this->order->id)
+            ->where('lot_code', $lot)
+            ->where('run_number', $currentRun)
+            ->max('sequence');
+
+        if ($maxSeq === 0) {
+            $maxSeq = (int) BoxLabel::query()
+                ->where('production_order_id', $this->order->id)
+                ->where('lot_code', $lot)
+                ->max('sequence');
+        }
+
+        return $maxSeq;
+    }
+
+    public function requestGenerate(): void
+    {
+        $this->validate([
+            'labels' => ['required', 'integer', 'min:1'],
+            'productionDate' => ['required', 'date_format:Y-m-d'],
+            'expirationDate' => ['required', 'date_format:Y-m-d'],
+            'lotCode' => ['nullable', 'string', 'max:40'],
+        ], attributes: ['labels' => 'cantidad de etiquetas', 'productionDate' => 'fecha de producción', 'expirationDate' => 'fecha de vencimiento', 'lotCode' => 'lote']);
+
+        $lastSeq = $this->currentLastSequence();
+
+        // Si ya existen etiquetas generadas para este lote, mostrar modal Flux
+        // para que el operador decida si continuar consecutivo o reiniciar a #0001
+        if ($lastSeq > 0) {
+            Flux::modal('confirm-box-consecutive')->show();
+
+            return;
+        }
+
+        $this->executeGenerate(restartSequence: false);
+    }
+
+    public function executeGenerate(bool $restartSequence = false): void
     {
         $this->validate([
             'labels' => ['required', 'integer', 'min:1'],
@@ -240,17 +294,40 @@ new #[Title('Etiquetas de caja')] class extends Component {
         ], attributes: ['labels' => 'cantidad de etiquetas', 'productionDate' => 'fecha de producción', 'expirationDate' => 'fecha de vencimiento', 'lotCode' => 'lote']);
 
         try {
-            $batch = $generate->handle(Auth::user(), (int) $this->orderId, $this->labels, $this->date($this->productionDate) ?? today(), $this->date($this->expirationDate), $this->context(), trim($this->lotCode) === '' ? null : $this->lotCode);
+            $batch = app(GenerateBoxLabels::class)->handle(
+                Auth::user(),
+                (int) $this->orderId,
+                $this->labels,
+                $this->date($this->productionDate) ?? today(),
+                $this->date($this->expirationDate),
+                $this->context(),
+                trim($this->lotCode) === '' ? null : $this->lotCode,
+                $restartSequence,
+            );
         } catch (BoxLabelRuleViolation $e) {
             Flux::toast(variant: 'danger', text: $e->getMessage());
+            Flux::modal('confirm-box-consecutive')->close();
 
             return;
         }
 
+        Flux::modal('confirm-box-consecutive')->close();
+
         $this->batchId = $batch->id;
         $this->lotCode = '';
         unset($this->order, $this->batch);
-        Flux::toast(variant: 'success', text: "{$batch->labels} etiquetas generadas. Lista para imprimir en Zebra o descargar ZPL.");
+
+        $rangeInfo = "Cajas #{$batch->first_sequence} a #{$batch->last_sequence}";
+        if ($batch->is_reset) {
+            $rangeInfo .= ' (Consecutivo reiniciado a #1)';
+        }
+
+        Flux::toast(variant: 'success', text: "{$batch->labels} etiquetas generadas ({$rangeInfo}). Lista para imprimir en Zebra o descargar ZPL.");
+    }
+
+    public function generate(bool $restartSequence = false): void
+    {
+        $this->executeGenerate($restartSequence);
     }
 }; ?>
 
@@ -259,10 +336,12 @@ new #[Title('Etiquetas de caja')] class extends Component {
     $preview = $this->preview();
     $max = $this->maxLabels();
     $printed = $this->printedLabels();
+    $lastSeq = $this->currentLastSequence();
     $tz = config('app.timezone');
     // The first label: its printed text (with its box code) and its QR, which carries only the box token.
     $boxes = $this->batch === null ? collect() : BoxLabel::query()->where('box_label_batch_id', $this->batch->id)->orderBy('sequence')->get(['code', 'qr_token']);
-    $nextBox = $preview === null ? null : BoxLot::boxCode($preview->lotCode, (int) BoxLabel::query()->where('production_order_id', $order->id)->where('lot_code', $preview->lotCode)->max('sequence') + 1);
+    $nextBoxSeq = $lastSeq > 0 ? $lastSeq + 1 : 1;
+    $nextBox = $preview === null ? null : BoxLot::boxCode($preview->lotCode, $nextBoxSeq);
     $shownPayload = $this->batch !== null
         ? $this->batch->qr_payload.($boxes->isEmpty() ? '' : "\nCaja: ".$boxes->first()->code)
         : $preview?->withBox((string) $nextBox)->encode();
@@ -358,11 +437,20 @@ new #[Title('Etiquetas de caja')] class extends Component {
                     </dd>
                     <dt class="text-zinc-500">Etiquetas generadas</dt>
                     <dd class="font-medium tabular-nums">{{ $printed }}</dd>
+                    <dt class="text-zinc-500">Último consecutivo en BD</dt>
+                    <dd class="font-medium tabular-nums">
+                        @if ($lastSeq > 0)
+                            <span class="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">Caja #{{ $lastSeq }}</span>
+                            <span class="text-xs text-zinc-500">(próxima: #{{ $lastSeq + 1 }})</span>
+                        @else
+                            <span class="text-zinc-500">Sin cajas generadas aún</span>
+                        @endif
+                    </dd>
                     <dt class="text-zinc-500">Sugeridas por la OF</dt>
                     <dd class="font-medium tabular-nums">{{ $max ?? '—' }} <span class="text-xs font-normal text-zinc-500">(se puede generar más)</span></dd>
                 </dl>
 
-                <form wire:submit="generate" class="flex flex-col gap-4">
+                <form wire:submit="requestGenerate" class="flex flex-col gap-4">
                     <div class="grid gap-4 sm:grid-cols-3">
                         <flux:input wire:model.live.debounce.400ms="labels" type="number" min="1" label="Cantidad de etiquetas" required />
                         <flux:input wire:model.live="productionDate" type="date" label="Fecha de producción" required />
@@ -385,8 +473,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                     @if ($over > 0)
                         <flux:callout variant="warning" icon="exclamation-triangle" heading="Supera lo sugerido por la OF en {{ $over }} etiquetas" text="Se permite para reponer etiquetas mal impresas o cajas averiadas. Queda registrado." />
                     @endif
-                    <flux:button type="submit" variant="primary" icon="qr-code" wire:loading.attr="disabled" wire:target="generate"
-                        wire:confirm="¿Generar {{ $labels }} etiquetas de caja para la OF {{ $order->ref }} con el lote {{ $this->lot() }}?{{ $over > 0 ? ' Supera en '.$over.' las sugeridas por la OF.' : '' }}">Generar etiquetas</flux:button>
+                    <flux:button type="submit" variant="primary" icon="qr-code" wire:loading.attr="disabled" wire:target="requestGenerate, executeGenerate">Generar etiquetas</flux:button>
                 </form>
             </div>
 
@@ -515,6 +602,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                     <flux:table.columns>
                         <flux:table.column>Generadas</flux:table.column>
                         <flux:table.column>Lote</flux:table.column>
+                        <flux:table.column>Rango de cajas</flux:table.column>
                         <flux:table.column>Vence</flux:table.column>
                         <flux:table.column align="end">Etiquetas</flux:table.column>
                         <flux:table.column>Por</flux:table.column>
@@ -526,6 +614,12 @@ new #[Title('Etiquetas de caja')] class extends Component {
                             <flux:table.row :key="$b->id">
                                 <flux:table.cell class="whitespace-nowrap text-xs tabular-nums">{{ $b->generated_at->timezone($tz)->format('d/m/Y H:i') }}</flux:table.cell>
                                 <flux:table.cell class="font-mono">{{ $b->lot_code }}</flux:table.cell>
+                                <flux:table.cell class="whitespace-nowrap font-mono text-xs">
+                                    #{{ $b->first_sequence }} - #{{ $b->last_sequence }}
+                                    @if ($b->is_reset)
+                                        <flux:badge color="amber" size="sm" class="ml-1">Reinicio (C{{ $b->run_number }})</flux:badge>
+                                    @endif
+                                </flux:table.cell>
                                 <flux:table.cell>{{ $b->expiration_date->format('d/m/Y') }}</flux:table.cell>
                                 <flux:table.cell align="end" class="tabular-nums">{{ $b->labels }}</flux:table.cell>
                                 <flux:table.cell>{{ $b->generator->name }}</flux:table.cell>
@@ -542,5 +636,79 @@ new #[Title('Etiquetas de caja')] class extends Component {
                 </flux:table>
             </div>
         @endif
+
+        {{-- Modal de control y decisión de consecutivo de cajas (Flux) --}}
+        <flux:modal name="confirm-box-consecutive" class="w-full max-w-lg">
+            <div class="flex flex-col gap-4">
+                <div class="flex items-start gap-3">
+                    <div class="rounded-full bg-amber-100 p-2 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400">
+                        <flux:icon icon="exclamation-triangle" class="size-6" />
+                    </div>
+                    <div>
+                        <flux:heading size="lg">Control de consecutivo de cajas</flux:heading>
+                        <flux:subheading>
+                            Esta orden ya tiene <strong class="text-zinc-900 dark:text-white">{{ $lastSeq }}</strong> etiquetas generadas para el lote <strong class="font-mono text-zinc-900 dark:text-white">{{ $this->lot() }}</strong>.
+                        </flux:subheading>
+                    </div>
+                </div>
+
+                <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm space-y-3 dark:border-zinc-700 dark:bg-zinc-800/60">
+                    <div class="text-zinc-700 dark:text-zinc-200">
+                        Vas a generar <strong class="text-zinc-900 dark:text-white">{{ $labels }}</strong> etiquetas nuevas. Elige cómo deseas continuar la numeración:
+                    </div>
+
+                    {{-- Opción 1: Continuar consecutivo --}}
+                    <div class="rounded-lg border border-emerald-300 bg-white p-3.5 shadow-sm dark:border-emerald-700/60 dark:bg-zinc-900 flex flex-col gap-2">
+                        <div class="flex items-center justify-between">
+                            <span class="font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                                <flux:icon icon="arrow-right-circle" class="size-4" />
+                                Continuar consecutivo (Faltantes)
+                            </span>
+                            <flux:badge color="green" size="sm">Recomendado</flux:badge>
+                        </div>
+                        <p class="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                            Continúa la secuencia donde quedó. Generará las cajas desde la <strong>#{{ $lastSeq + 1 }}</strong> hasta la <strong>#{{ $lastSeq + (int) $labels }}</strong>
+                            @if ($preview !== null)
+                                (ej. <code class="font-mono text-emerald-600 dark:text-emerald-400">{{ BoxLot::boxCode((string) $preview->lotCode, $lastSeq + 1) }}</code>).
+                            @endif
+                        </p>
+                        <div class="pt-1">
+                            <flux:button variant="primary" class="w-full justify-center" icon="arrow-right-circle" wire:click="executeGenerate(false)" wire:loading.attr="disabled" wire:target="executeGenerate">
+                                Continuar desde Caja #{{ $lastSeq + 1 }} (hasta #{{ $lastSeq + (int) $labels }})
+                            </flux:button>
+                        </div>
+                    </div>
+
+                    {{-- Opción 2: Reiniciar consecutivo --}}
+                    <div class="rounded-lg border border-amber-300 bg-white p-3.5 shadow-sm dark:border-amber-700/60 dark:bg-zinc-900 flex flex-col gap-2">
+                        <div class="flex items-center justify-between">
+                            <span class="font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                                <flux:icon icon="arrow-path" class="size-4" />
+                                Reiniciar consecutivo
+                            </span>
+                            <flux:badge color="amber" size="sm">Nueva corrida</flux:badge>
+                        </div>
+                        <p class="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                            Empieza una nueva numeración desde la <strong>Caja - 0001</strong> hasta la <strong>#{{ (int) $labels }}</strong>
+                            @if ($preview !== null)
+                                (ej. <code class="font-mono text-amber-600 dark:text-amber-400">{{ BoxLot::boxCode((string) $preview->lotCode, 1) }}</code>).
+                            @endif
+                            Se registrará como una corrida nueva en el historial para no mezclar las cajas.
+                        </p>
+                        <div class="pt-1">
+                            <flux:button variant="filled" class="w-full justify-center text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/40" icon="arrow-path" wire:click="executeGenerate(true)" wire:loading.attr="disabled" wire:target="executeGenerate">
+                                Empezar desde Caja - 0001 (hasta #{{ (int) $labels }})
+                            </flux:button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-2">
+                    <flux:modal.close>
+                        <flux:button variant="ghost">Cancelar</flux:button>
+                    </flux:modal.close>
+                </div>
+            </div>
+        </flux:modal>
     @endif
 </section>

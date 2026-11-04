@@ -48,6 +48,10 @@ class BoxLabelBatch extends Model
             'expiration_date' => 'immutable_date',
             'generated_at' => 'datetime',
             'labels' => 'integer',
+            'first_sequence' => 'integer',
+            'last_sequence' => 'integer',
+            'run_number' => 'integer',
+            'is_reset' => 'boolean',
         ];
     }
 

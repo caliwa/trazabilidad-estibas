@@ -46,7 +46,7 @@ class GenerateBoxLabels
 
     public const LOT_PATTERN = '/^[A-Za-z0-9._\/-]{1,40}$/';
 
-    public function handle(User $user, int $productionOrderId, int $labels, CarbonImmutable $productionDate, ?CarbonImmutable $expirationDate, TraceContext $ctx, ?string $lotCode = null): BoxLabelBatch
+    public function handle(User $user, int $productionOrderId, int $labels, CarbonImmutable $productionDate, ?CarbonImmutable $expirationDate, TraceContext $ctx, ?string $lotCode = null, bool $restartSequence = false): BoxLabelBatch
     {
         Gate::forUser($user)->authorize(Permission::BoxLabelsPrint->value);
 
@@ -60,7 +60,7 @@ class GenerateBoxLabels
 
         $lotCode = $lotCode === null ? null : trim($lotCode);
 
-        return DB::transaction(function () use ($user, $productionOrderId, $labels, $productionDate, $expirationDate, $ctx, $lotCode): BoxLabelBatch {
+        return DB::transaction(function () use ($user, $productionOrderId, $labels, $productionDate, $expirationDate, $ctx, $lotCode, $restartSequence): BoxLabelBatch {
             // The lock serialises batches of one order: box codes continue the lot without gaps or repeats.
             $order = ProductionOrder::query()->lockForUpdate()->findOrFail($productionOrderId);
 
@@ -139,9 +139,35 @@ class GenerateBoxLabels
                 expirationDate: $expirationDate,
             );
 
-            // Box codes continue the lot's sequence across batches (the order row is locked).
-            $first = (int) BoxLabel::query()->where('production_order_id', $order->id)->where('lot_code', $lotCode)->max('sequence') + 1;
-            $boxes = array_map(fn (int $n) => ['code' => BoxLot::boxCode($lotCode, $n), 'token' => BoxQr::newToken()], range($first, $first + $labels - 1));
+            // Control de corrida y consecutivo de cajas (trazabilidad de faltantes y reinicio)
+            $currentRun = (int) ($order->current_box_run ?? 1);
+            if ($currentRun < 1) {
+                $currentRun = 1;
+            }
+
+            if ($restartSequence) {
+                $hasExisting = BoxLabel::query()->where('production_order_id', $order->id)->where('lot_code', $lotCode)->exists();
+                if ($hasExisting) {
+                    $currentRun++;
+                }
+                $first = 1;
+                $isReset = true;
+            } else {
+                $maxSeq = (int) BoxLabel::query()
+                    ->where('production_order_id', $order->id)
+                    ->where('lot_code', $lotCode)
+                    ->where('run_number', $currentRun)
+                    ->max('sequence');
+                // Si la corrida no tiene registros aun pero hay de corridas anteriores y no es reset
+                if ($maxSeq === 0) {
+                    $maxSeq = (int) BoxLabel::query()->where('production_order_id', $order->id)->where('lot_code', $lotCode)->max('sequence');
+                }
+                $first = $maxSeq + 1;
+                $isReset = false;
+            }
+
+            $lastSeq = $first + $labels - 1;
+            $boxes = array_map(fn (int $n) => ['code' => BoxLot::boxCode($lotCode, $n), 'token' => BoxQr::newToken()], range($first, $lastSeq));
 
             $batch = new BoxLabelBatch;
             $batch->forceFill([
@@ -158,6 +184,10 @@ class GenerateBoxLabels
                 'uom_name' => $payload->uomName,
                 'barcode' => $payload->barcode,
                 'labels' => $labels,
+                'first_sequence' => $first,
+                'last_sequence' => $lastSeq,
+                'run_number' => $currentRun,
+                'is_reset' => $isReset,
                 // The printed text every label of the batch shares (each adds its box code). The QR
                 // itself carries only each box's token.
                 'qr_payload' => $payload->encode(),
@@ -172,15 +202,26 @@ class GenerateBoxLabels
                     'production_order_id' => $order->id,
                     'lot_code' => $lotCode,
                     'sequence' => $first + $i,
+                    'run_number' => $currentRun,
                     'code' => $box['code'],
                     'qr_token' => $box['token'],
                 ])->save();
             }
 
+            $order->forceFill([
+                'last_box_sequence' => $lastSeq,
+                'current_box_run' => $currentRun,
+                'last_box_labels_at' => now(),
+            ])->save();
+
             $this->trace->record($ctx, TraceEventType::BoxLabelsGenerated, $order, context: [
                 'box_codes' => [$boxes[0]['code'], $boxes[count($boxes) - 1]['code']],
                 'box_label_batch_id' => $batch->id,
                 'labels' => $labels,
+                'first_sequence' => $first,
+                'last_sequence' => $lastSeq,
+                'run_number' => $currentRun,
+                'is_reset' => $isReset,
                 'lot_code' => $payload->lotCode,
                 ...($lotCode === $defaultLot ? [] : ['default_lot_code' => $defaultLot]),
                 // Over the suggestion is allowed (misprints, damaged boxes) and stays on record.
