@@ -24,11 +24,20 @@ class ManagePrintJob
     /**
      * Obtiene o crea un trabajo de impresión para el lote especificado.
      */
-    public function createOrGetJob(User $user, int $batchId, string $ip, int $port, int $chunkSize = 25): BoxLabelPrintJob
+    public function createOrGetJob(User $user, int $batchId, string $ip, int $port, ?int $chunkSize = null): BoxLabelPrintJob
     {
         Gate::forUser($user)->authorize(Permission::BoxLabelsPrint->value);
 
         $batch = BoxLabelBatch::query()->with('boxLabels')->findOrFail($batchId);
+
+        // Granularidad adaptativa: lotes pequeños (<=15) se imprimen 1 a 1 para control total.
+        $defaultChunk = match (true) {
+            $batch->labels <= 15 => 1,
+            $batch->labels <= 50 => 5,
+            $batch->labels <= 200 => 10,
+            default => 25,
+        };
+        $effectiveChunk = $chunkSize !== null ? max(1, min(100, $chunkSize)) : $defaultChunk;
 
         // Si ya hay un trabajo activo o en pausa para este lote, retomarlo
         $existingJob = BoxLabelPrintJob::query()
@@ -40,7 +49,7 @@ class ManagePrintJob
         if ($existingJob) {
             $existingJob->printer_ip = trim($ip);
             $existingJob->printer_port = $port;
-            $existingJob->chunk_size = max(10, min(100, $chunkSize));
+            $existingJob->chunk_size = $effectiveChunk;
             $existingJob->save();
 
             return $existingJob;
@@ -65,7 +74,7 @@ class ManagePrintJob
             'error_reason' => null,
             'printer_ip' => trim($ip),
             'printer_port' => $port,
-            'chunk_size' => max(10, min(100, $chunkSize)),
+            'chunk_size' => $effectiveChunk,
             'created_by' => $user->id,
             'started_at' => now(),
         ]);
@@ -209,6 +218,15 @@ class ManagePrintJob
     private function recordPrintCompletion(BoxLabelPrintJob $job, TraceContext $ctx): void
     {
         DB::transaction(function () use ($job, $ctx): void {
+            $alreadyRecorded = BoxLabelPrint::query()
+                ->where('box_label_batch_id', $job->box_label_batch_id)
+                ->where('printed_at', '>=', $job->started_at ?? now()->subHour())
+                ->exists();
+
+            if ($alreadyRecorded) {
+                return;
+            }
+
             $print = new BoxLabelPrint;
             $print->forceFill([
                 'box_label_batch_id' => $job->box_label_batch_id,

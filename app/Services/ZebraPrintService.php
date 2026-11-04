@@ -239,8 +239,24 @@ class ZebraPrintService
     }
 
     /**
+     * Comprueba si la IP de la impresora responde a un ping ICMP rápido (timeout 1s).
+     */
+    public function pingHost(string $ip): bool
+    {
+        $ip = trim($ip);
+        if (empty($ip) || ! filter_var($ip, FILTER_VALIDATE_IP)) {
+            return false;
+        }
+
+        $cmd = sprintf('ping -c 1 -W 1 %s 2>&1', escapeshellarg($ip));
+        exec($cmd, $output, $resultCode);
+
+        return $resultCode === 0;
+    }
+
+    /**
      * Imprime un sub-lote (chunk) de etiquetas ZPL verificando activamente el estado físico
-     * de la Zebra (falta de papel, cabezal abierto, ribbon agotado) antes de transmitir.
+     * de la Zebra (falta de papel, cabezal abierto, ribbon agotado, o pausa física) antes de transmitir.
      *
      * @return array{
      *     success: bool,
@@ -255,7 +271,19 @@ class ZebraPrintService
     public function printChunk(string $ip, int $port, string $chunkZpl, int $expectedLabels): array
     {
         // 1. Verificar estado de la impresora antes de enviar
-        $status = $this->getPrinterStatus($ip, $port, 2.0);
+        $status = $this->getPrinterStatus($ip, $port, 1.5);
+
+        if ($status['is_paused'] ?? false) {
+            return [
+                'success' => false,
+                'status' => 'HARDWARE_PAUSED',
+                'message' => 'La impresora Zebra está en PAUSA (botón presionado en panel frontal).',
+                'printed_count' => 0,
+                'remaining_in_chunk' => $expectedLabels,
+                'error_reason' => 'Impresora en pausa física en panel',
+            ];
+        }
+
         if (! ($status['online'] ?? false)) {
             return [
                 'success' => false,
@@ -306,8 +334,20 @@ class ZebraPrintService
         // 3. Conectar y transmitir el chunk de forma segura
         $errno = 0;
         $errstr = '';
-        $socket = @fsockopen($ip, $port, $errno, $errstr, 4.0);
+        $socket = @fsockopen($ip, $port, $errno, $errstr, 3.0);
         if (! $socket) {
+            $isPingable = $this->pingHost($ip);
+            if ($isPingable && ($errno === 111 || $errno === 61 || str_contains(strtolower($errstr), 'refused'))) {
+                return [
+                    'success' => false,
+                    'status' => 'HARDWARE_PAUSED',
+                    'message' => 'La impresora Zebra entró en PAUSA física (panel frontal).',
+                    'printed_count' => 0,
+                    'remaining_in_chunk' => $expectedLabels,
+                    'error_reason' => 'Impresora en pausa física en panel',
+                ];
+            }
+
             return [
                 'success' => false,
                 'status' => 'CONNECTION_FAILED',
@@ -318,7 +358,7 @@ class ZebraPrintService
             ];
         }
 
-        $sent = $this->writeSocketSafely($socket, $chunkZpl, 20);
+        $sent = $this->writeSocketSafely($socket, $chunkZpl, 15);
         @fflush($socket);
         @fclose($socket);
 
@@ -333,7 +373,9 @@ class ZebraPrintService
             ];
         }
 
-        usleep(250000); // 250ms
+        // Pacing físico: permitir que la mecánica de la Zebra avance la etiqueta físicamente
+        $sleepMicroseconds = min(1500000, max(450000, $expectedLabels * 450000));
+        usleep($sleepMicroseconds);
 
         return [
             'success' => true,
@@ -371,6 +413,37 @@ class ZebraPrintService
 
         if (! $socket) {
             $latency = round((microtime(true) - $startTime) * 1000, 2);
+            $isPingable = $this->pingHost($ip);
+
+            // Si el host responde a ping pero el puerto 9100 rechaza la conexión (errno 111 en Linux, 61 en macOS),
+            // la Zebra está encendida en red pero en estado PAUSA / Detenida en su panel físico
+            if ($isPingable && ($errno === 111 || $errno === 61 || str_contains(strtolower($errstr), 'refused'))) {
+                return [
+                    'online' => true,
+                    'ip' => $ip,
+                    'port' => $port,
+                    'device_name' => 'Zebra ZT411',
+                    'status' => 'PAUSED',
+                    'status_label' => 'En pausa en panel físico',
+                    'badge_color' => 'amber',
+                    'error_code' => $errno,
+                    'error_explanation' => 'La impresora está encendida en red pero en PAUSA en su panel frontal.',
+                    'message' => 'La impresora Zebra está en PAUSA en su panel frontal.',
+                    'troubleshooting' => 'Presione el botón de Pausa en el panel de la Zebra para reanudar.',
+                    'is_printing' => false,
+                    'is_paused' => true,
+                    'paper_out' => false,
+                    'head_open' => false,
+                    'ribbon_out' => false,
+                    'buffer_full' => false,
+                    'formats_in_buffer' => 0,
+                    'labels_remaining' => 0,
+                    'sgd_status' => 'paused',
+                    'latency_ms' => $latency,
+                    'timestamp' => date('H:i:s'),
+                ];
+            }
+
             $explanation = ($errno === 64 || $errno === 65 || str_contains(strtolower($errstr), 'route') || str_contains(strtolower($errstr), 'down'))
                 ? "El dispositivo en {$ip} no responde en la red (ARP/Ruta no alcanzable)."
                 : "No se pudo conectar a {$ip}:{$port}. ({$errstr})";
@@ -385,7 +458,7 @@ class ZebraPrintService
                 'error_code' => $errno,
                 'error_explanation' => $explanation,
                 'message' => "La impresora física no responde en {$ip}:{$port}.",
-                'troubleshooting' => 'La impresora física está encendida pero no responde en esa dirección IP.',
+                'troubleshooting' => 'La impresora física está apagada o no responde en esa dirección IP.',
                 'latency_ms' => $latency,
                 'timestamp' => date('H:i:s'),
             ];
@@ -484,7 +557,7 @@ class ZebraPrintService
             'status_label' => $statusLabel,
             'badge_color' => $badgeColor,
             'is_printing' => $isPrinting,
-            'is_paused' => $paused,
+            'is_paused' => ($paused || str_contains($sgdStatus, 'pause')),
             'paper_out' => $paperOut,
             'head_open' => $headOpen,
             'ribbon_out' => $ribbonOut,
