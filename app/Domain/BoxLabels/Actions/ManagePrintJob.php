@@ -41,6 +41,7 @@ class ManagePrintJob
             $existingJob->printer_ip = trim($ip);
             $existingJob->printer_port = $port;
             $existingJob->chunk_size = max(10, min(100, $chunkSize));
+            $this->syncPhysicalOdometer($existingJob);
             $existingJob->save();
 
             return $existingJob;
@@ -48,6 +49,8 @@ class ManagePrintJob
 
         $minSeq = (int) ($batch->boxLabels()->min('sequence') ?? 1);
         $maxSeq = (int) ($batch->boxLabels()->max('sequence') ?? ($minSeq + $batch->labels - 1));
+
+        $startOdo = $this->zebra->queryOdometer($ip, $port);
 
         $job = new BoxLabelPrintJob;
         $job->forceFill([
@@ -66,10 +69,52 @@ class ManagePrintJob
             'printer_ip' => trim($ip),
             'printer_port' => $port,
             'chunk_size' => max(10, min(100, $chunkSize)),
+            'start_odometer' => $startOdo,
+            'last_odometer' => $startOdo,
             'created_by' => $user->id,
             'started_at' => now(),
         ]);
         $job->save();
+
+        return $job;
+    }
+
+    /**
+     * Sincroniza el trabajo con la lectura física real del odómetro de la Zebra.
+     */
+    public function syncPhysicalOdometer(BoxLabelPrintJob $job): BoxLabelPrintJob
+    {
+        $currentOdo = $this->zebra->queryOdometer($job->printer_ip, $job->printer_port);
+        if ($currentOdo === null) {
+            return $job;
+        }
+
+        if ($job->start_odometer === null) {
+            $job->start_odometer = $currentOdo - $job->printed_labels;
+            $job->last_odometer = $currentOdo;
+            $job->save();
+
+            return $job;
+        }
+
+        if ($currentOdo >= $job->start_odometer) {
+            $diff = $currentOdo - $job->start_odometer;
+            $printed = max(0, min($job->total_labels, $diff));
+
+            if ($printed !== $job->printed_labels || $currentOdo !== $job->last_odometer) {
+                $job->printed_labels = $printed;
+                $job->pending_labels = max(0, $job->total_labels - $printed);
+                $job->last_printed_sequence = $printed > 0 ? ($job->start_sequence + $printed - 1) : 0;
+                $job->next_sequence = $job->last_printed_sequence + 1;
+                $job->last_odometer = $currentOdo;
+
+                if ($job->pending_labels === 0 && $job->status !== 'completed') {
+                    $job->status = 'completed';
+                    $job->completed_at = now();
+                }
+                $job->save();
+            }
+        }
 
         return $job;
     }
@@ -88,6 +133,15 @@ class ManagePrintJob
                 'job' => $job->fresh(),
                 'message' => 'El trabajo de impresión ya ha concluido con todas las etiquetas impresas.',
             ];
+        }
+
+        if ($job->start_odometer === null) {
+            $startOdo = $this->zebra->queryOdometer($job->printer_ip, $job->printer_port);
+            if ($startOdo !== null) {
+                $job->start_odometer = $startOdo - $job->printed_labels;
+                $job->last_odometer = $startOdo;
+                $job->save();
+            }
         }
 
         $allLabels = $this->zebra->splitZplIntoLabels($job->batch->zpl ?? '');
@@ -111,7 +165,6 @@ class ManagePrintJob
         $countInChunk = count($chunkLabels);
 
         if ($countInChunk === 0) {
-            // Ya no quedan etiquetas por enviar
             $job->status = 'completed';
             $job->pending_labels = 0;
             $job->completed_at = now();
@@ -128,17 +181,21 @@ class ManagePrintJob
         }
 
         $chunkZpl = implode("\n", $chunkLabels);
-        $result = $this->zebra->printChunk($job->printer_ip, $job->printer_port, $chunkZpl, $countInChunk);
+        $result = $this->zebra->printChunk(
+            $job->printer_ip,
+            $job->printer_port,
+            $chunkZpl,
+            $countInChunk,
+            $job->last_odometer ?? $job->start_odometer
+        );
+
+        // Sincronizar el avance físico directamente con el odómetro real
+        $job = $this->syncPhysicalOdometer($job);
 
         if ($result['success']) {
-            $printedThisChunk = $result['printed_count'];
-            $job->printed_labels += $printedThisChunk;
-            $job->pending_labels = max(0, $job->total_labels - $job->printed_labels);
-            $job->last_printed_sequence = $job->start_sequence + $job->printed_labels - 1;
-            $job->next_sequence = $job->last_printed_sequence + 1;
             $job->error_reason = null;
 
-            if ($job->pending_labels === 0) {
+            if ($job->pending_labels <= 0) {
                 $job->status = 'completed';
                 $job->completed_at = now();
                 $job->save();
@@ -157,14 +214,7 @@ class ManagePrintJob
             ];
         }
 
-        // Si ocurrió error de hardware o detención (falta papel, cabezal abierto, etc.)
-        $printedThisChunk = $result['printed_count'];
-        $job->printed_labels += $printedThisChunk;
-        $job->pending_labels = max(0, $job->total_labels - $job->printed_labels);
-        $job->last_printed_sequence = $job->printed_labels > 0
-            ? ($job->start_sequence + $job->printed_labels - 1)
-            : ($job->last_printed_sequence);
-        $job->next_sequence = $job->last_printed_sequence + 1;
+        // Si ocurrió error físico o detención
         $job->status = 'paused_error';
         $job->error_reason = $result['error_reason'] ?? $result['message'];
         $job->save();
@@ -183,6 +233,7 @@ class ManagePrintJob
      */
     public function resumeJob(BoxLabelPrintJob $job): void
     {
+        $this->syncPhysicalOdometer($job);
         $job->status = 'printing';
         $job->error_reason = null;
         $job->save();

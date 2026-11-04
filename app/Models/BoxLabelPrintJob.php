@@ -28,6 +28,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $printer_ip
  * @property int $printer_port
  * @property int $chunk_size
+ * @property int|null $start_odometer
+ * @property int|null $last_odometer
  * @property int $created_by
  * @property CarbonImmutable|null $started_at
  * @property CarbonImmutable|null $completed_at
@@ -53,6 +55,8 @@ class BoxLabelPrintJob extends Model
             'next_sequence' => 'integer',
             'printer_port' => 'integer',
             'chunk_size' => 'integer',
+            'start_odometer' => 'integer',
+            'last_odometer' => 'integer',
             'started_at' => 'immutable_datetime',
             'completed_at' => 'immutable_datetime',
             'created_at' => 'immutable_datetime',

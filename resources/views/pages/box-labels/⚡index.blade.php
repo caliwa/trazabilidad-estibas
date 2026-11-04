@@ -100,12 +100,25 @@ new #[Title('Etiquetas de caja')] class extends Component {
     #[Computed]
     public function activeJob(): ?BoxLabelPrintJob
     {
-        return $this->activeJobId === null ? null : BoxLabelPrintJob::query()->with('batch')->find($this->activeJobId);
+        if ($this->activeJobId === null) {
+            return null;
+        }
+
+        $job = BoxLabelPrintJob::query()->with('batch')->find($this->activeJobId);
+        if ($job && $job->status === 'paused_error') {
+            app(ManagePrintJob::class)->syncPhysicalOdometer($job);
+        }
+
+        return $job;
     }
 
     public function openJobMonitor(int $jobId): void
     {
         $this->activeJobId = $jobId;
+        $job = BoxLabelPrintJob::query()->find($jobId);
+        if ($job) {
+            app(ManagePrintJob::class)->syncPhysicalOdometer($job);
+        }
         Flux::modal('zebra-print-monitor-modal')->show();
     }
 
