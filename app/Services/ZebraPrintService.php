@@ -57,6 +57,109 @@ class ZebraPrintService
     }
 
     /**
+     * Divide una cadena ZPL multietiqueta en un arreglo de etiquetas individuales (^XA ... ^XZ).
+     *
+     * @return list<string>
+     */
+    public function splitZplIntoLabels(string $zpl): array
+    {
+        if (preg_match_all('/\^XA.*?\^XZ/is', $zpl, $matches)) {
+            return $matches[0];
+        }
+
+        $trimmed = trim($zpl);
+
+        return ! empty($trimmed) ? [$trimmed] : [];
+    }
+
+    /**
+     * Consulta el odómetro de etiquetas físicas impresas en la Zebra vía SGD.
+     */
+    public function queryOdometer(string $ip, int $port = 9100, float $timeout = 2.0): ?int
+    {
+        $ip = trim($ip);
+        if (empty($ip)) {
+            return null;
+        }
+
+        $errno = 0;
+        $errstr = '';
+        $socket = @fsockopen($ip, $port, $errno, $errstr, $timeout);
+        if (! $socket) {
+            return null;
+        }
+
+        stream_set_timeout($socket, (int) ceil($timeout), (int) (($timeout - floor($timeout)) * 1000000));
+        @fwrite($socket, "{}{! U1 getvar \"odometer.total_label_count\"}\r\n");
+        @fflush($socket);
+
+        usleep(150000); // 150ms
+
+        $response = '';
+        while ($chunk = @fread($socket, 512)) {
+            $response .= $chunk;
+            if (strlen($chunk) < 512) {
+                break;
+            }
+        }
+        @fclose($socket);
+
+        if (preg_match('/"?(\d+)"?/', $response, $matches)) {
+            return (int) $matches[1];
+        }
+
+        return null;
+    }
+
+    /**
+     * Escribe datos en un socket TCP de forma segura y fragmentada en bloques,
+     * protegiendo contra desbordamientos y el error PHP errno=11 (EAGAIN/EWOULDBLOCK).
+     *
+     * @param  resource  $socket
+     */
+    public function writeSocketSafely($socket, string $data, int $timeoutSeconds = 20): bool
+    {
+        $totalBytes = strlen($data);
+        $bytesSent = 0;
+        $chunkSize = 8192; // 8 KB
+        $startTime = microtime(true);
+
+        stream_set_blocking($socket, false);
+
+        while ($bytesSent < $totalBytes) {
+            if ((microtime(true) - $startTime) > $timeoutSeconds) {
+                return false;
+            }
+
+            $writeStreams = [$socket];
+            $readStreams = null;
+            $exceptStreams = null;
+
+            $ready = @stream_select($readStreams, $writeStreams, $exceptStreams, 2);
+            if ($ready === false || $ready === 0) {
+                continue;
+            }
+
+            $slice = substr($data, $bytesSent, $chunkSize);
+            $written = @fwrite($socket, $slice);
+
+            if ($written === false) {
+                return false;
+            }
+
+            if ($written > 0) {
+                $bytesSent += $written;
+            } else {
+                usleep(50000); // 50ms
+            }
+        }
+
+        @fflush($socket);
+
+        return true;
+    }
+
+    /**
      * Envía ZPL directamente a la IP y puerto de la Zebra por Socket TCP RAW
      *
      * @return array<string, mixed>
@@ -80,9 +183,10 @@ class ZebraPrintService
 
         // Asegurar velocidad de impresión configurada (evita que la Zebra imprima a máxima velocidad descontrolada)
         $zpl = $this->ensurePrintSpeed($zpl);
+        $labels = $this->splitZplIntoLabels($zpl);
+        $totalLabels = count($labels);
 
         $totalBytes = strlen($zpl);
-        // Timeout dinámico según tamaño: al menos $timeout seg, con margen para lotes grandes
         $effectiveTimeout = max($timeout, min(90, (int) ceil($totalBytes / 8000) + $timeout));
 
         $socket = @fsockopen($ip, $port, $errno, $errstr, $timeout);
@@ -101,57 +205,18 @@ class ZebraPrintService
             ];
         }
 
-        stream_set_blocking($socket, true);
-        stream_set_timeout($socket, $effectiveTimeout);
-
-        // Envío fragmentado en bloques (chunks) para evitar errno=11 (Resource temporarily unavailable)
-        // en lotes con muchas etiquetas (ej. 156 etiquetas = ~166 KB) cuando se satura el búfer de la Zebra
-        $bytesSent = 0;
-        $chunkSize = 8192;
-        $writeFailed = false;
-
-        while ($bytesSent < $totalBytes && ! feof($socket)) {
-            $chunk = substr($zpl, $bytesSent, $chunkSize);
-            $written = @fwrite($socket, $chunk);
-
-            if ($written === false || $written === 0) {
-                // El búfer de la Zebra está lleno; esperamos con stream_select a que vuelva a aceptar datos
-                $writeStreams = [$socket];
-                $null = null;
-                $ready = @stream_select($null, $writeStreams, $null, 2);
-
-                if ($ready === false || $ready === 0) {
-                    $writeFailed = true;
-                    break;
-                }
-
-                $written = @fwrite($socket, $chunk);
-                if ($written === false || $written === 0) {
-                    $writeFailed = true;
-                    break;
-                }
-            }
-
-            $bytesSent += $written;
-
-            if ((microtime(true) - $startTime) > $effectiveTimeout) {
-                $writeFailed = true;
-                break;
-            }
-        }
-
-        @fflush($socket);
+        $sent = $this->writeSocketSafely($socket, $zpl, $effectiveTimeout);
         @fclose($socket);
 
         $latency = round((microtime(true) - $startTime) * 1000, 2);
 
-        if ($writeFailed || $bytesSent < $totalBytes) {
+        if (! $sent) {
             return [
                 'success' => false,
                 'status' => 'WRITE_INCOMPLETE',
-                'message' => "Transmisión incompleta a la Zebra: se enviaron {$bytesSent} de {$totalBytes} bytes tras {$latency} ms.",
+                'message' => "Transmisión incompleta a la Zebra: tiempo de espera superado tras {$latency} ms.",
                 'details' => 'El búfer de la impresora no pudo recibir todos los datos a tiempo.',
-                'bytes_sent' => $bytesSent,
+                'bytes_sent' => 0,
                 'ip' => $ip,
                 'port' => $port,
                 'latency_ms' => $latency,
@@ -161,11 +226,192 @@ class ZebraPrintService
         return [
             'success' => true,
             'status' => 'PRINTED',
-            'message' => "Trabajo transmitido exitosamente a la impresora Zebra ({$bytesSent} bytes en {$latency} ms).",
-            'bytes_sent' => $bytesSent,
+            'message' => "Trabajo transmitido exitosamente a la impresora Zebra ({$totalLabels} etiquetas en {$latency} ms).",
+            'bytes_sent' => $totalBytes,
             'ip' => $ip,
             'port' => $port,
             'latency_ms' => $latency,
+        ];
+    }
+
+    /**
+     * Imprime un sub-lote (chunk) de etiquetas ZPL monitoreando activamente el estado físico
+     * de la Zebra (odómetro, falta de papel, cabezal abierto, ribbon) para saber exactamente
+     * cuántas etiquetas salieron físicamente y detectar cualquier interrupción.
+     *
+     * @return array{
+     *     success: bool,
+     *     status: string,
+     *     message: string,
+     *     printed_count: int,
+     *     remaining_in_chunk: int,
+     *     hardware_status?: string,
+     *     error_reason?: string
+     * }
+     */
+    public function printChunk(string $ip, int $port, string $chunkZpl, int $expectedLabels, int $maxWaitSeconds = 35): array
+    {
+        // 1. Verificar estado inicial de la impresora
+        $initialStatus = $this->getPrinterStatus($ip, $port, 2.0);
+        if (! ($initialStatus['online'] ?? false)) {
+            return [
+                'success' => false,
+                'status' => 'OFFLINE',
+                'message' => "La impresora Zebra no responde en {$ip}:{$port}.",
+                'printed_count' => 0,
+                'remaining_in_chunk' => $expectedLabels,
+                'error_reason' => $initialStatus['error_explanation'] ?? 'Impresora fuera de línea',
+            ];
+        }
+
+        if ($initialStatus['head_open'] ?? false) {
+            return [
+                'success' => false,
+                'status' => 'HEAD_OPEN',
+                'message' => 'Cabezal de la impresora abierto. Por favor ciérrelo para continuar.',
+                'printed_count' => 0,
+                'remaining_in_chunk' => $expectedLabels,
+                'error_reason' => 'Cabezal abierto',
+            ];
+        }
+
+        if ($initialStatus['paper_out'] ?? false) {
+            return [
+                'success' => false,
+                'status' => 'PAPER_OUT',
+                'message' => 'Falta de rollo de etiquetas o papel atascado en la impresora.',
+                'printed_count' => 0,
+                'remaining_in_chunk' => $expectedLabels,
+                'error_reason' => 'Sin papel / rollo de etiquetas',
+            ];
+        }
+
+        if ($initialStatus['ribbon_out'] ?? false) {
+            return [
+                'success' => false,
+                'status' => 'RIBBON_OUT',
+                'message' => 'Cinta de impresión (Ribbon) agotada en la impresora.',
+                'printed_count' => 0,
+                'remaining_in_chunk' => $expectedLabels,
+                'error_reason' => 'Sin cinta ribbon',
+            ];
+        }
+
+        // 2. Consultar odómetro inicial
+        $startOdo = $this->queryOdometer($ip, $port, 2.0);
+
+        // 3. Asegurar velocidad configurada e inyectar
+        $chunkZpl = $this->ensurePrintSpeed($chunkZpl);
+
+        // 4. Conectar y transmitir el chunk de forma segura
+        $errno = 0;
+        $errstr = '';
+        $socket = @fsockopen($ip, $port, $errno, $errstr, 3.0);
+        if (! $socket) {
+            return [
+                'success' => false,
+                'status' => 'CONNECTION_FAILED',
+                'message' => "No se pudo conectar a la impresora Zebra ({$errstr}).",
+                'printed_count' => 0,
+                'remaining_in_chunk' => $expectedLabels,
+                'error_reason' => 'Fallo de conexión',
+            ];
+        }
+
+        $sent = $this->writeSocketSafely($socket, $chunkZpl, 15);
+        @fclose($socket);
+
+        if (! $sent) {
+            $currentOdo = $this->queryOdometer($ip, $port, 2.0);
+            $printed = ($startOdo !== null && $currentOdo !== null)
+                ? max(0, min($expectedLabels, $currentOdo - $startOdo))
+                : 0;
+
+            return [
+                'success' => false,
+                'status' => 'TRANSMISSION_ERROR',
+                'message' => 'Error durante el envío de datos a la impresora.',
+                'printed_count' => $printed,
+                'remaining_in_chunk' => max(0, $expectedLabels - $printed),
+                'error_reason' => 'Error de transmisión socket',
+            ];
+        }
+
+        // 5. Monitorear hasta que las etiquetas salgan físicamente o se detecte error
+        $startTime = microtime(true);
+        $pollIntervalMs = 500000; // 500ms
+
+        while ((microtime(true) - $startTime) < $maxWaitSeconds) {
+            usleep($pollIntervalMs);
+
+            $status = $this->getPrinterStatus($ip, $port, 1.5);
+            if (! ($status['online'] ?? false)) {
+                $currentOdo = $this->queryOdometer($ip, $port, 1.5);
+                $printed = ($startOdo !== null && $currentOdo !== null)
+                    ? max(0, min($expectedLabels, $currentOdo - $startOdo))
+                    : 0;
+
+                return [
+                    'success' => false,
+                    'status' => 'CONNECTION_LOST',
+                    'message' => 'Se perdió la conexión con la impresora durante la impresión.',
+                    'printed_count' => $printed,
+                    'remaining_in_chunk' => max(0, $expectedLabels - $printed),
+                    'error_reason' => 'Conexión perdida',
+                ];
+            }
+
+            // Si hay un error físico evidente (papel, cabezal, cinta)
+            if (($status['paper_out'] ?? false) || ($status['head_open'] ?? false) || ($status['ribbon_out'] ?? false)) {
+                $currentOdo = $this->queryOdometer($ip, $port, 1.5);
+                $printed = ($startOdo !== null && $currentOdo !== null)
+                    ? max(0, min($expectedLabels, $currentOdo - $startOdo))
+                    : 0;
+
+                $reason = ($status['paper_out'] ?? false) ? 'Falta de rollo de etiquetas o atascamiento' :
+                          (($status['head_open'] ?? false) ? 'Cabezal abierto' : 'Cinta ribbon agotada');
+
+                return [
+                    'success' => false,
+                    'status' => 'HARDWARE_PAUSED',
+                    'message' => "Impresora detenida: {$reason}.",
+                    'printed_count' => $printed,
+                    'remaining_in_chunk' => max(0, $expectedLabels - $printed),
+                    'error_reason' => $reason,
+                ];
+            }
+
+            // Si ya no quedan etiquetas en la cola del búfer ni pendientes por salir
+            if (($status['labels_remaining'] ?? 0) === 0 && ($status['formats_in_buffer'] ?? 0) === 0 && ! ($status['is_printing'] ?? false)) {
+                $currentOdo = $this->queryOdometer($ip, $port, 1.5);
+                $printed = ($startOdo !== null && $currentOdo !== null)
+                    ? max(0, min($expectedLabels, $currentOdo - $startOdo))
+                    : $expectedLabels;
+
+                $finalPrinted = ($printed > 0) ? $printed : $expectedLabels;
+
+                return [
+                    'success' => true,
+                    'status' => 'CHUNK_COMPLETED',
+                    'message' => "Sub-lote de {$finalPrinted} etiquetas impreso exitosamente.",
+                    'printed_count' => $finalPrinted,
+                    'remaining_in_chunk' => 0,
+                ];
+            }
+        }
+
+        // Si se agotó el tiempo máximo de espera
+        $currentOdo = $this->queryOdometer($ip, $port, 1.5);
+        $printed = ($startOdo !== null && $currentOdo !== null)
+            ? max(0, min($expectedLabels, $currentOdo - $startOdo))
+            : $expectedLabels;
+
+        return [
+            'success' => true,
+            'status' => 'TIMEOUT_ASSUMED_PRINTED',
+            'message' => "Tiempo de espera superado. Se registraron {$printed} etiquetas impresas.",
+            'printed_count' => $printed,
+            'remaining_in_chunk' => max(0, $expectedLabels - $printed),
         ];
     }
 

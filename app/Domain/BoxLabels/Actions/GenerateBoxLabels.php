@@ -46,6 +46,8 @@ class GenerateBoxLabels
 
     public const LOT_PATTERN = '/^[A-Za-z0-9._\/-]{1,40}$/';
 
+    public const MAX_LABELS = 3000;
+
     public function handle(User $user, int $productionOrderId, int $labels, CarbonImmutable $productionDate, ?CarbonImmutable $expirationDate, TraceContext $ctx, ?string $lotCode = null, bool $restartSequence = false): BoxLabelBatch
     {
         Gate::forUser($user)->authorize(Permission::BoxLabelsPrint->value);
@@ -56,6 +58,10 @@ class GenerateBoxLabels
 
         if ($labels < 1) {
             throw BoxLabelRuleViolation::invalidQuantity();
+        }
+
+        if ($labels > self::MAX_LABELS) {
+            throw BoxLabelRuleViolation::quantityExceedsMaximum(self::MAX_LABELS);
         }
 
         $lotCode = $lotCode === null ? null : trim($lotCode);
@@ -196,8 +202,10 @@ class GenerateBoxLabels
                 'generated_at' => now(),
             ])->save();
 
+            $now = now();
+            $boxRows = [];
             foreach ($boxes as $i => $box) {
-                (new BoxLabel)->forceFill([
+                $boxRows[] = [
                     'box_label_batch_id' => $batch->id,
                     'production_order_id' => $order->id,
                     'lot_code' => $lotCode,
@@ -205,7 +213,12 @@ class GenerateBoxLabels
                     'run_number' => $currentRun,
                     'code' => $box['code'],
                     'qr_token' => $box['token'],
-                ])->save();
+                    'created_at' => $now,
+                ];
+            }
+
+            foreach (array_chunk($boxRows, 500) as $chunk) {
+                BoxLabel::query()->insert($chunk);
             }
 
             $order->forceFill([
