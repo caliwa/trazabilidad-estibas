@@ -53,12 +53,12 @@ class ZebraPrintServiceTest extends TestCase
         $this->assertStringContainsString('^PR4,4,4', $result);
     }
 
-    public function test_ensure_print_speed_does_not_duplicate_existing_pr(): void
+    public function test_ensure_print_speed_updates_existing_pr(): void
     {
         $service = new ZebraPrintService;
         $zpl = "^XA\n^PR3,3,3\n^FO50,50^FDTEST^FS\n^XZ";
-        $result = $service->ensurePrintSpeed($zpl, 4);
+        $result = $service->ensurePrintSpeed($zpl, 6);
 
-        $this->assertSame($zpl, $result);
+        $this->assertStringContainsString('^PR6,6,6', $result);
     }
 }

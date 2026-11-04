@@ -66,8 +66,8 @@ final class BoxLabelZpl
 
         $width = (int) ($cfg['width_dots'] ?? self::WIDTH_DOTS);
         $height = (int) ($cfg['height_dots'] ?? self::HEIGHT_DOTS);
-        $speed = (int) ($cfg['print_speed'] ?? (function_exists('config') && app()->bound('config') ? config('services.zebra.speed', 4) : 4));
-        $speed = max(2, min(8, $speed));
+        $speed = (int) ($cfg['print_speed'] ?? LabelFormatConfig::printSpeed());
+        $speed = max(2, min(14, $speed));
 
         $lines = [
             '^XA',

@@ -16,6 +16,39 @@ final class LabelFormatConfig
     private const FILE_PATH = 'app/label_format_config.json';
 
     /**
+     * Obtiene la velocidad de impresión parametrizada (en pulgadas por segundo, 2 a 14 IPS).
+     */
+    public static function printSpeed(): int
+    {
+        $all = self::load();
+
+        if (isset($all['print_speed']) && is_numeric($all['print_speed'])) {
+            return (int) $all['print_speed'];
+        }
+
+        if (isset($all['box']['print_speed']) && is_numeric($all['box']['print_speed'])) {
+            return (int) $all['box']['print_speed'];
+        }
+
+        if (function_exists('config') && app()->bound('config')) {
+            return (int) config('services.zebra.speed', 6);
+        }
+
+        return 6;
+    }
+
+    /**
+     * Guarda la velocidad de impresión parametrizada (persiste en JSON sin requerir migraciones).
+     */
+    public static function setPrintSpeed(int $speed): void
+    {
+        $speed = max(2, min(14, $speed));
+        $all = self::load();
+        $all['print_speed'] = $speed;
+        self::save($all);
+    }
+
+    /**
      * Valores por defecto para la etiqueta de caja (100 × 80 mm a 203 DPI = 800 × 640 puntos).
      *
      * @return array<string, mixed>
@@ -27,7 +60,7 @@ final class LabelFormatConfig
             'height_dots' => 640,
             'dpmm' => 8, // 8 dpmm = 203 DPI
             'scale' => 100, // Escala general en %
-            'print_speed' => (int) (function_exists('config') && app()->bound('config') ? config('services.zebra.speed', 4) : 4),
+            'print_speed' => self::printSpeed(),
             // Código PT
             'pt_font_h' => 54,
             'pt_font_w' => 56,
@@ -86,7 +119,7 @@ final class LabelFormatConfig
             'height_dots' => 640,
             'dpmm' => 8,
             'scale' => 100,
-            'print_speed' => (int) (function_exists('config') && app()->bound('config') ? config('services.zebra.speed', 4) : 4),
+            'print_speed' => self::printSpeed(),
             // Código de estiba (EST-XXXXXXXX)
             'pallet_code_font_h' => 54,
             'pallet_code_font_w' => 52,

@@ -9,6 +9,7 @@ use App\Domain\BoxLabels\BoxLabelZpl;
 use App\Domain\BoxLabels\BoxLot;
 use App\Domain\BoxLabels\BoxQr;
 use App\Domain\BoxLabels\Itf14;
+use App\Domain\BoxLabels\LabelFormatConfig;
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
 use App\Domain\Integration\Enums\MasterStatus;
 use App\Domain\Shared\Origin;
@@ -64,6 +65,8 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
     public int $printerPort = 9100;
 
+    public int $printSpeed = 6;
+
     public ?array $printerStatus = null;
 
     public function mount(): void
@@ -71,7 +74,17 @@ new #[Title('Etiquetas de caja')] class extends Component {
         $this->productionDate = today()->toDateString();
         $this->printerIp = (string) config('services.zebra.ip', env('ZEBRA_PRINTER_IP', '192.168.1.154'));
         $this->printerPort = (int) config('services.zebra.port', env('ZEBRA_PRINTER_PORT', 9100));
+        $this->printSpeed = LabelFormatConfig::printSpeed();
         $this->checkPrinter();
+    }
+
+    public function setZebraSpeed(int $speed): void
+    {
+        $speed = max(2, min(14, $speed));
+        LabelFormatConfig::setPrintSpeed($speed);
+        $this->printSpeed = $speed;
+        Flux::modal('zebra-speed-modal')->close();
+        Flux::toast(variant: 'success', text: "Velocidad de impresión ajustada a {$speed} ips.");
     }
 
     public function checkPrinter(): void
@@ -365,14 +378,12 @@ new #[Title('Etiquetas de caja')] class extends Component {
             <flux:subheading>QR para las cajas de producto. Formato exacto 10 × 8 cm para impresora Zebra (ZPL)</flux:subheading>
         </div>
 
-        {{-- Estado en tiempo real de la Zebra --}}
+        {{-- Estado en tiempo real de la Zebra y control de velocidad --}}
         <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
             @if ($printerStatus && ($printerStatus['online'] ?? false))
                 <span class="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                 <span class="text-xs font-medium text-zinc-700 dark:text-zinc-200">
                     Zebra ZT411 ({{ $printerIp }}): <strong class="text-emerald-600 dark:text-emerald-400">{{ $printerStatus['status_label'] }}</strong>
-                    <span class="text-zinc-400">·</span>
-                    <span class="text-zinc-500">Velocidad: <strong class="text-zinc-700 dark:text-zinc-300">{{ config('services.zebra.speed', 4) }} ips</strong></span>
                 </span>
             @else
                 <span class="inline-block h-2.5 w-2.5 rounded-full bg-rose-500"></span>
@@ -380,6 +391,13 @@ new #[Title('Etiquetas de caja')] class extends Component {
                     Zebra ({{ $printerIp }}): <strong class="text-rose-600 dark:text-rose-400">{{ $printerStatus['status_label'] ?? 'Sin conexión' }}</strong>
                 </span>
             @endif
+
+            <flux:modal.trigger name="zebra-speed-modal">
+                <flux:button size="xs" variant="filled" icon="adjustments-horizontal" title="Ajustar velocidad de impresión">
+                    Velocidad: {{ $printSpeed }} ips
+                </flux:button>
+            </flux:modal.trigger>
+
             <flux:button size="xs" variant="ghost" icon="arrow-path" wire:click="checkPrinter" wire:loading.attr="disabled" wire:target="checkPrinter">
                 Verificar
             </flux:button>
@@ -713,4 +731,67 @@ new #[Title('Etiquetas de caja')] class extends Component {
             </div>
         </flux:modal>
     @endif
+
+    {{-- Modal para regular la velocidad de la impresora Zebra (Flux) --}}
+    <flux:modal name="zebra-speed-modal" class="w-full max-w-md">
+        <div class="flex flex-col gap-4">
+            <div class="flex items-start gap-3">
+                <div class="rounded-full bg-indigo-100 p-2 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
+                    <flux:icon icon="bolt" class="size-6" />
+                </div>
+                <div>
+                    <flux:heading size="lg">Velocidad de impresión Zebra</flux:heading>
+                    <flux:subheading>
+                        Regula la velocidad en pulgadas por segundo (IPS) para la Zebra ZT411 ({{ $printerIp }}). El cambio se guarda inmediatamente.
+                    </flux:subheading>
+                </div>
+            </div>
+
+            <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm space-y-3 dark:border-zinc-700 dark:bg-zinc-800/60">
+                <div class="flex items-center justify-between">
+                    <span class="text-zinc-700 dark:text-zinc-200 font-medium">Velocidad activa:</span>
+                    <flux:badge color="indigo" size="lg" class="font-bold">{{ $printSpeed }} ips (~{{ round($printSpeed * 25.4) }} mm/s)</flux:badge>
+                </div>
+
+                <div class="text-xs text-zinc-500">Selecciona una velocidad rápida predefinida:</div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    @foreach ([
+                        3 => ['label' => '3 IPS', 'desc' => 'Muy lenta (~76 mm/s)'],
+                        4 => ['label' => '4 IPS', 'desc' => 'Moderada (~102 mm/s)'],
+                        6 => ['label' => '6 IPS', 'desc' => 'Recomendada (~152 mm/s)'],
+                        8 => ['label' => '8 IPS', 'desc' => 'Rápida (~203 mm/s)'],
+                        10 => ['label' => '10 IPS', 'desc' => 'Muy rápida (~254 mm/s)'],
+                        12 => ['label' => '12 IPS', 'desc' => 'Máxima (~305 mm/s)'],
+                    ] as $spd => $info)
+                        <button type="button" wire:click="setZebraSpeed({{ $spd }})"
+                            class="flex flex-col items-start p-2.5 rounded-lg border text-left transition-all {{ $printSpeed === $spd ? 'border-indigo-600 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200 ring-2 ring-indigo-500/30' : 'border-zinc-200 bg-white hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200' }}">
+                            <div class="flex items-center justify-between w-full">
+                                <span class="font-bold text-sm">{{ $info['label'] }}</span>
+                                @if ($printSpeed === $spd)
+                                    <flux:icon icon="check" class="size-4 text-indigo-600 dark:text-indigo-400" />
+                                @endif
+                            </div>
+                            <span class="text-[11px] text-zinc-500 dark:text-zinc-400 leading-tight mt-0.5">{{ $info['desc'] }}</span>
+                        </button>
+                    @endforeach
+                </div>
+
+                <div class="pt-2 border-t border-zinc-200 dark:border-zinc-700">
+                    <div class="flex items-end gap-2">
+                        <div class="flex-1">
+                            <flux:input wire:model="printSpeed" type="number" min="2" max="14" label="O ingresa un valor exacto (2 a 14 IPS)" />
+                        </div>
+                        <flux:button type="button" variant="primary" wire:click="setZebraSpeed($wire.printSpeed)">Guardar</flux:button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2">
+                <flux:modal.close>
+                    <flux:button variant="ghost">Cerrar</flux:button>
+                </flux:modal.close>
+            </div>
+        </div>
+    </flux:modal>
 </section>

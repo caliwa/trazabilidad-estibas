@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Domain\BoxLabels\LabelFormatConfig;
+
 class ZebraPrintService
 {
     /**
@@ -37,20 +39,20 @@ class ZebraPrintService
 
     /**
      * Asegura que el flujo ZPL tenga configurada la velocidad de impresión (^PRp,s,b).
-     * Si no la tiene, la inyecta después de cada ^XA para evitar que la Zebra ZT411 imprima
-     * a su velocidad máxima descontrolada (14 ips) y en su lugar imprima a ritmo controlado (ej: 4 ips).
+     * Si no la tiene, la inyecta después de cada ^XA; si ya la tiene, actualiza la velocidad
+     * al valor configurado para garantizar que la Zebra imprima siempre al ritmo deseado.
      */
     public function ensurePrintSpeed(string $zpl, ?int $speed = null): string
     {
-        $configured = $speed ?? (int) (function_exists('config') && app()->bound('config') ? config('services.zebra.speed', 4) : 4);
-        $speedVal = max(2, min(8, $configured));
+        $configured = $speed ?? LabelFormatConfig::printSpeed();
+        $speedVal = max(2, min(14, $configured));
 
-        // Si ya contiene algún comando ^PR explícito, respetar la configuración existente
-        if (preg_match('/\^PR[0-9A-Za-z,]+/i', $zpl) === 1) {
-            return $zpl;
+        // Si ya contiene algún comando ^PR explícito, actualizarlo a la velocidad parametrizada
+        if (preg_match('/\^PR\d+/i', $zpl) === 1) {
+            return preg_replace('/\^PR\d+(?:,\d+)?(?:,\d+)?/i', "^PR{$speedVal},{$speedVal},{$speedVal}", $zpl) ?? $zpl;
         }
 
-        // Inyectar ^PR{speed},{speed},{speed} justo después de cada ^XA
+        // Si no tiene ^PR, inyectar ^PR{speed},{speed},{speed} justo después de cada ^XA
         return preg_replace('/(\^XA)/i', "$1\n^PR{$speedVal},{$speedVal},{$speedVal}", $zpl) ?? $zpl;
     }
 
