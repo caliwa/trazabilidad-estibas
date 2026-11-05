@@ -262,22 +262,26 @@ class ManualBoxScanTest extends TestCase
         app(PrintLabel::class)->handle($this->operator, $pallet->id, null, $this->ctx());
         $other = $this->labeledPallet(4, 6);
 
+        // The two reads are made from the pallet's "Confirmar etiqueta aplicada" button; the old section is gone.
         Livewire::actingAs($this->operator)->test('pages::production.station')
-            ->assertSee('Confirmar etiqueta pegada')
-            ->assertSee('1. QR de la etiqueta de la estiba')
-            ->call('scanLabel', PalletQr::payload($pallet), (string) Str::uuid())
-            ->assertSee($pallet->pallet_code)
-            ->assertSee('leída. Ahora lee una caja de esa misma estiba')
-            ->assertSee('2. QR de una caja de la estiba')
-            ->call('scanLabelBox', $this->box(5), (string) Str::uuid())
+            ->assertDontSee('Confirmar etiqueta pegada')
+            ->call('askConfirmLabel', $pallet->id)
+            ->assertSee('1. QR de la etiqueta pegada')
+            ->assertSee('2. QR de una caja de esa estiba')
+            ->set('scannedQr', PalletQr::payload($pallet))
+            ->set('scannedBoxQr', $this->box(5))
+            ->call('confirmLabel')
             ->assertSeeHtml('data-label-result="error"')
             ->assertSee("está pegada en una estiba con cajas de {$other->pallet_code}")
-            // Still on the second read: another box, as many times as needed.
-            ->assertSee('2. QR de una caja de la estiba')
-            ->call('scanLabelBox', $this->box(2), (string) Str::uuid())
-            ->assertSeeHtml('data-label-result="ok"')
-            ->assertSee("Etiqueta de la estiba {$pallet->pallet_code} confirmada en la estiba correcta")
-            ->assertSee('1. QR de la etiqueta de la estiba');
+            // The label read stays and the box is read again, as many times as needed.
+            ->assertSet('scannedQr', PalletQr::payload($pallet))
+            ->assertSet('scannedBoxQr', '')
+            ->set('scannedBoxQr', $this->box(2))
+            ->call('confirmLabel')
+            ->assertSet('confirmError', null)
+            ->assertDontSeeHtml('data-label-result="error"');
+
+        $this->assertSame(PhysicalStatus::Labeled, $pallet->refresh()->physical_status);
     }
 
     public function test_the_blind_count_finds_the_pallet_with_the_scanner(): void
