@@ -56,6 +56,7 @@ enum Role: string
             // Sees the discrepancies and enables a new blind count; follows the orders and pallets;
             // generates box labels and may change their lot.
             self::ProductionSupervisor => [
+                Permission::DashboardKpis,
                 Permission::BoxLabelsPrint,
                 Permission::BoxLabelsChangeLot,
                 Permission::DiscrepanciesResolve,
