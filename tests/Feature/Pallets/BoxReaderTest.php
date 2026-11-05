@@ -10,6 +10,7 @@ use App\Domain\Operations\Heartbeat;
 use App\Domain\Operations\OperationalChecks;
 use App\Domain\Orders\Actions\SyncReleasedOrders;
 use App\Domain\Pallets\Actions\RegisterManualBoxScan;
+use App\Domain\Pallets\Data\ManualBoxScan;
 use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Domain\Pallets\Exceptions\PalletRuleViolation;
 use App\Domain\Pallets\Readers\BoxReaderSession;
@@ -28,6 +29,7 @@ use App\Models\TraceEvent;
 use App\Models\User;
 use App\Services\TraceLogger;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
@@ -98,6 +100,56 @@ class BoxReaderTest extends TestCase
         $this->assertSame(PhysicalStatus::Finished, $pallet->physical_status);
         // Each read keeps which reader read it.
         $this->assertSame([$this->reader->id], PalletScanEvent::query()->distinct()->pluck('read_by_device_id')->all());
+    }
+
+    public function test_fast_reads_count_however_the_reader_separates_them(): void
+    {
+        $session = $this->readerSession();
+        $reads = [];
+
+        // STX/ETX framing without line ends, two reads glued together, a read split across chunks,
+        // a failed read between them and a tab as separator.
+        foreach (["\x02".$this->box(1)."\x03\x02".$this->box(2)."\x03", $this->box(3).$this->box(4), 'NoRead'."\t".substr($this->box(5), 0, 12), substr($this->box(5), 12)."\t".$this->box(6)] as $chunk) {
+            array_push($reads, ...$session->feed($chunk));
+        }
+
+        $this->assertSame(
+            [BoxReadOutcome::Counted, BoxReadOutcome::Counted, BoxReadOutcome::Counted, BoxReadOutcome::Counted, BoxReadOutcome::Rejected, BoxReadOutcome::Counted, BoxReadOutcome::Counted],
+            array_map(fn ($r) => $r->outcome, $reads),
+        );
+        $this->assertSame(6, $this->counted());
+    }
+
+    public function test_a_passing_database_error_is_retried_and_any_other_does_not_stop_the_reader(): void
+    {
+        $session = new BoxReaderSession($this->reader, app(FlakyBoxScan::class), app(TraceLogger::class));
+        // What PostgreSQL gives on a deadlock: SQLSTATE 40P01.
+        $deadlock = new \PDOException('SQLSTATE[40P01]: deadlock detected');
+        $deadlock->errorInfo = ['40P01', 7, 'deadlock detected'];
+        FlakyBoxScan::$failures = [new QueryException('pgsql', 'insert', [], $deadlock)];
+        // The deadlock is retried: the box counts.
+        $this->assertSame(BoxReadOutcome::Counted, $session->feed($this->box(1)."\n")[0]->outcome);
+
+        FlakyBoxScan::$failures = [new \RuntimeException('algo inesperado')];
+        $reads = $session->feed($this->box(2)."\n".$this->box(3)."\n");
+        // The unexpected error leaves that box not counted (and on record) but the next ones go on.
+        $this->assertSame([BoxReadOutcome::Rejected, BoxReadOutcome::Counted], array_map(fn ($r) => $r->outcome, $reads));
+        $this->assertStringContainsString('algo inesperado', $reads[0]->message);
+        $this->assertSame(2, $this->counted());
+    }
+
+    public function test_a_burst_over_tcp_is_counted_box_by_box(): void
+    {
+        $burst = implode('', array_map(fn (int $n) => "\x02".$this->box($n)."\x03", range(1, 10)));
+        $process = proc_open([PHP_BINARY, base_path('tests/Support/fake-box-reader.php'), 'server', $this->bytes($burst)], [1 => ['pipe', 'w']], $pipes);
+        $port = trim((string) fgets($pipes[1]));
+
+        $this->assertSame(0, Artisan::call('boxes:reader', ['device' => 'LEC-L1', '--connect' => "127.0.0.1:{$port}", '--once' => true]), Artisan::output());
+        proc_close($process);
+
+        $this->assertSame(10, $this->counted());
+        // Standard of 3: three full pallets and one with the tenth box.
+        $this->assertSame([3, 3, 3, 1], Pallet::query()->orderBy('id')->pluck('boxes_count')->map(fn ($n) => (int) $n)->all());
     }
 
     public function test_a_box_read_twice_by_the_line_or_again_by_hand_counts_once(): void
@@ -220,7 +272,9 @@ class BoxReaderTest extends TestCase
             ->assertSee('Caja no contada')
             ->assertSee('Lee esa caja a mano')
             ->assertSee('NoRead')
-            ->assertSee('Últimas cajas no contadas por el lector');
+            ->assertSee('Últimas cajas no contadas por el lector')
+            ->assertSeeHtml('data-line-recent')
+            ->assertSee('Últimas lecturas del lector');
 
         $this->travel(5)->seconds();
         $this->readerSession()->feed($this->box(2)."\n");
@@ -241,5 +295,21 @@ class BoxReaderTest extends TestCase
         $this->beforeApplicationDestroyed(fn () => @unlink($file));
 
         return $file;
+    }
+}
+
+/** A box scan that fails first with the errors queued in $failures. */
+class FlakyBoxScan extends RegisterManualBoxScan
+{
+    /** @var list<\Throwable> */
+    public static array $failures = [];
+
+    public function fromReader(Device $reader, string $scanned, TraceContext $ctx): ManualBoxScan
+    {
+        if (self::$failures !== []) {
+            throw array_shift(self::$failures);
+        }
+
+        return parent::fromReader($reader, $scanned, $ctx);
     }
 }
