@@ -35,8 +35,8 @@ class QrCameraTest extends TestCase
         $html = (string) $this->actingAs($this->userWithRole(Role::TraceabilityAdmin))->get(route('production.station'))->assertOk()->getContent();
 
         $this->assertStringContainsString('Etiqueta de la caja', $html);
-        // The box scanner, the "Confirmar etiqueta pegada" scanner and the "Confirmar etiqueta aplicada" dialog.
-        $this->assertSame(3, substr_count($html, 'data-qr-camera'));
+        // The box scanner and the box read of the "Confirmar etiqueta aplicada" dialog.
+        $this->assertSame(2, substr_count($html, 'data-qr-camera'));
         $this->assertStringContainsString('Leer con la cámara', $html);
     }
 
