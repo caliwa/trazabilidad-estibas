@@ -270,8 +270,8 @@ class ZebraPrintService
      */
     public function printChunk(string $ip, int $port, string $chunkZpl, int $expectedLabels): array
     {
-        // 1. Verificar estado de la impresora antes de enviar
-        $status = $this->getPrinterStatus($ip, $port, 1.5);
+        // 1. Verificar estado físico de la impresora antes de enviar (modo rápido ~45ms)
+        $status = $this->getPrinterStatus($ip, $port, 0.8, fast: true);
 
         if ($status['is_paused'] ?? false) {
             return [
@@ -334,7 +334,7 @@ class ZebraPrintService
         // 3. Conectar y transmitir el chunk de forma segura
         $errno = 0;
         $errstr = '';
-        $socket = @fsockopen($ip, $port, $errno, $errstr, 3.0);
+        $socket = @fsockopen($ip, $port, $errno, $errstr, 2.0);
         if (! $socket) {
             $isPingable = $this->pingHost($ip);
             if ($isPingable && ($errno === 111 || $errno === 61 || str_contains(strtolower($errstr), 'refused'))) {
@@ -358,7 +358,7 @@ class ZebraPrintService
             ];
         }
 
-        $sent = $this->writeSocketSafely($socket, $chunkZpl, 15);
+        $sent = $this->writeSocketSafely($socket, $chunkZpl, 10);
         @fflush($socket);
         @fclose($socket);
 
@@ -373,8 +373,9 @@ class ZebraPrintService
             ];
         }
 
-        // Pacing físico: permitir que la mecánica de la Zebra avance la etiqueta físicamente
-        $sleepMicroseconds = min(1500000, max(450000, $expectedLabels * 450000));
+        // Pacing físico optimizado: 80ms es suficiente para que el socket descargue
+        // el paquete en la memoria de la impresora sin frenar artificialmente el software.
+        $sleepMicroseconds = min(500000, max(80000, $expectedLabels * 80000));
         usleep($sleepMicroseconds);
 
         return [
@@ -391,7 +392,7 @@ class ZebraPrintService
      *
      * @return array<string, mixed>
      */
-    public function getPrinterStatus(string $ip, int $port = 9100, float $timeout = 1.5): array
+    public function getPrinterStatus(string $ip, int $port = 9100, float $timeout = 1.0, bool $fast = false): array
     {
         $startTime = microtime(true);
         $errno = 0;
@@ -409,7 +410,8 @@ class ZebraPrintService
             ];
         }
 
-        $socket = @fsockopen($ip, $port, $errno, $errstr, $timeout);
+        $effectiveTimeout = $fast ? min(0.8, $timeout) : $timeout;
+        $socket = @fsockopen($ip, $port, $errno, $errstr, $effectiveTimeout);
 
         if (! $socket) {
             $latency = round((microtime(true) - $startTime) * 1000, 2);
@@ -464,13 +466,19 @@ class ZebraPrintService
             ];
         }
 
-        stream_set_timeout($socket, (int) ceil($timeout), (int) (($timeout - floor($timeout)) * 1000000));
+        stream_set_timeout($socket, (int) ceil($effectiveTimeout), (int) (($effectiveTimeout - floor($effectiveTimeout)) * 1000000));
 
-        $cmd = "~HS\r\n! U1 getvar \"device.friendly_name\"\r\n! U1 getvar \"device.status\"\r\n";
-        fwrite($socket, $cmd);
-        fflush($socket);
-
-        usleep(140000);
+        if ($fast) {
+            $cmd = "~HS\r\n";
+            fwrite($socket, $cmd);
+            fflush($socket);
+            usleep(45000); // 45ms para respuesta rápida ~HS
+        } else {
+            $cmd = "~HS\r\n! U1 getvar \"device.friendly_name\"\r\n! U1 getvar \"device.status\"\r\n";
+            fwrite($socket, $cmd);
+            fflush($socket);
+            usleep(120000); // 120ms para comandos SGD completos
+        }
 
         $buffer = '';
         while ($chunk = fread($socket, 1024)) {
@@ -511,7 +519,7 @@ class ZebraPrintService
         $deviceName = 'Zebra ZT411';
         $sgdStatus = 'ready';
 
-        if (preg_match_all('/"([^"]+)"/', $buffer, $sgdMatches)) {
+        if (! $fast && preg_match_all('/"([^"]+)"/', $buffer, $sgdMatches)) {
             $deviceName = $sgdMatches[1][0];
             $sgdStatus = strtolower(trim($sgdMatches[1][1] ?? 'ready'));
         }

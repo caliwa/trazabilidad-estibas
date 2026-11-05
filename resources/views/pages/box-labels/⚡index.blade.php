@@ -191,11 +191,11 @@ new #[Title('Etiquetas de caja')] class extends Component {
         $this->resumeSequence = $freshJob?->next_sequence ?? $this->resumeSequence;
 
         unset($this->order);
-        $this->checkPrinter();
 
         if (($result['status'] ?? '') === 'completed' || ($freshJob?->status ?? '') === 'completed') {
             $this->isPrinting = false;
             $this->activeJobId = null;
+            $this->checkPrinter();
             Flux::modal('zebra-print-monitor-modal')->close();
             Flux::toast(variant: 'success', text: "¡Trabajo completado! Se imprimieron {$job->total_labels} etiquetas en la Zebra.");
             return;
@@ -203,6 +203,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
         if (($result['status'] ?? '') === 'paused_error' || ($freshJob?->status ?? '') === 'paused_error') {
             $this->isPrinting = false;
+            $this->checkPrinter();
             // El modal se queda abierto para mostrar la causa y el botón de reanudar
         }
     }
@@ -953,7 +954,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
     <flux:modal name="zebra-print-monitor-modal" class="w-full max-w-lg">
         @php($job = $this->activeJob)
         @if ($job)
-            <div class="flex flex-col gap-4" @if ($isPrinting && $job && $job->status === 'printing') wire:poll.750ms="processActivePrintJob" @endif>
+            <div class="flex flex-col gap-4" @if ($isPrinting && $job && $job->status === 'printing') wire:poll.200ms="processActivePrintJob" @endif>
                 <div class="flex items-start justify-between">
                     <div>
                         <flux:heading size="lg">Monitor de Impresión Zebra ZT411</flux:heading>
