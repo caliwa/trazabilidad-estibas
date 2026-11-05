@@ -26,7 +26,7 @@ El operario logístico no tiene acceso a ninguna de estas pantallas. Todas muest
 | RF-10 tablero | `PalletBoardQuery`, `pages::pallets.index` | `PalletBoardTest` (5) |
 | CA-08 no paletizar en proceso ni etiquetar sin paletizar | | `test_a_pallet_in_process_cannot_be_palletized_nor_palletized_twice`, `test_a_label_needs_a_palletized_pallet` |
 | CA-09 la reimpresión conserva identidad y cantidad | | `test_the_first_print_is_original_and_a_reprint_needs_a_reason_and_keeps_identity_and_quantity`, `test_opening_the_label_again_records_nothing_and_a_reprint_is_marked` |
-| CA-10 el QR no evade validaciones | `PalletQr` | `test_with_scan_mode_only_this_pallets_qr_and_one_of_its_boxes_confirm_it` (6 manipulaciones), `test_the_qr_carries_only_the_opaque_token` |
+| CA-10 el QR no evade validaciones | `PalletQr` | `test_with_scan_mode_only_a_box_of_this_pallet_confirms_it` (6 manipulaciones), `test_the_qr_carries_only_the_opaque_token` |
 | Confirmaciones físicas auditadas | trazas `pallet.palletized`, `label.printed`, `label.reprinted`, `pallet.labeled` | en las mismas pruebas |
 | Manipulación de propiedades Livewire | `#[Locked]` en los ids del componente | `test_the_pallet_being_closed_cannot_be_swapped_from_the_browser` |
 | Permisos en el servidor | `Gate::authorize` en cada acción y `boot()` en cada página | `test_only_people_who_operate_production_open_the_station`, `test_operators_without_permission_are_refused_on_the_server`, `test_reprinting_needs_its_own_permission` |

@@ -62,12 +62,12 @@ class PalletRuleViolation extends DomainException
 
     public static function labelBoxMissing(): self
     {
-        return new self('Lee también el QR de una caja de la estiba donde pegaste la etiqueta.');
+        return new self('Lee el QR de una caja de la estiba donde pegaste la etiqueta.');
     }
 
     public static function labelBoxNotABox(): self
     {
-        return new self('El segundo código no es el QR de una caja. Lee el QR de una caja de la estiba (no el de la etiqueta).');
+        return new self('Lo leído no es el QR de una caja. Lee el QR de una caja de la estiba (no el de la etiqueta).');
     }
 
     public static function labelBoxNotRead(string $boxCode): self
@@ -77,7 +77,7 @@ class PalletRuleViolation extends DomainException
 
     public static function labelOnWrongPallet(string $labelPallet, string $boxPallet): self
     {
-        return new self("La etiqueta de {$labelPallet} está pegada en una estiba con cajas de {$boxPallet}. Revisa la estiba: esa etiqueta no va ahí.");
+        return new self("La caja leída es de {$boxPallet}, no de {$labelPallet}: la etiqueta de {$labelPallet} no está en la estiba correcta. Revisa la estiba.");
     }
 
     public static function qrMismatch(): self

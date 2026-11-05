@@ -29,7 +29,7 @@ El prompt pide distinguir cuatro niveles. Este es el estado real:
 | RF-06 | Cierre manual | `CloseManuallyTest::test_it_closes_with_the_real_count_and_records_who_and_why` |
 | RF-07 | Confirmar paletizado | `PalletizeAndLabelTest::test_a_finished_pallet_is_palletized_with_who_and_when` |
 | RF-08 | Etiqueta con QR, impresión y reimpresión | `PalletizeAndLabelTest::test_the_first_print_is_original_and_a_reprint_needs_a_reason_and_keeps_identity_and_quantity`, `PalletDetailAndLabelTest::test_the_label_shows_what_the_floor_needs_and_a_qr_with_only_the_token` |
-| RF-09 | Confirmar etiqueta aplicada (DP-03, apagado) | `PalletizeAndLabelTest::test_label_confirmation_is_refused_while_dp03_is_open`, `PalletizeAndLabelTest::test_with_scan_mode_only_this_pallets_qr_and_one_of_its_boxes_confirm_it` |
+| RF-09 | Confirmar etiqueta aplicada (DP-03, apagado) | `PalletizeAndLabelTest::test_label_confirmation_is_refused_while_dp03_is_open`, `PalletizeAndLabelTest::test_with_scan_mode_only_a_box_of_this_pallet_confirms_it` |
 | RF-10 | Tablero administrativo | `PalletBoardTest::test_every_filter_narrows_the_list`, `PalletBoardTest::test_indicators_count_each_stage` |
 | RF-11 | Recibos de producción en SAP | `ProductionReceiptFlowTest::test_three_pallets_in_one_receipt_group_lines_by_lot_and_confirm_with_sap_references` |
 | RF-12 | Conciliar recibos inciertos | `ProductionReceiptFlowTest::test_a_lost_answer_is_reconciled_to_the_existing_document_without_a_second_create` |
@@ -81,7 +81,7 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | CA-07 | Cierre manual entre 1 y estándar − 1, conserva la cantidad | `CloseManuallyTest::test_it_closes_with_the_real_count_and_records_who_and_why`, `CloseManuallyTest::test_an_empty_pallet_cannot_be_closed`, `PalletInvariantsTest::test_manual_close_needs_between_one_box_and_standard_minus_one_and_who_closed` | Pasa |
 | CA-08 | No paletizar sin finalizar ni etiquetar sin paletizar | `PalletizeAndLabelTest::test_a_pallet_in_process_cannot_be_palletized_nor_palletized_twice`, `PalletizeAndLabelTest::test_a_label_needs_a_palletized_pallet` | Pasa |
 | CA-09 | Reimpresión sin cambiar identidad ni cantidad, auditada | `PalletizeAndLabelTest::test_the_first_print_is_original_and_a_reprint_needs_a_reason_and_keeps_identity_and_quantity` | Pasa |
-| CA-10 | El QR solo identifica | `PalletizeAndLabelTest::test_with_scan_mode_only_this_pallets_qr_and_one_of_its_boxes_confirm_it`, `PalletizeAndLabelTest::test_the_qr_carries_only_the_opaque_token` | Pasa |
+| CA-10 | El QR solo identifica | `PalletizeAndLabelTest::test_with_scan_mode_only_a_box_of_this_pallet_confirms_it`, `PalletizeAndLabelTest::test_the_qr_carries_only_the_opaque_token` | Pasa |
 | CA-11 | Tres estibas agrupadas y separadas, conversión correcta | `ProductionReceiptFlowTest::test_three_pallets_in_one_receipt_group_lines_by_lot_and_confirm_with_sap_references`, `ProductionReceiptFlowTest::test_three_pallets_in_separate_receipts`, `ProductionReceiptFlowTest::test_boxes_convert_with_the_current_factor_and_the_line_keeps_which_one` | Pasa (simulador) |
 | CA-12 | Timeout → pendiente, sin segunda creación ciega | `ProductionReceiptFlowTest::test_a_lost_answer_is_reconciled_to_the_existing_document_without_a_second_create`, `ProductionReceiptFlowTest::test_a_send_left_hanging_by_a_dead_worker_goes_to_reconciliation_not_to_a_new_send` | Pasa (simulador) |
 | CA-13 | La conciliación encuentra el documento y no duplica | `ProductionReceiptFlowTest::test_a_lost_answer_is_reconciled_to_the_existing_document_without_a_second_create`, `ProductionReceiptFlowTest::test_a_document_proved_absent_is_resent_only_after_the_grace_period` | Pasa (simulador) |
@@ -117,7 +117,7 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | No se paletiza en proceso | `PalletizeAndLabelTest::test_a_pallet_in_process_cannot_be_palletized_nor_palletized_twice` |
 | No se etiqueta sin paletizar | `PalletizeAndLabelTest::test_a_label_needs_a_palletized_pallet` |
 | Reimpresión conserva identidad y cantidad | `PalletizeAndLabelTest::test_the_first_print_is_original_and_a_reprint_needs_a_reason_and_keeps_identity_and_quantity` |
-| El QR no evade validaciones | `PalletizeAndLabelTest::test_with_scan_mode_only_this_pallets_qr_and_one_of_its_boxes_confirm_it` |
+| El QR no evade validaciones | `PalletizeAndLabelTest::test_with_scan_mode_only_a_box_of_this_pallet_confirms_it` |
 | Confirmaciones físicas auditadas | `PalletizeAndLabelTest::test_a_finished_pallet_is_palletized_with_who_and_when` |
 
 ### Recibos SAP
@@ -166,7 +166,7 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | Acceso cruzado a estibas de otros procesos o usuarios | `BlindCountTest::test_a_count_belongs_to_whoever_started_it`, `PalletDetailAndLabelTest::test_a_print_that_does_not_exist_or_belongs_to_another_pallet_is_404_and_access_needs_permission`, `NotificationBellTest::test_people_only_open_their_own_notifications` |
 | Consultar cantidades durante el conteo ciego | `BlindCountSecrecyTest::test_no_other_screen_or_endpoint_shows_quantities_to_the_operator` |
 | Repetición de solicitudes HTTP | `ScanEventApiTest::test_a_resend_answers_200_and_changes_nothing`, `InventoryTransferFlowTest::test_a_pallet_with_an_active_transfer_cannot_be_requested_again`, `ProductionReceiptFlowTest::test_running_the_send_twice_sends_once` |
-| Manipulación de QR | `PalletizeAndLabelTest::test_with_scan_mode_only_this_pallets_qr_and_one_of_its_boxes_confirm_it` |
+| Manipulación de QR | `PalletizeAndLabelTest::test_with_scan_mode_only_a_box_of_this_pallet_confirms_it` |
 | Credenciales en logs | `TraceEventsTest::test_context_and_log_lines_never_carry_secrets`, `HardeningTest::test_log_lines_are_json_with_the_correlation_id_and_no_secrets` |
 | Recibir o trasladar la misma estiba a la vez | `ReceiptConcurrencyTest::test_parallel_receipt_requests_for_the_same_pallets_hold_each_pallet_once`, `TransferConcurrencyTest::test_parallel_retries_for_the_same_pallets_hold_each_pallet_once` |
 
@@ -232,7 +232,7 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | El QR de la caja lleva solo su código opaco; la caja se busca por él y su OF debe estar liberada | `ManualBoxScanTest::test_the_box_qr_carries_only_the_token`, `ManualBoxScanTest::test_only_a_box_qr_printed_here_for_a_released_order_is_counted` |
 | Cada caja se cuenta una sola vez, también en paralelo | `ManualBoxScanTest::test_a_box_is_counted_only_once_by_its_code`, `ManualBoxScanConcurrencyTest::test_parallel_reads_of_the_same_box_count_it_once`, `BoxLabelsTest::test_every_box_label_has_its_own_code_continuing_the_lot` |
 | Lectores con otra distribución de teclado | `ManualBoxScanTest::test_what_a_hand_reader_types_is_read_even_with_another_keyboard_layout` |
-| Etiqueta confirmada con el QR de la estiba y una caja de esa misma estiba; etiqueta en otra estiba rechazada y registrada | `ManualBoxScanTest::test_the_label_is_confirmed_with_its_qr_and_a_box_of_the_same_pallet` |
+| Etiqueta confirmada leyendo una caja de la estiba elegida; caja de otra estiba rechazada y registrada | `ManualBoxScanTest::test_the_label_is_confirmed_with_a_box_of_the_pallet_whose_button_was_pressed` |
 | Pantallas de la estación y del conteo ciego con escáner; permisos | `ManualBoxScanTest::test_the_station_shows_each_read_and_why_a_box_was_not_counted`, `ManualBoxScanTest::test_the_blind_count_finds_the_pallet_with_the_scanner`, `ManualBoxScanTest::test_only_people_who_operate_the_station_read_boxes` |
 
 ## 6. Seguridad (sección 12)

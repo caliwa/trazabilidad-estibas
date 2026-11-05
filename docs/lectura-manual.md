@@ -5,7 +5,7 @@
 | Dónde | Para qué | Permiso |
 |---|---|---|
 | Estación de producción → **Lectura manual de cajas** | Leer la etiqueta de cada caja y llenar la estiba | `pallets.operate` |
-| Estación de producción → **Por paletizar y etiquetar** → **Confirmar etiqueta aplicada** | Dos lecturas en la misma estiba: el QR de la etiqueta ya pegada y el QR de una caja de esa estiba | `pallets.label` |
+| Estación de producción → **Por paletizar y etiquetar** → **Confirmar etiqueta aplicada** | Leer el QR de una caja de la estiba donde se pegó la etiqueta | `pallets.label` |
 | Conteo ciego | Buscar la estiba leyendo su QR | `audits.count` |
 
 Las tres usan el mismo campo de escáner:
@@ -42,19 +42,13 @@ Si el producto ya tiene un estándar, se usa ese.
 
 ## 4. Configuración
 
-- `TRACE_LABEL_CONFIRMATION=scan`: la etiqueta se confirma con dos lecturas (DP-03). Es el valor por defecto. Revisa que en el `.env` no esté vacío.
+- `TRACE_LABEL_CONFIRMATION=scan`: la etiqueta se confirma leyendo una caja de la estiba (DP-03). Es el valor por defecto. Revisa que en el `.env` no esté vacío.
 
 ## Confirmar la etiqueta pegada
 
-Leer solo la etiqueta probaba que se imprimió, no que quedó en la estiba correcta. Ahora, después de pegarla, se hacen dos lecturas sobre la misma estiba física:
+Leer el QR de la etiqueta solo probaba que se imprimió, no en qué estiba quedó. Ahora se confirma desde el botón **Confirmar etiqueta aplicada** de la estiba en "Por paletizar y etiquetar" (la estiba cuya etiqueta se acaba de imprimir): la ventana abre con el cursor listo y pide leer el QR de **una caja de la estiba donde se pegó la etiqueta** (mejor del centro, no del borde). Al leerla se confirma sola, sin clic.
 
-1. **El QR de la etiqueta.** Dice qué estiba es.
-2. **El QR de una caja de esa estiba** (mejor del centro, no del borde). La aplicación sabe en qué estiba se contó esa caja.
-
-Se hace desde el botón **Confirmar etiqueta aplicada** de cada estiba en "Por paletizar y etiquetar" (la sección aparte que solo leía la etiqueta se quitó). La ventana abre con el cursor en el campo de la etiqueta; al leerla, el cursor pasa solo al de la caja, y al leer la caja se confirma sin hacer clic. La etiqueta tiene que ser la de esa estiba. Si coinciden, la estiba queda etiquetada y la bitácora guarda la caja usada. Si la caja es de otra estiba, la ventana muestra en rojo "La etiqueta de EST-A está pegada en una estiba con cajas de EST-B", no se confirma y queda registrado (`pallet.label_mismatch`); la lectura de la etiqueta se conserva y se puede leer otra caja las veces que haga falta. Las dos lecturas se pueden hacer con la pistola o con la cámara del celular.
-- `TRACE_TEST_PALLET_BOXES=40`: estándar de prueba.
-- La lectura manual no depende de `TRACE_SCAN_INGESTION_ENABLED` (DP-01), que es solo para el endpoint de sensores.
-- Un lector fijo en la línea lee el mismo QR y cuenta con estas mismas reglas: ver `docs/lectura-automatica.md`. Una caja leída por el lector y a mano cuenta una vez.
+La aplicación comprueba que esa caja se contó en la estiba del botón. Si es así, la estiba queda etiquetada y la bitácora guarda la caja usada. Si la caja es de otra estiba, la ventana muestra en rojo "La caja leída es de EST-B, no de EST-A", no se confirma y queda registrado (`pallet.label_mismatch`); se puede leer otra caja las veces que haga falta. También se puede leer con la cámara del celular.
 
 ## 5. Pruebas
 

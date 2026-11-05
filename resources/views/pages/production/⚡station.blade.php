@@ -55,8 +55,6 @@ new #[Title('Producción')] class extends Component {
 
     public string $reprintReason = '';
 
-    public string $scannedQr = '';
-
     /** Second read of the confirmation dialog: one box of the pallet where the label was stuck. */
     public string $scannedBoxQr = '';
 
@@ -299,7 +297,6 @@ new #[Title('Producción')] class extends Component {
     public function askConfirmLabel(int $palletId): void
     {
         $this->confirmingId = $palletId;
-        $this->scannedQr = '';
         $this->scannedBoxQr = '';
         $this->confirmError = null;
         $this->resetValidation();
@@ -307,20 +304,20 @@ new #[Title('Producción')] class extends Component {
     }
 
     /**
-     * With "scan", two reads on the same physical pallet: the label stuck on it
-     * and one of its boxes. A refusal stays in the dialog to read again, as
-     * many times as needed.
+     * With "scan", one box read from the physical pallet where the label was
+     * stuck: it must be a box of the pallet whose button was pressed. A
+     * refusal stays in the dialog to read another box, as many times as needed.
      */
     public function confirmLabel(ConfirmLabeled $confirm): void
     {
-        $this->validate(['scannedQr' => ['nullable', 'string', 'max:200'], 'scannedBoxQr' => ['nullable', 'string', 'max:200']]);
+        $this->validate(['scannedBoxQr' => ['nullable', 'string', 'max:200']]);
 
         try {
-            $pallet = $confirm->handle(Auth::user(), (int) $this->confirmingId, $this->scannedQr, $this->context(), $this->scannedBoxQr);
+            $pallet = $confirm->handle(Auth::user(), (int) $this->confirmingId, $this->scannedBoxQr, $this->context());
         } catch (PalletRuleViolation $e) {
             $this->confirmError = $e->getMessage();
             $this->confirmTries++;
-            // The label read stays when it was right; the box is read again.
+            // Read another box.
             $this->scannedBoxQr = '';
 
             return;
@@ -620,15 +617,11 @@ new #[Title('Producción')] class extends Component {
         <form wire:submit="confirmLabel" class="flex flex-col gap-4">
             <flux:heading size="lg">Confirmar etiqueta aplicada{{ $confirmingId ? ' · '.$this->pending->firstWhere('id', $confirmingId)?->pallet_code : '' }}</flux:heading>
             @if ($this->labelMode() === LabelConfirmation::Scan)
-                <flux:text>Haz dos lecturas en la estiba donde pegaste la etiqueta: <strong>1.</strong> el QR de la etiqueta y <strong>2.</strong> el QR de una caja de esa misma estiba (mejor del centro, no del borde). Así se comprueba que la etiqueta quedó en la estiba correcta.</flux:text>
-                {{--
-                    Hand readers type like a keyboard: when the label's QR is complete (or Enter comes) the
-                    cursor moves to the box, and when the box's QR is complete it confirms. No click needed.
-                --}}
+                <flux:text>Lee el QR de <strong>una caja de la estiba donde pegaste la etiqueta</strong> (mejor del centro, no del borde). La aplicación comprueba que esa caja sea de esta estiba, así la etiqueta queda confirmada en la estiba correcta.</flux:text>
+                {{-- Hand readers type like a keyboard: once the box's QR is complete (or Enter comes) it confirms. No click needed. --}}
                 <div class="flex flex-col gap-3"
                     x-data="{
                         busy: false,
-                        labelDone(v) { return /TRZ1.[0-9a-f]{32}/i.test(v); },
                         boxDone(v) { return /TRZB.[0-9a-f]{32}/i.test(v); },
                         // One confirmation at a time: a reader that also sends Enter must not confirm twice.
                         go() {
@@ -636,8 +629,7 @@ new #[Title('Producción')] class extends Component {
                             this.busy = true;
                             $wire.confirmLabel().finally(() => { this.busy = false; });
                         },
-                    }"
-                    x-init="$nextTick(() => ($wire.scannedQr ? $refs.box : $refs.label)?.focus())">
+                    }">
                     @if ($confirmError)
                         {{-- Keyed by try: each refusal shows anew and puts the cursor back on the box. --}}
                         <div wire:key="confirm-error-{{ $confirmTries }}" x-init="$nextTick(() => $refs.box.focus())" role="alert" data-label-result="error" class="flex items-center gap-3 rounded-xl border-4 border-red-700 bg-red-600 p-4 text-white shadow-lg">
@@ -649,17 +641,9 @@ new #[Title('Producción')] class extends Component {
                         </div>
                     @endif
                     <label class="flex flex-col gap-1">
-                        <span class="text-sm font-medium text-zinc-800 dark:text-white">1. QR de la etiqueta pegada</span>
+                        <span class="text-sm font-medium text-zinc-800 dark:text-white">QR de una caja de la estiba</span>
                         {{-- autofocus: the dialog puts the cursor here when it opens, ready for the reader. --}}
-                        <input x-ref="label" wire:model="scannedQr" autofocus autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Lee el QR de la etiqueta"
-                            x-on:input="if (labelDone($event.target.value)) $nextTick(() => $refs.box.focus())"
-                            x-on:keydown.enter.prevent="$refs.box.focus()" x-on:keydown.tab.prevent="$refs.box.focus()"
-                            class="block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-base text-zinc-900 shadow-xs focus:border-zinc-500 focus:outline-none dark:border-white/10 dark:bg-white/10 dark:text-white" />
-                    </label>
-                    <x-qr-camera-button model="scannedQr" />
-                    <label class="flex flex-col gap-1">
-                        <span class="text-sm font-medium text-zinc-800 dark:text-white">2. QR de una caja de esa estiba</span>
-                        <input x-ref="box" wire:model="scannedBoxQr" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Lee el QR de una caja de la estiba"
+                        <input x-ref="box" wire:model="scannedBoxQr" autofocus autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Lee el QR de una caja de la estiba"
                             x-on:input="if (boxDone($event.target.value)) $nextTick(() => go())"
                             x-on:keydown.enter.prevent="go()" x-on:keydown.tab.prevent="go()"
                             class="block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-base text-zinc-900 shadow-xs focus:border-zinc-500 focus:outline-none dark:border-white/10 dark:bg-white/10 dark:text-white" />

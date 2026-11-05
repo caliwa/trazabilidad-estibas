@@ -148,7 +148,7 @@ class DemoFlow extends Command
 
             $this->tick(60);
             app(PrintLabel::class)->handle($people['produccion'], $pallet->id, null, $this->web($people['produccion']));
-            app(ConfirmLabeled::class)->handle($people['produccion'], $pallet->id, PalletQr::payload($pallet->refresh()), $this->web($people['produccion']));
+            app(ConfirmLabeled::class)->handle($people['produccion'], $pallet->id, null, $this->web($people['produccion']));
         }
         $this->line('   '.($finished->count() - 1).' estibas etiquetadas; '.$unlabeled->pallet_code.' queda paletizada sin etiqueta.');
 
@@ -188,7 +188,7 @@ class DemoFlow extends Command
             $this->tick(120);
             app(ConfirmPalletized::class)->handle($people['produccion'], $pallet->id, $this->web($people['produccion']));
             app(PrintLabel::class)->handle($people['produccion'], $pallet->id, null, $this->web($people['produccion']));
-            app(ConfirmLabeled::class)->handle($people['produccion'], $pallet->id, PalletQr::payload($pallet->refresh()), $this->web($people['produccion']));
+            app(ConfirmLabeled::class)->handle($people['produccion'], $pallet->id, null, $this->web($people['produccion']));
         }
         $this->tick(300);
         $receipts->handle($people['supervisor'], $this->ids($this->pallets($complete, $lotD1)), false, $this->web($people['supervisor']));
