@@ -66,4 +66,19 @@ class PalletScanEvent extends Model
     {
         return $this->belongsTo(Pallet::class);
     }
+
+    /**
+     * Resuelve el código legible de la caja (ej. 35061309-0001) cuando external_event_id es el token de 32 hex.
+     */
+    public function getBoxCodeDisplayAttribute(): string
+    {
+        if (strlen($this->external_event_id) === 32 && ctype_xdigit($this->external_event_id)) {
+            $code = BoxLabel::query()->where('qr_token', $this->external_event_id)->value('code');
+            if ($code) {
+                return $code;
+            }
+        }
+
+        return $this->external_event_id;
+    }
 }

@@ -30,13 +30,13 @@ class ManagePrintJob
 
         $batch = BoxLabelBatch::query()->with('boxLabels')->findOrFail($batchId);
 
-        // Granularidad adaptativa: lotes pequeños y medianos (<=50) se imprimen 1 a 1 para sincronización exacta.
+        // Granularidad adaptativa: lotes pequeños (<=50) se imprimen 1 a 1 para sincronización exacta.
+        // Lotes medianos y grandes se transmiten en micro-lotes de 5 para no desbordar el búfer de RAM de la Zebra.
         $defaultChunk = match (true) {
             $batch->labels <= 50 => 1,
-            $batch->labels <= 200 => 5,
-            default => 25,
+            default => 5,
         };
-        $effectiveChunk = $chunkSize !== null ? max(1, min(100, $chunkSize)) : $defaultChunk;
+        $effectiveChunk = $chunkSize !== null ? max(1, min(10, $chunkSize)) : $defaultChunk;
 
         // Si ya hay un trabajo activo o en pausa para este lote, retomarlo
         $existingJob = BoxLabelPrintJob::query()
@@ -218,6 +218,11 @@ class ManagePrintJob
      */
     public function resumeJob(BoxLabelPrintJob $job, ?int $fromSequence = null): void
     {
+        // Purgar cualquier formato viejo que haya quedado en el búfer de recepción de la Zebra (~JA)
+        // y asegurar que el motor quede despausado (~PS) para evitar impresiones fuera de control.
+        $this->zebra->cancelAllInReceiveBuffer($job->printer_ip, $job->printer_port);
+        $this->zebra->unpausePrinter($job->printer_ip, $job->printer_port);
+
         if ($fromSequence !== null && $fromSequence >= $job->start_sequence && $fromSequence <= $job->end_sequence) {
             $printed = $fromSequence - $job->start_sequence;
             $job->printed_labels = $printed;

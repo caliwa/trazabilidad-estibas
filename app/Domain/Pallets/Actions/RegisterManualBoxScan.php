@@ -101,7 +101,14 @@ class RegisterManualBoxScan
         }
 
         // Already read: said plainly, without sending it to be counted (that would log a reused-id alarm).
-        $previous = PalletScanEvent::query()->with('pallet:id,pallet_code')->where('device_id', $this->device()->id)->where('external_event_id', $boxCode)->first();
+        // Se valida EXCLUSIVAMENTE por el TOKEN único de la etiqueta (no por el sufijo/consecutivo humano de la caja),
+        // permitiendo que cajas con el mismo correlativo en distintas corridas o reimpresiones
+        // (ejemplo: caja 001-02 y caja 000-02) sean contadas legítimamente en la estiba.
+        $previous = PalletScanEvent::query()->with('pallet:id,pallet_code')
+            ->where('device_id', $this->device()->id)
+            ->where('external_event_id', $token)
+            ->first();
+
         if ($previous !== null) {
             throw $previous->processing_status === ScanEventStatus::Accepted && $previous->pallet !== null
                 ? PalletRuleViolation::boxAlreadyRead($boxCode, $previous->pallet->pallet_code)
@@ -111,12 +118,12 @@ class RegisterManualBoxScan
         $testStandard = $this->ensureStandard($item, $ctx);
 
         // Checked before counting so a refused box leaves no rejected read under its code.
-        $rejection = $this->masters->resolve(new ScanEventData($boxCode, $order->ref, $item->code, $lot, CarbonImmutable::now()), now());
+        $rejection = $this->masters->resolve(new ScanEventData($token, $order->ref, $item->code, $lot, CarbonImmutable::now()), now());
         if ($rejection instanceof ScanRejection) {
             throw PalletRuleViolation::boxRejected(mb_strtolower($rejection->label()));
         }
 
-        $result = $this->process->handleManual($this->device(), new ScanEventData($boxCode, $order->ref, $item->code, $lot, CarbonImmutable::now()), $ctx);
+        $result = $this->process->handleManual($this->device(), new ScanEventData($token, $order->ref, $item->code, $lot, CarbonImmutable::now()), $ctx);
 
         return match ($result->outcome) {
             ScanOutcome::Accepted => new ManualBoxScan($order->ref, $item->code, $item->description, $lot, CarbonImmutable::parse($batch->expiration_date->toDateString()), $boxCode, $result, $testStandard),

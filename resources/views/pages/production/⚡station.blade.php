@@ -109,6 +109,32 @@ new #[Title('Producción')] class extends Component {
     #[Locked]
     public bool $labelScanOk = false;
 
+    public bool $showDatalogicDebug = true;
+
+    public function clearDatalogicDebug(): void
+    {
+        app(\App\Services\DatalogicDebugService::class)->clear();
+        Flux::toast(variant: 'success', text: 'Historial de depuración de Datalogic limpiado.');
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    #[Computed]
+    public function datalogicDebug(): array
+    {
+        return app(\App\Services\DatalogicDebugService::class)->getRecent(20);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    #[Computed]
+    public function datalogicStats(): array
+    {
+        return app(\App\Services\DatalogicDebugService::class)->getStats();
+    }
+
     private function context(): TraceContext
     {
         return TraceContext::forUser(Auth::user(), Origin::Web, app(CorrelationId::class)->get(), request()->ip());
@@ -182,7 +208,7 @@ new #[Title('Producción')] class extends Component {
         if ($counted !== null && ($error === null || $counted->received_at->greaterThanOrEqualTo($error->occurred_at))) {
             $last = [
                 'ok' => true, 'at' => $counted->received_at, 'reader' => (string) ($codes[$counted->read_by_device_id] ?? ''),
-                'box' => $counted->external_event_id, 'pallet' => $counted->pallet?->pallet_code,
+                'box' => $counted->box_code_display, 'pallet' => $counted->pallet?->pallet_code,
                 'boxes' => $counted->pallet?->boxes_count, 'standard' => $counted->pallet?->standard_boxes_snapshot,
                 'order' => $counted->production_order_ref, 'lot' => $counted->lot_code, 'reason' => null, 'read' => null,
             ];
@@ -196,7 +222,7 @@ new #[Title('Producción')] class extends Component {
 
         // Every read of the line, newest first, so none goes by unseen on a fast line.
         $recent = collect()
-            ->concat($countedReads->map(fn (PalletScanEvent $e) => ['ok' => true, 'at' => $e->received_at, 'reader' => (string) ($codes[$e->read_by_device_id] ?? ''), 'text' => $e->external_event_id.' → '.($e->pallet?->pallet_code ?? '')]))
+            ->concat($countedReads->map(fn (PalletScanEvent $e) => ['ok' => true, 'at' => $e->received_at, 'reader' => (string) ($codes[$e->read_by_device_id] ?? ''), 'text' => $e->box_code_display.' → '.($e->pallet?->pallet_code ?? '')]))
             ->concat($errors->map(fn (TraceEvent $e) => ['ok' => false, 'at' => $e->occurred_at, 'reader' => (string) ($codes[$e->subject_id] ?? ''), 'text' => (string) $e->reason]))
             ->sortByDesc(fn (array $r) => $r['at']->getTimestamp() + $r['at']->micro / 1e6)
             ->take(10)->values()->all();
@@ -570,6 +596,114 @@ new #[Title('Producción')] class extends Component {
                     </ul>
                 </div>
             @endif
+
+            {{-- Panel de Depuración en Vivo Datalogic (Eventos, TCP e Integración) --}}
+            <div class="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-700/80 dark:bg-zinc-900/40">
+                <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-zinc-200 dark:border-zinc-700">
+                    <div class="flex items-center gap-2">
+                        <div class="rounded-lg bg-indigo-100 p-1.5 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-400">
+                            <flux:icon icon="cpu-chip" class="size-5" />
+                        </div>
+                        <div>
+                            <div class="font-bold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
+                                <span>Depuración en Vivo Datalogic</span>
+                                <span class="text-xs font-mono font-normal text-zinc-500">(TCP: 192.168.1.200:51236)</span>
+                            </div>
+                            <div class="text-xs text-zinc-500 dark:text-zinc-400">
+                                Diagnóstico detallado: llamadas internas/externas, sockets TCP y motivos de rechazo
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        @php($dbgStats = $this->datalogicStats)
+                        <div class="hidden sm:flex items-center gap-1.5 text-xs">
+                            <span class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono dark:bg-zinc-800">{{ $dbgStats['total_reads'] ?? 0 }} leídos</span>
+                            <span class="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">{{ $dbgStats['total_counted'] ?? 0 }} contadas</span>
+                            <span class="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-amber-800 dark:bg-amber-950 dark:text-amber-300">{{ $dbgStats['total_duplicate'] ?? 0 }} repetidas</span>
+                            <span class="rounded bg-red-100 px-1.5 py-0.5 font-mono text-red-800 dark:bg-red-950 dark:text-red-300">{{ $dbgStats['total_rejected'] ?? 0 }} descartadas</span>
+                        </div>
+                        <flux:button size="xs" variant="ghost" wire:click="clearDatalogicDebug" title="Limpiar historial de depuración">Limpiar</flux:button>
+                        <flux:button size="xs" variant="filled" wire:click="$toggle('showDatalogicDebug')">
+                            {{ $showDatalogicDebug ? 'Minimizar' : 'Expandir' }}
+                        </flux:button>
+                    </div>
+                </div>
+
+                @if ($showDatalogicDebug)
+                    @php($dbgEvents = $this->datalogicDebug)
+                    <div class="mt-3 space-y-3 max-h-[600px] overflow-y-auto pr-1">
+                        @if (empty($dbgEvents))
+                            <div class="rounded-lg border border-dashed border-zinc-300 p-4 text-center text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                                Esperando lecturas del escáner Datalogic en la línea. Cada paquete TCP y evento de análisis aparecerá aquí en vivo.
+                            </div>
+                        @else
+                            @foreach ($dbgEvents as $event)
+                                <div wire:key="dbg-{{ $event['id'] }}" class="rounded-lg border text-xs p-3 transition-all {{ match($event['outcome']) {
+                                    'counted' => 'border-emerald-300 bg-white dark:border-emerald-800/60 dark:bg-zinc-900',
+                                    'duplicate' => 'border-amber-300 bg-white dark:border-amber-800/60 dark:bg-zinc-900',
+                                    default => 'border-red-300 bg-white dark:border-red-800/60 dark:bg-zinc-900',
+                                } }}">
+                                    {{-- Encabezado del evento --}}
+                                    <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-mono text-zinc-500 dark:text-zinc-400 font-semibold">{{ $event['time'] }}</span>
+                                            @if ($event['outcome'] === 'counted')
+                                                <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">✓ CONTADA A ESTIBA</span>
+                                            @elseif ($event['outcome'] === 'duplicate')
+                                                <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-300">⚠ CAJA REPETIDA</span>
+                                            @else
+                                                <span class="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-800 dark:bg-red-950 dark:text-red-300">✗ NO CONTADA / DESCARTADA</span>
+                                            @endif
+                                            <span class="font-semibold text-zinc-800 dark:text-zinc-200">{{ $event['summary'] }}</span>
+                                        </div>
+                                        <div class="font-mono text-[11px] text-zinc-400">
+                                            {{ $event['raw_bytes_len'] }} bytes TCP
+                                        </div>
+                                    </div>
+
+                                    {{-- Entrada TCP RAW --}}
+                                    <div class="mt-2 rounded bg-zinc-950 px-2.5 py-1.5 font-mono text-[11px] text-zinc-300 flex items-center justify-between gap-2 overflow-x-auto">
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="text-indigo-400 font-bold">TCP IN &gt;</span>
+                                            <span class="text-emerald-400">"{{ $event['raw_printable'] }}"</span>
+                                        </div>
+                                        <span class="text-[10px] text-zinc-500 shrink-0">Hex: {{ Str::limit($event['raw_hex'], 24) }}</span>
+                                    </div>
+
+                                    {{-- Acciones ejecutadas vs Omitidas --}}
+                                    <div class="mt-2.5 grid gap-3 sm:grid-cols-2">
+                                        {{-- Acciones que SÍ se realizaron --}}
+                                        <div class="rounded border border-emerald-100 bg-emerald-50/50 p-2 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                                            <div class="font-bold text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center gap-1 mb-1">
+                                                <flux:icon icon="check" class="size-3.5 text-emerald-600" />
+                                                <span>Acciones Realizadas en el Sistema:</span>
+                                            </div>
+                                            <ul class="space-y-0.5 text-[11px] text-zinc-700 dark:text-zinc-300 list-disc list-inside">
+                                                @foreach ($event['actions_done'] as $action)
+                                                    <li>{{ $action }}</li>
+                                                @endforeach
+                                            </ul>
+                                        </div>
+
+                                        {{-- Acciones que NO se realizaron y por qué --}}
+                                        <div class="rounded border border-zinc-200 bg-zinc-100/60 p-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+                                            <div class="font-bold text-[11px] text-zinc-700 dark:text-zinc-300 flex items-center gap-1 mb-1">
+                                                <flux:icon icon="no-symbol" class="size-3.5 text-amber-500" />
+                                                <span>Acciones NO Realizadas (y motivo):</span>
+                                            </div>
+                                            <ul class="space-y-0.5 text-[11px] text-zinc-600 dark:text-zinc-400 list-disc list-inside">
+                                                @foreach ($event['actions_not_done'] as $action)
+                                                    <li>{{ $action }}</li>
+                                                @endforeach
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            @endforeach
+                        @endif
+                    </div>
+                @endif
+            </div>
         </div>
     @endif
 
