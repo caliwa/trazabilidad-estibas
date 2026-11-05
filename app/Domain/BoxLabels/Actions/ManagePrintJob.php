@@ -30,11 +30,10 @@ class ManagePrintJob
 
         $batch = BoxLabelBatch::query()->with('boxLabels')->findOrFail($batchId);
 
-        // Granularidad adaptativa: lotes pequeños (<=15) se imprimen 1 a 1 para control total.
+        // Granularidad adaptativa: lotes pequeños y medianos (<=50) se imprimen 1 a 1 para sincronización exacta.
         $defaultChunk = match (true) {
-            $batch->labels <= 15 => 1,
-            $batch->labels <= 50 => 5,
-            $batch->labels <= 200 => 10,
+            $batch->labels <= 50 => 1,
+            $batch->labels <= 200 => 5,
             default => 25,
         };
         $effectiveChunk = $chunkSize !== null ? max(1, min(100, $chunkSize)) : $defaultChunk;
@@ -58,6 +57,8 @@ class ManagePrintJob
         $minSeq = (int) ($batch->boxLabels()->min('sequence') ?? 1);
         $maxSeq = (int) ($batch->boxLabels()->max('sequence') ?? ($minSeq + $batch->labels - 1));
 
+        $startOdo = $this->zebra->queryOdometer(trim($ip), $port, 1.0, 1);
+
         $job = new BoxLabelPrintJob;
         $job->forceFill([
             'box_label_batch_id' => $batch->id,
@@ -75,6 +76,8 @@ class ManagePrintJob
             'printer_ip' => trim($ip),
             'printer_port' => $port,
             'chunk_size' => $effectiveChunk,
+            'start_odometer' => $startOdo,
+            'last_odometer' => $startOdo,
             'created_by' => $user->id,
             'started_at' => now(),
         ]);
@@ -185,6 +188,32 @@ class ManagePrintJob
     }
 
     /**
+     * Pausa inmediatamente un trabajo activo desde la aplicación: detiene el motor físico
+     * de la Zebra (~PP), purga el búfer no impreso (~JA) y sincroniza el conteo exacto con el odómetro.
+     */
+    public function pauseJob(BoxLabelPrintJob $job): void
+    {
+        // 1. Enviar pausa de motor y purga de búfer inmediatamente
+        $this->zebra->pausePrinter($job->printer_ip, $job->printer_port);
+
+        // 2. Si hay odómetro inicial, sincronizar con el odómetro real actual
+        $currentOdo = $this->zebra->queryOdometer($job->printer_ip, $job->printer_port, 1.0, 1);
+        if ($currentOdo !== null && $job->start_odometer !== null && $currentOdo >= $job->start_odometer) {
+            $physicalDiff = $currentOdo - $job->start_odometer;
+            $actualPrinted = min($job->total_labels, max($job->printed_labels, $physicalDiff));
+            $job->printed_labels = $actualPrinted;
+            $job->pending_labels = max(0, $job->total_labels - $actualPrinted);
+            $job->last_printed_sequence = $actualPrinted > 0 ? ($job->start_sequence + $actualPrinted - 1) : 0;
+            $job->next_sequence = $job->start_sequence + $actualPrinted;
+            $job->last_odometer = $currentOdo;
+        }
+
+        $job->status = 'paused_error';
+        $job->error_reason = 'Pausada desde la aplicación';
+        $job->save();
+    }
+
+    /**
      * Reanuda un trabajo pausado por error permitiendo especificar exactamente desde qué caja continuar.
      */
     public function resumeJob(BoxLabelPrintJob $job, ?int $fromSequence = null): void
@@ -195,6 +224,15 @@ class ManagePrintJob
             $job->pending_labels = max(0, $job->total_labels - $printed);
             $job->last_printed_sequence = $printed > 0 ? ($fromSequence - 1) : 0;
             $job->next_sequence = $fromSequence;
+        }
+
+        // Si no tenía odómetro inicial registrado, capturarlo como referencia relativa
+        if ($job->start_odometer === null) {
+            $currentOdo = $this->zebra->queryOdometer($job->printer_ip, $job->printer_port, 1.0, 1);
+            if ($currentOdo !== null) {
+                $job->start_odometer = $currentOdo - $job->printed_labels;
+                $job->last_odometer = $currentOdo;
+            }
         }
 
         $job->status = 'printing';

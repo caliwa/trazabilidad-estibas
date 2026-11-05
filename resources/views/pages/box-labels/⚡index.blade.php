@@ -173,11 +173,9 @@ new #[Title('Etiquetas de caja')] class extends Component {
             return;
         }
 
-        // Si el trabajo ya está completado, cerrar el modal limpiamente y detener polling
+        // Si el trabajo ya está completado, detener polling y mantener el modal visible para el usuario
         if ($job->status === 'completed' || $job->pending_labels <= 0) {
             $this->isPrinting = false;
-            $this->activeJobId = null;
-            Flux::modal('zebra-print-monitor-modal')->close();
             return;
         }
 
@@ -196,9 +194,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
         if (($result['status'] ?? '') === 'completed' || ($freshJob?->status ?? '') === 'completed') {
             $this->isPrinting = false;
-            $this->activeJobId = null;
             $this->checkPrinter();
-            Flux::modal('zebra-print-monitor-modal')->close();
             if ($this->lastToastedJobId !== $job->id) {
                 $this->lastToastedJobId = $job->id;
                 Flux::toast(variant: 'success', text: "¡Trabajo completado! Se imprimieron {$job->total_labels} etiquetas en la Zebra.");
@@ -222,6 +218,10 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
         $job = BoxLabelPrintJob::query()->find($id);
         if ($job) {
+            $job->printer_ip = $this->printerIp;
+            $job->printer_port = $this->printerPort;
+            $job->save();
+
             $targetSeq = $fromSeq ?? $this->resumeSequence ?? $job->next_sequence;
             app(ManagePrintJob::class)->resumeJob($job, (int) $targetSeq);
             $job->refresh();
@@ -236,6 +236,26 @@ new #[Title('Etiquetas de caja')] class extends Component {
             $this->isPrinting = true;
             Flux::modal('zebra-print-monitor-modal')->show();
             $this->processActivePrintJob();
+        }
+    }
+
+    public function pausePrintJob(?int $jobId = null): void
+    {
+        $id = $jobId ?? $this->activeJobId;
+        if (! $id) {
+            return;
+        }
+
+        $job = BoxLabelPrintJob::query()->find($id);
+        if ($job) {
+            $this->isPrinting = false;
+            app(ManagePrintJob::class)->pauseJob($job);
+            $job->refresh();
+
+            $this->activeJobId = $job->id;
+            $this->resumeSequence = $job->next_sequence;
+            $this->checkPrinter();
+            Flux::toast(variant: 'info', text: "Impresión pausada físicamente en la caja #{$job->next_sequence}.");
         }
     }
 
@@ -785,9 +805,9 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                 <flux:table.cell align="end" class="tabular-nums font-semibold">{{ $b->labels }}</flux:table.cell>
                                 <flux:table.cell>{{ $b->generator->name }}</flux:table.cell>
                                 <flux:table.cell align="end">
-                                    @if ($job && $job->status === 'paused_error')
+                                    @if ($job && in_array($job->status, ['paused_error', 'cancelled'], true) && $job->pending_labels > 0)
                                         <div class="flex items-center justify-end gap-1">
-                                            <flux:badge color="rose" size="sm" icon="exclamation-circle" title="{{ $job->error_reason }}">
+                                            <flux:badge color="rose" size="sm" icon="exclamation-circle" title="{{ $job->error_reason ?? 'Pausada' }}">
                                                 Pausada ({{ $job->printed_labels }}/{{ $job->total_labels }})
                                             </flux:badge>
                                         </div>
@@ -807,7 +827,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                 </flux:table.cell>
                                 <flux:table.cell align="end">
                                     <div class="flex items-center justify-end gap-1">
-                                        @if ($job && $job->status === 'paused_error')
+                                        @if ($job && in_array($job->status, ['paused_error', 'cancelled'], true) && $job->pending_labels > 0)
                                             <flux:button size="sm" variant="danger" icon="play" wire:click="resumePrintJob({{ $job->id }})" title="Reanudar desde caja #{{ $job->next_sequence }}">Reanudar #{{ $job->next_sequence }}</flux:button>
                                         @elseif ($job && $job->status === 'printing')
                                             <flux:button size="sm" variant="subtle" icon="arrow-path" wire:click="openJobMonitor({{ $job->id }})" title="Ver progreso de impresión">Monitorear</flux:button>
@@ -1057,7 +1077,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                             <flux:icon icon="arrow-path" class="size-4 animate-spin text-blue-500" />
                             <span>Imprimiendo de forma granular (1 a 1)...</span>
                         </div>
-                        <flux:button variant="ghost" size="sm" wire:click="cancelPrintJob({{ $job->id }})">Pausar</flux:button>
+                        <flux:button variant="ghost" size="sm" wire:click="pausePrintJob({{ $job->id }})">Pausar</flux:button>
                     @else
                         <flux:spacer />
                         <flux:modal.close>

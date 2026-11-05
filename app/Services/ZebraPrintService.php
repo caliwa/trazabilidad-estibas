@@ -293,6 +293,26 @@ class ZebraPrintService
     }
 
     /**
+     * Pausa inmediatamente el motor físico de la Zebra (~PP) y purga los formatos
+     * pendientes en su búfer de recepción (~JA) para que no siga imprimiendo.
+     */
+    public function pausePrinter(string $ip, int $port = 9100): bool
+    {
+        $errno = 0;
+        $errstr = '';
+        $socket = @fsockopen($ip, $port, $errno, $errstr, 1.0);
+        if (! $socket) {
+            return false;
+        }
+
+        @fwrite($socket, "~PP\r\n~JA\r\n");
+        @fflush($socket);
+        @fclose($socket);
+
+        return true;
+    }
+
+    /**
      * Imprime un sub-lote (chunk) de etiquetas ZPL verificando activamente el estado físico
      * de la Zebra (falta de papel, cabezal abierto, ribbon agotado, o pausa física) antes de transmitir.
      *
