@@ -46,7 +46,7 @@ new #[Title('Producción')] class extends Component {
         abort_unless(Auth::user()?->can(Permission::PalletsOperate->value), 403);
     }
 
-    public string $printerIp = '192.168.1.154';
+    public string $printerIp = '192.168.1.155';
 
     public int $printerPort = 9100;
 
@@ -56,7 +56,7 @@ new #[Title('Producción')] class extends Component {
 
     public function mount(): void
     {
-        $this->printerIp = (string) config('services.zebra.ip', env('ZEBRA_PRINTER_IP', '192.168.1.154'));
+        $this->printerIp = (string) config('services.zebra.ip', env('ZEBRA_PRINTER_IP', '192.168.1.155'));
         $this->printerPort = (int) config('services.zebra.port', env('ZEBRA_PRINTER_PORT', 9100));
         $this->printSpeed = LabelFormatConfig::printSpeed();
         $this->checkPrinter();

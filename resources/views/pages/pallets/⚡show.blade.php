@@ -151,7 +151,7 @@ new #[Title('Detalle de estiba')] class extends Component {
             $pallet = $this->pallet;
             if ($pallet) {
                 $zpl = PalletLabelZpl::render($pallet, $printed);
-                $ip = (string) config('services.zebra.ip', env('ZEBRA_PRINTER_IP', '192.168.1.154'));
+                $ip = (string) config('services.zebra.ip', env('ZEBRA_PRINTER_IP', '192.168.1.155'));
                 $port = (int) config('services.zebra.port', env('ZEBRA_PRINTER_PORT', 9100));
                 $zebra = app(ZebraPrintService::class);
                 $result = $zebra->printToSocket($ip, $port, $zpl);

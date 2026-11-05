@@ -22,7 +22,7 @@ return new class extends Migration
             $table->unsignedInteger('next_sequence');
             $table->string('status', 30)->default('pending'); // pending, printing, paused_error, completed, cancelled
             $table->string('error_reason', 255)->nullable();
-            $table->string('printer_ip', 50)->default('192.168.1.154');
+            $table->string('printer_ip', 50)->default('192.168.1.155');
             $table->unsignedInteger('printer_port')->default(9100);
             $table->unsignedInteger('chunk_size')->default(50);
             $table->foreignId('created_by')->constrained('users')->restrictOnDelete();
