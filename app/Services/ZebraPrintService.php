@@ -310,13 +310,13 @@ class ZebraPrintService
     public function printChunk(string $ip, int $port, string $chunkZpl, int $expectedLabels): array
     {
         // 1. Verificar estado físico de la impresora antes de enviar (modo rápido ~45ms)
-        $status = $this->getPrinterStatus($ip, $port, 0.8, fast: true);
+        $status = $this->getPrinterStatus($ip, $port, 2.0, fast: true);
 
         if ($status['is_paused'] ?? false) {
             // Intentar despausar con ~PS automáticamente
             $this->unpausePrinter($ip, $port);
             usleep(40000);
-            $status = $this->getPrinterStatus($ip, $port, 0.8, fast: true);
+            $status = $this->getPrinterStatus($ip, $port, 2.0, fast: true);
         }
 
         if ($status['is_paused'] ?? false) {
@@ -380,7 +380,11 @@ class ZebraPrintService
         // 3. Conectar y transmitir el chunk de forma segura
         $errno = 0;
         $errstr = '';
-        $socket = @fsockopen($ip, $port, $errno, $errstr, 2.0);
+        $socket = @fsockopen($ip, $port, $errno, $errstr, 3.5);
+        if (! $socket) {
+            usleep(200000);
+            $socket = @fsockopen($ip, $port, $errno, $errstr, 3.5);
+        }
         if (! $socket) {
             $isPingable = $this->pingHost($ip);
             if ($isPingable && ($errno === 111 || $errno === 61 || str_contains(strtolower($errstr), 'refused'))) {
