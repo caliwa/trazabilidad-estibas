@@ -12,7 +12,10 @@ enum LabelConfirmation: string
     case Print = 'print';
     /** The operator presses a button after sticking it. */
     case Button = 'button';
-    /** The operator scans the QR of the label already stuck on the pallet. */
+    /**
+     * The operator reads the QR of the label already stuck on the pallet and
+     * the QR of one box of that same pallet: both must name the same pallet.
+     */
     case Scan = 'scan';
 
     public static function configured(): ?self

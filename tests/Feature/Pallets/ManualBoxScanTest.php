@@ -7,6 +7,7 @@ use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
 use App\Domain\BoxLabels\BoxQr;
 use App\Domain\Orders\Actions\SyncReleasedOrders;
 use App\Domain\Pallets\Actions\ConfirmLabelByScan;
+use App\Domain\Pallets\Actions\ConfirmPalletized;
 use App\Domain\Pallets\Actions\PrintLabel;
 use App\Domain\Pallets\Actions\RegisterManualBoxScan;
 use App\Domain\Pallets\Data\ManualBoxScan;
@@ -191,25 +192,51 @@ class ManualBoxScanTest extends TestCase
         $this->read($this->box(1), $this->userWithRole(Role::LogisticsOperator));
     }
 
-    public function test_the_label_stuck_on_a_pallet_is_confirmed_by_reading_it(): void
+    /** Reads boxes $from..$to (a full pallet with the test standard of 3), palletizes and prints it. */
+    private function labeledPallet(int $from, int $to): Pallet
+    {
+        foreach (range($from, $to) as $n) {
+            $this->read($this->box($n));
+        }
+        $pallet = Pallet::query()->latest('id')->firstOrFail();
+        app(ConfirmPalletized::class)->handle($this->operator, $pallet->id, $this->ctx());
+        app(PrintLabel::class)->handle($this->operator, $pallet->id, null, $this->ctx());
+
+        return $pallet->refresh();
+    }
+
+    public function test_the_label_is_confirmed_with_its_qr_and_a_box_of_the_same_pallet(): void
     {
         config(['traceability.decisions.label_confirmation' => 'scan']);
-        $pallet = Pallet::factory()->palletized()->create();
-        app(PrintLabel::class)->handle($this->operator, $pallet->id, null, $this->ctx());
+        $first = $this->labeledPallet(1, 3);
+        $second = $this->labeledPallet(4, 6);
         $confirm = app(ConfirmLabelByScan::class);
+        $refused = function (string $label, ?string $box, string $message) use ($confirm): void {
+            try {
+                $confirm->handle($this->operator, $label, $box, $this->ctx());
+                $this->fail('Debía rechazarse: '.$message);
+            } catch (PalletRuleViolation $e) {
+                $this->assertStringContainsString($message, $e->getMessage());
+            }
+        };
 
         foreach (['', 'TRZ1:'.str_repeat('0', 32), $this->box(1)] as $wrong) {
-            try {
-                $confirm->handle($this->operator, $wrong, $this->ctx());
-                $this->fail('Debía rechazarse');
-            } catch (PalletRuleViolation $e) {
-                $this->assertSame('Lo leído no es el QR de una estiba de esta aplicación.', $e->getMessage());
-            }
+            $refused($wrong, $this->box(1), 'no es el QR de una estiba');
         }
+        $refused(PalletQr::payload($first), null, 'Lee también el QR de una caja');
+        $refused(PalletQr::payload($first), PalletQr::payload($first), 'no es el QR de una caja');
+        $refused(PalletQr::payload($first), $this->box(9), 'no se ha leído en ninguna estiba');
 
-        // Keyboard layout and caps lock on the reader: still this pallet.
-        $read = 'TRZ1Ñ'.strtoupper($pallet->qr_token)."\r\n";
-        $this->assertSame(PhysicalStatus::Labeled, $confirm->handle($this->operator, $read, $this->ctx())->physical_status);
+        // The label of the first pallet stuck on the second one: refused and on record.
+        $refused(PalletQr::payload($first), $this->box(5), "La etiqueta de {$first->pallet_code} está pegada en una estiba con cajas de {$second->pallet_code}");
+        $mismatch = TraceEvent::query()->where('event', TraceEventType::PalletLabelMismatch->value)->sole();
+        $this->assertSame([$first->id, '33128293-0005', $second->pallet_code], [$mismatch->subject_id, $mismatch->context['box_code'] ?? null, $mismatch->context['box_pallet'] ?? null]);
+        $this->assertSame(PhysicalStatus::Palletized, $first->refresh()->physical_status);
+
+        // Keyboard layout and caps lock on the reader; tries are not limited.
+        $read = 'TRZ1Ñ'.strtoupper($first->qr_token)."\r\n";
+        $this->assertSame(PhysicalStatus::Labeled, $confirm->handle($this->operator, $read, $this->box(2), $this->ctx())->physical_status);
+        $this->assertSame('33128293-0002', TraceEvent::query()->where('event', TraceEventType::PalletLabeled->value)->sole()->context['box_code'] ?? null);
     }
 
     public function test_the_station_shows_each_read_and_why_a_box_was_not_counted(): void
@@ -228,13 +255,29 @@ class ManualBoxScanTest extends TestCase
             ->assertSee('ya fue leída');
 
         config(['traceability.decisions.label_confirmation' => 'scan']);
-        $pallet = Pallet::factory()->palletized()->create();
+        $this->read($this->box(2));
+        $this->read($this->box(3));
+        $pallet = Pallet::query()->latest('id')->firstOrFail();
+        app(ConfirmPalletized::class)->handle($this->operator, $pallet->id, $this->ctx());
         app(PrintLabel::class)->handle($this->operator, $pallet->id, null, $this->ctx());
+        $other = $this->labeledPallet(4, 6);
 
         Livewire::actingAs($this->operator)->test('pages::production.station')
             ->assertSee('Confirmar etiqueta pegada')
+            ->assertSee('1. QR de la etiqueta de la estiba')
             ->call('scanLabel', PalletQr::payload($pallet), (string) Str::uuid())
-            ->assertSee("Etiqueta de la estiba {$pallet->pallet_code} confirmada");
+            ->assertSee($pallet->pallet_code)
+            ->assertSee('leída. Ahora lee una caja de esa misma estiba')
+            ->assertSee('2. QR de una caja de la estiba')
+            ->call('scanLabelBox', $this->box(5), (string) Str::uuid())
+            ->assertSeeHtml('data-label-result="error"')
+            ->assertSee("está pegada en una estiba con cajas de {$other->pallet_code}")
+            // Still on the second read: another box, as many times as needed.
+            ->assertSee('2. QR de una caja de la estiba')
+            ->call('scanLabelBox', $this->box(2), (string) Str::uuid())
+            ->assertSeeHtml('data-label-result="ok"')
+            ->assertSee("Etiqueta de la estiba {$pallet->pallet_code} confirmada en la estiba correcta")
+            ->assertSee('1. QR de la etiqueta de la estiba');
     }
 
     public function test_the_blind_count_finds_the_pallet_with_the_scanner(): void

@@ -5,7 +5,7 @@
 | Dónde | Para qué | Permiso |
 |---|---|---|
 | Estación de producción → **Lectura manual de cajas** | Leer la etiqueta de cada caja y llenar la estiba | `pallets.operate` |
-| Estación de producción → **Confirmar etiqueta pegada** | Leer el QR de la etiqueta ya pegada en la estiba paletizada | `pallets.label` |
+| Estación de producción → **Confirmar etiqueta pegada** | Dos lecturas en la misma estiba: el QR de la etiqueta ya pegada y el QR de una caja de esa estiba | `pallets.label` |
 | Conteo ciego | Buscar la estiba leyendo su QR | `audits.count` |
 
 Las tres usan el mismo campo de escáner:
@@ -42,7 +42,16 @@ Si el producto ya tiene un estándar, se usa ese.
 
 ## 4. Configuración
 
-- `TRACE_LABEL_CONFIRMATION=scan`: la etiqueta se confirma leyendo su QR (DP-03). Es el valor por defecto. Revisa que en el `.env` no esté vacío.
+- `TRACE_LABEL_CONFIRMATION=scan`: la etiqueta se confirma con dos lecturas (DP-03). Es el valor por defecto. Revisa que en el `.env` no esté vacío.
+
+## Confirmar la etiqueta pegada
+
+Leer solo la etiqueta probaba que se imprimió, no que quedó en la estiba correcta. Ahora, después de pegarla, se hacen dos lecturas sobre la misma estiba física:
+
+1. **El QR de la etiqueta.** Dice qué estiba es.
+2. **El QR de una caja de esa estiba** (mejor del centro, no del borde). La aplicación sabe en qué estiba se contó esa caja.
+
+Si coinciden, la estiba queda etiquetada (verde) y la bitácora guarda la caja usada. Si la caja es de otra estiba, sale en rojo "La etiqueta de EST-A está pegada en una estiba con cajas de EST-B", no se confirma y queda registrado (`pallet.label_mismatch`). Se puede leer otra caja las veces que haga falta, o "Empezar de nuevo". Después de leer la etiqueta el cursor pasa solo al campo de la caja; al terminar vuelve a la lectura de cajas. La ventana "Confirmar etiqueta aplicada" de la lista de pendientes pide las mismas dos lecturas. Las dos se pueden hacer con la pistola o con la cámara del celular.
 - `TRACE_TEST_PALLET_BOXES=40`: estándar de prueba.
 - La lectura manual no depende de `TRACE_SCAN_INGESTION_ENABLED` (DP-01), que es solo para el endpoint de sensores.
 - Un lector fijo en la línea lee el mismo QR y cuenta con estas mismas reglas: ver `docs/lectura-automatica.md`. Una caja leída por el lector y a mano cuenta una vez.

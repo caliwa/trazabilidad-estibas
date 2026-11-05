@@ -158,7 +158,7 @@ class PalletizeAndLabelTest extends TestCase
         $this->assertSame(['confirmation' => 'button', 'physical_status' => 'ETIQUETADO'], collect(TraceEvent::where('event', 'pallet.labeled')->sole()->to_state)->sortKeys()->all());
     }
 
-    public function test_with_scan_mode_only_this_pallets_qr_confirms_it(): void
+    public function test_with_scan_mode_only_this_pallets_qr_and_one_of_its_boxes_confirm_it(): void
     {
         config(['traceability.decisions.label_confirmation' => 'scan']);
         $pallet = Pallet::factory()->palletized()->create();
@@ -174,7 +174,14 @@ class PalletizeAndLabelTest extends TestCase
             }
         }
 
-        $this->assertSame(PhysicalStatus::Labeled, $this->confirm($pallet, ' '.PalletQr::payload($pallet)."\n")->physical_status);
+        // The right label alone is not enough: a box of the same pallet is read too (ManualBoxScanTest).
+        try {
+            $this->confirm($pallet, ' '.PalletQr::payload($pallet)."\n");
+            $this->fail('Debía pedir la caja');
+        } catch (PalletRuleViolation $e) {
+            $this->assertStringContainsString('Lee también el QR de una caja', $e->getMessage());
+        }
+        $this->assertSame(PhysicalStatus::Palletized, $pallet->refresh()->physical_status);
     }
 
     public function test_with_print_mode_the_first_print_labels_the_pallet_and_confirming_is_not_needed(): void

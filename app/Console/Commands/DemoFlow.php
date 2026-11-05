@@ -82,7 +82,8 @@ class DemoFlow extends Command
         // Only for this process: the switches stay off in .env.
         config([
             'traceability.decisions.scan_ingestion_enabled' => true,
-            'traceability.decisions.label_confirmation' => 'scan',
+            // Its pallets come from sensor reads, not from box labels: there is no box QR to confirm the label with.
+            'traceability.decisions.label_confirmation' => 'button',
             // SAP jobs and notifications run here and now, so the result is visible at once.
             'queue.default' => 'sync',
         ]);
