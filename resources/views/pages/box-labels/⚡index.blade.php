@@ -71,6 +71,8 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
     public ?int $activeJobId = null;
 
+    public ?int $lastToastedJobId = null;
+
     public bool $isPrinting = false;
 
     public ?int $resumeSequence = null;
@@ -197,7 +199,10 @@ new #[Title('Etiquetas de caja')] class extends Component {
             $this->activeJobId = null;
             $this->checkPrinter();
             Flux::modal('zebra-print-monitor-modal')->close();
-            Flux::toast(variant: 'success', text: "¡Trabajo completado! Se imprimieron {$job->total_labels} etiquetas en la Zebra.");
+            if ($this->lastToastedJobId !== $job->id) {
+                $this->lastToastedJobId = $job->id;
+                Flux::toast(variant: 'success', text: "¡Trabajo completado! Se imprimieron {$job->total_labels} etiquetas en la Zebra.");
+            }
             return;
         }
 
@@ -1035,7 +1040,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                         <div class="flex flex-col gap-2.5 w-full">
                             <div class="flex items-end gap-2">
                                 <div class="w-36">
-                                    <flux:input wire:model="resumeSequence" type="number" min="{{ $job->start_sequence }}" max="{{ $job->end_sequence }}" label="Desde Caja #" />
+                                    <flux:input wire:model.live="resumeSequence" type="number" min="{{ $job->start_sequence }}" max="{{ $job->end_sequence }}" label="Desde Caja #" />
                                 </div>
                                 <div class="flex-1">
                                     <flux:button variant="danger" icon="play" class="w-full" wire:click="resumePrintJob({{ $job->id }})">
