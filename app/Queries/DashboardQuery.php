@@ -107,7 +107,7 @@ class DashboardQuery
      */
     public function openOrders(int $limit = 6): array
     {
-        return $this->orders->rows()
+        return array_values($this->orders->rows()
             ->filter(fn (array $row) => ! in_array($row['progress']->stage(), [OrderStage::Closed, OrderStage::ReadyToClose], true))
             ->sortBy(fn (array $row) => $row['order']->due_date->timestamp ?? PHP_INT_MAX)
             ->take($limit)
@@ -122,7 +122,7 @@ class DashboardQuery
                 // Real share of the plan: over 100 when more boxes were read than planned.
                 'percent' => ($planned = $row['progress']->plannedBoxes()) === null || $planned === 0 ? 0 : (int) round($row['progress']->readBoxes * 100 / $planned),
                 'stage' => $row['progress']->stage(),
-            ])->values()->all();
+            ])->all());
     }
 
     /**
