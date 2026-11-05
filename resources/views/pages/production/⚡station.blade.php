@@ -123,7 +123,7 @@ new #[Title('Producción')] class extends Component {
      * read, counted or not, the boxes not counted in the last hour and each
      * reader's connection. Null when there is no fixed reader.
      *
-     * @return array{last: ?array{ok: bool, at: \Carbon\CarbonInterface, reader: string, box: ?string, pallet: ?string, boxes: ?int, standard: ?int, order: ?string, lot: ?string, reason: ?string, read: ?string}, not_counted: int, counted: int, errors: list<array{at: \Carbon\CarbonInterface, reader: string, reason: string, read: ?string}>, readers: list<array{code: string, name: string, connected: ?bool}>}|null
+     * @return array{last: ?array{ok: bool, at: \Carbon\CarbonInterface, reader: string, box: ?string, pallet: ?string, boxes: ?int, standard: ?int, order: ?string, lot: ?string, reason: ?string, read: ?string}, recent: list<array{ok: bool, at: \Carbon\CarbonInterface, reader: string, text: string}>, not_counted: int, counted: int, errors: list<array{at: \Carbon\CarbonInterface, reader: string, reason: string, read: ?string}>, readers: list<array{code: string, name: string, connected: ?bool}>}|null
      */
     #[Computed]
     public function lineReads(): ?array
@@ -135,9 +135,10 @@ new #[Title('Producción')] class extends Component {
         $codes = $readers->pluck('code', 'id');
         $since = now()->subHour();
 
-        $counted = PalletScanEvent::query()->with('pallet:id,pallet_code,boxes_count,standard_boxes_snapshot')
+        $countedReads = PalletScanEvent::query()->with('pallet:id,pallet_code,boxes_count,standard_boxes_snapshot')
             ->where('processing_status', ScanEventStatus::Accepted)->whereNotNull('read_by_device_id')
-            ->latest('received_at')->first();
+            ->latest('received_at')->latest('id')->limit(10)->get();
+        $counted = $countedReads->first();
         $errorQuery = fn () => TraceEvent::query()->where('event', TraceEventType::ScanRejected->value)->where('subject_type', 'device')
             ->whereIn('subject_id', $readers->pluck('id'))->where('occurred_at', '>=', $since);
         $errors = $errorQuery()->latest('occurred_at')->limit(5)->get(['subject_id', 'occurred_at', 'reason', 'context']);
@@ -159,8 +160,16 @@ new #[Title('Producción')] class extends Component {
             ];
         }
 
+        // Every read of the line, newest first, so none goes by unseen on a fast line.
+        $recent = collect()
+            ->concat($countedReads->map(fn (PalletScanEvent $e) => ['ok' => true, 'at' => $e->received_at, 'reader' => (string) ($codes[$e->read_by_device_id] ?? ''), 'text' => $e->external_event_id.' → '.($e->pallet?->pallet_code ?? '')]))
+            ->concat($errors->map(fn (TraceEvent $e) => ['ok' => false, 'at' => $e->occurred_at, 'reader' => (string) ($codes[$e->subject_id] ?? ''), 'text' => (string) $e->reason]))
+            ->sortByDesc(fn (array $r) => $r['at']->getTimestamp() + $r['at']->micro / 1e6)
+            ->take(10)->values()->all();
+
         return [
             'last' => $last,
+            'recent' => $recent,
             'not_counted' => $errorQuery()->count(),
             'counted' => PalletScanEvent::query()->where('processing_status', ScanEventStatus::Accepted)->whereNotNull('read_by_device_id')->where('received_at', '>=', $since)->count(),
             'errors' => $errors->map(fn (TraceEvent $e) => [
@@ -338,7 +347,8 @@ new #[Title('Producción')] class extends Component {
     }
 }; ?>
 
-<section class="flex w-full flex-col gap-6" wire:poll.5s.visible>
+{{-- Every 2 s: on a fast line the pallets' progress and the line reads must keep up. --}}
+<section class="flex w-full flex-col gap-6" wire:poll.2s.visible>
     <div class="flex flex-wrap items-end justify-between gap-4">
         <div>
             <flux:heading size="xl" level="1">Producción</flux:heading>
@@ -453,6 +463,22 @@ new #[Title('Producción')] class extends Component {
                     <div class="text-3xl font-bold tabular-nums">{{ $line['not_counted'] }}</div>
                 </div>
             </div>
+
+            @if ($line['recent'] !== [])
+                <div>
+                    <div class="mb-1 text-sm font-semibold text-zinc-700 dark:text-zinc-200">Últimas lecturas del lector</div>
+                    <ul class="divide-y divide-zinc-100 rounded-lg border border-zinc-200 text-sm dark:divide-zinc-800 dark:border-zinc-700" data-line-recent>
+                        @foreach ($line['recent'] as $read)
+                            <li class="flex flex-wrap items-center gap-x-3 px-3 py-1.5">
+                                @if ($read['ok'])<flux:icon.check-circle variant="mini" class="size-5 text-emerald-600" />@else<flux:icon.x-circle variant="mini" class="size-5 text-red-600" />@endif
+                                <span class="font-mono tabular-nums">{{ $read['at']->timezone(config('app.timezone'))->format('H:i:s') }}</span>
+                                <span class="font-medium">{{ $read['reader'] }}</span>
+                                <span @class(['font-mono' => $read['ok'], 'text-red-800 dark:text-red-200' => ! $read['ok']])>{{ $read['text'] }}</span>
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
 
             @if ($line['errors'] !== [])
                 <div>

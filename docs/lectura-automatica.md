@@ -7,8 +7,9 @@ Un lector fijo en la línea lee el QR de cada caja (`TRZB:` y el código opaco) 
 - **Una caja cuenta una sola vez**, la lea el lector fijo, la lea alguien a mano, o las dos cosas en cualquier orden. Las dos lecturas se guardan bajo el mismo registro de cajas, y la base acepta cada código de caja una vez.
 - **Lecturas repetidas.** Si el lector lee dos veces la misma etiqueta mientras pasa la caja, la segunda se ignora sin alarma.
 - **Cajas no contadas.** Una lectura fallida (por ejemplo `NoRead`), una etiqueta que no es de esta aplicación o una OF que ya no está liberada no suman caja. Quedan en la bitácora del lector (`scan.rejected`, sujeto el dispositivo), en el log, y levantan la alerta "Cajas no contadas por el lector" en `/operations`. Esa caja hay que leerla a mano.
+- **Líneas rápidas.** Cada caja se procesa en unos 15 ms (100 cajas en 1,5 s en la prueba). Un error pasajero de base de datos (bloqueo, conexión caída) se reintenta; cualquier otro error deja esa caja como no contada, con el motivo, y el lector sigue con las demás sin detenerse.
 - **Quién la leyó.** Cada lectura guarda el lector que la hizo (`pallet_scan_events.read_by_device_id`).
-- **Alerta en la estación de producción.** El panel "Lectura automática de la línea" muestra la última lectura del lector en grande: **verde "Caja contada"** con el código de caja y cómo va la estiba, o **rojo "Caja no contada"** con el motivo, lo que leyó y "Lee esa caja a mano". Parpadea los primeros 15 segundos de cada lectura nueva. Debajo van las contadas y no contadas de la última hora, las últimas cajas no contadas y el estado de cada lector (conectado, DESCONECTADO o sin conectar aún). Se refresca cada 5 segundos y solo aparece si hay lectores fijos activos. La lectura manual usa el mismo estilo verde y rojo.
+- **Alerta en la estación de producción.** El panel "Lectura automática de la línea" muestra la última lectura del lector en grande: **verde "Caja contada"** con el código de caja y cómo va la estiba, o **rojo "Caja no contada"** con el motivo, lo que leyó y "Lee esa caja a mano". Parpadea los primeros 15 segundos de cada lectura nueva. Debajo van las contadas y no contadas de la última hora, las últimas cajas no contadas y el estado de cada lector (conectado, DESCONECTADO o sin conectar aún). Muestra también las últimas 10 lecturas del lector, una por una. Se refresca cada 2 segundos y solo aparece si hay lectores fijos activos. La lectura manual usa el mismo estilo verde y rojo.
 
 No depende de `TRACE_SCAN_INGESTION_ENABLED`, que es del endpoint de sensores que mandan OF, PT y lote (`POST /api/v1/scan-events`).
 
@@ -17,7 +18,7 @@ No depende de `TRACE_SCAN_INGESTION_ENABLED`, que es del endpoint de sensores qu
 En el software del lector (cada marca tiene el suyo):
 
 1. **Salida de datos:** el texto del código leído tal cual, sin prefijos.
-2. **Terminador:** CR, LF o CR+LF. Cualquiera sirve. STX/ETX también se aceptan.
+2. **Terminador:** cualquiera sirve: CR, LF, CR+LF, STX/ETX, tabulador o ninguno. Cada QR de caja se cuenta apenas llega completo, aunque dos lecturas lleguen pegadas o partidas en varios paquetes. Un texto que no es un QR (por ejemplo `NoRead`) cuenta como lectura fallida cuando lo cierra un separador.
 3. **Conexión TCP:** lo normal es dejar el lector como **servidor TCP** en un puerto (por ejemplo 23 o 2001) y que la aplicación se conecte (`--connect`). Si el lector solo puede ser cliente, se configura para que se conecte a la IP del servidor de la aplicación y un puerto libre (`--listen`).
 4. **Serial:** si el lector va por RS-232/USB-serial, tiene que estar conectado físicamente al servidor de la aplicación (`--serial`). Anotar la velocidad (9600, 115200…), 8 bits, sin paridad, 1 bit de parada.
 5. Si el lector manda un texto cuando no logra leer (`NoRead`, `ERROR`), dejarlo activo: así queda registro de las cajas que pasaron sin contarse.
