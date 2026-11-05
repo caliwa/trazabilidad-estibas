@@ -219,8 +219,15 @@ new #[Title('Etiquetas de caja')] class extends Component {
         if ($job) {
             $targetSeq = $fromSeq ?? $this->resumeSequence ?? $job->next_sequence;
             app(ManagePrintJob::class)->resumeJob($job, (int) $targetSeq);
+            $job->refresh();
+
             $this->activeJobId = $job->id;
-            $this->resumeSequence = $job->fresh()->next_sequence;
+            $this->resumeSequence = $job->next_sequence;
+
+            // Intentar despausar la Zebra remotamente mediante comando ~PS
+            $zebra = app(ZebraPrintService::class);
+            $zebra->unpausePrinter($this->printerIp, $this->printerPort);
+
             $this->isPrinting = true;
             Flux::modal('zebra-print-monitor-modal')->show();
             $this->processActivePrintJob();
@@ -1031,7 +1038,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                     <flux:input wire:model="resumeSequence" type="number" min="{{ $job->start_sequence }}" max="{{ $job->end_sequence }}" label="Desde Caja #" />
                                 </div>
                                 <div class="flex-1">
-                                    <flux:button variant="danger" icon="play" class="w-full" wire:click="resumePrintJob({{ $job->id }}, $wire.resumeSequence)">
+                                    <flux:button variant="danger" icon="play" class="w-full" wire:click="resumePrintJob({{ $job->id }})">
                                         Reanudar desde Caja #{{ str_pad((string)($resumeSequence ?? $job->next_sequence), 4, '0', STR_PAD_LEFT) }} ({{ max(1, $job->end_sequence - (int)($resumeSequence ?? $job->next_sequence) + 1) }} pendientes)
                                     </flux:button>
                                 </div>
