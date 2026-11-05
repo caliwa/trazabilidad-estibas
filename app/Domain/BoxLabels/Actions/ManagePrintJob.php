@@ -170,9 +170,20 @@ class ManagePrintJob
             ];
         }
 
-        // Si ocurrió error físico (falta papel, cabezal abierto, etc.)
+        // Si ocurrió error físico (falta papel, cabezal abierto, pausa en panel, etc.)
         $job->status = 'paused_error';
         $job->error_reason = $result['error_reason'] ?? $result['message'];
+
+        // Compensación física exacta: si la Zebra fue pausada mientras tenía etiquetas en su búfer
+        // de recepción que no alcanzaron a imprimirse físicamente, se descuentan del contador de impresas.
+        $unprinted = (int) ($result['unprinted_in_buffer'] ?? 0);
+        if ($unprinted > 0 && $job->printed_labels >= $unprinted) {
+            $job->printed_labels -= $unprinted;
+            $job->pending_labels = max(0, $job->total_labels - $job->printed_labels);
+            $job->last_printed_sequence = $job->printed_labels > 0 ? ($job->start_sequence + $job->printed_labels - 1) : 0;
+            $job->next_sequence = $job->start_sequence + $job->printed_labels;
+        }
+
         $job->save();
 
         return [

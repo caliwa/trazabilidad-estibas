@@ -255,6 +255,25 @@ class ZebraPrintService
     }
 
     /**
+     * Cancela y purga los formatos no impresos que quedaron en el búfer de recepción de la Zebra (~JA).
+     */
+    public function cancelAllInReceiveBuffer(string $ip, int $port = 9100): bool
+    {
+        $errno = 0;
+        $errstr = '';
+        $socket = @fsockopen($ip, $port, $errno, $errstr, 1.0);
+        if (! $socket) {
+            return false;
+        }
+
+        @fwrite($socket, "~JA\r\n");
+        @fflush($socket);
+        @fclose($socket);
+
+        return true;
+    }
+
+    /**
      * Imprime un sub-lote (chunk) de etiquetas ZPL verificando activamente el estado físico
      * de la Zebra (falta de papel, cabezal abierto, ribbon agotado, o pausa física) antes de transmitir.
      *
@@ -265,7 +284,8 @@ class ZebraPrintService
      *     printed_count: int,
      *     remaining_in_chunk: int,
      *     hardware_status?: string,
-     *     error_reason?: string
+     *     error_reason?: string,
+     *     unprinted_in_buffer?: int
      * }
      */
     public function printChunk(string $ip, int $port, string $chunkZpl, int $expectedLabels): array
@@ -274,12 +294,18 @@ class ZebraPrintService
         $status = $this->getPrinterStatus($ip, $port, 0.8, fast: true);
 
         if ($status['is_paused'] ?? false) {
+            $unprinted = max((int) ($status['formats_in_buffer'] ?? 0), (int) ($status['labels_remaining'] ?? 0));
+            if ($unprinted > 0) {
+                $this->cancelAllInReceiveBuffer($ip, $port);
+            }
+
             return [
                 'success' => false,
                 'status' => 'HARDWARE_PAUSED',
                 'message' => 'La impresora Zebra está en PAUSA (botón presionado en panel frontal).',
                 'printed_count' => 0,
                 'remaining_in_chunk' => $expectedLabels,
+                'unprinted_in_buffer' => $unprinted,
                 'error_reason' => 'Impresora en pausa física en panel',
             ];
         }
@@ -344,6 +370,7 @@ class ZebraPrintService
                     'message' => 'La impresora Zebra entró en PAUSA física (panel frontal).',
                     'printed_count' => 0,
                     'remaining_in_chunk' => $expectedLabels,
+                    'unprinted_in_buffer' => 1,
                     'error_reason' => 'Impresora en pausa física en panel',
                 ];
             }
@@ -572,6 +599,7 @@ class ZebraPrintService
             'buffer_full' => $bufferFull,
             'formats_in_buffer' => $formatsInBuffer,
             'labels_remaining' => $labelsRemaining,
+            'unprinted_in_buffer' => max($formatsInBuffer, $labelsRemaining),
             'sgd_status' => $sgdStatus,
             'latency_ms' => $latency,
             'timestamp' => date('H:i:s'),
