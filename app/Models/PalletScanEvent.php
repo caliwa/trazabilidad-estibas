@@ -68,17 +68,22 @@ class PalletScanEvent extends Model
     }
 
     /**
-     * Resuelve el código legible de la caja (ej. 35061309-0001) cuando external_event_id es el token de 32 hex.
+     * Resuelve el código legible de la caja (ej. 35061309-0001) cuando external_event_id es el token de 32 hex
+     * o incluye un sufijo de copia (-c2, etc.).
      */
     public function getBoxCodeDisplayAttribute(): string
     {
-        if (strlen($this->external_event_id) === 32 && ctype_xdigit($this->external_event_id)) {
-            $code = BoxLabel::query()->where('qr_token', $this->external_event_id)->value('code');
+        $raw = $this->external_event_id;
+        $token = preg_replace('/-c\d+$/', '', $raw) ?? $raw;
+        $copy = preg_match('/-c(\d+)$/', $raw, $m) ? " (Copia {$m[1]})" : '';
+
+        if (strlen($token) === 32 && ctype_xdigit($token)) {
+            $code = BoxLabel::query()->where('qr_token', $token)->value('code');
             if ($code) {
-                return $code;
+                return $code.$copy;
             }
         }
 
-        return $this->external_event_id;
+        return $raw;
     }
 }

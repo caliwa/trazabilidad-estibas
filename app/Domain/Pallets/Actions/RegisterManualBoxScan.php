@@ -17,6 +17,7 @@ use App\Domain\Shared\TraceEventType;
 use App\Enums\Permission;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
 use App\Models\BoxLabel;
+use App\Models\BoxLabelPrint;
 use App\Models\Device;
 use App\Models\Item;
 use App\Models\PalletScanEvent;
@@ -100,30 +101,60 @@ class RegisterManualBoxScan
             throw PalletRuleViolation::boxItemMismatch($order->ref, $item->code, $batch->item_code);
         }
 
-        // Already read: said plainly, without sending it to be counted (that would log a reused-id alarm).
-        // Se valida EXCLUSIVAMENTE por el TOKEN único de la etiqueta (no por el sufijo/consecutivo humano de la caja),
-        // permitiendo que cajas con el mismo correlativo en distintas corridas o reimpresiones
-        // (ejemplo: caja 001-02 y caja 000-02) sean contadas legítimamente en la estiba.
-        $previous = PalletScanEvent::query()->with('pallet:id,pallet_code')
+        // Already read: se valida por el TOKEN único de la etiqueta.
+        // Si el lote físico fue impreso más de una vez (ejemplo: 2 copias físicas de la etiqueta colocadas
+        // en 2 cajas reales de producto terminado), se permite registrar cada copia física individualmente
+        // ($token, $token-c2, etc.) hasta el número de copias impresas.
+        // Un filtro antirrebote (debounce < 4s) previene que la misma caja sea leída múltiples veces
+        // en ráfaga por el sensor fijo o manual.
+        $previousScans = PalletScanEvent::query()->with('pallet:id,pallet_code')
             ->where('device_id', $this->device()->id)
-            ->where('external_event_id', $token)
-            ->first();
+            ->where(function ($q) use ($token) {
+                $q->where('external_event_id', $token)
+                    ->orWhere('external_event_id', 'LIKE', $token.'-c%');
+            })
+            ->orderBy('id', 'asc')
+            ->get();
 
-        if ($previous !== null) {
-            throw $previous->processing_status === ScanEventStatus::Accepted && $previous->pallet !== null
-                ? PalletRuleViolation::boxAlreadyRead($boxCode, $previous->pallet->pallet_code)
+        $acceptedScans = $previousScans->where('processing_status', ScanEventStatus::Accepted);
+        $scannedCount = $acceptedScans->count();
+
+        $totalPrintedCopies = max(1, BoxLabelPrint::query()
+            ->where('box_label_batch_id', $box->box_label_batch_id)
+            ->count());
+
+        // 1. Antirrebote (debounce): si la lectura anterior ocurrió hace menos de 4 segundos,
+        // es el mismo bulto/caja física pasando frente al sensor óptico
+        $latestScan = $previousScans->last();
+        if ($latestScan !== null) {
+            $secondsSinceLast = $latestScan->created_at?->diffInSeconds(now());
+            if ($secondsSinceLast !== null && $secondsSinceLast < 4) {
+                $lastPallet = $latestScan->pallet;
+                throw $lastPallet !== null
+                    ? PalletRuleViolation::boxAlreadyRead($boxCode, $lastPallet->pallet_code)
+                    : PalletRuleViolation::boxHasRejectedRead($boxCode);
+            }
+        }
+
+        // 2. Control de copias impresas vs leídas:
+        if ($scannedCount < $totalPrintedCopies) {
+            $effectiveEventId = $scannedCount === 0 ? $token : "{$token}-c".($scannedCount + 1);
+        } else {
+            $lastPallet = $acceptedScans->last()?->pallet;
+            throw $lastPallet !== null
+                ? PalletRuleViolation::boxAlreadyRead($boxCode, $lastPallet->pallet_code)
                 : PalletRuleViolation::boxHasRejectedRead($boxCode);
         }
 
         $testStandard = $this->ensureStandard($item, $ctx);
 
         // Checked before counting so a refused box leaves no rejected read under its code.
-        $rejection = $this->masters->resolve(new ScanEventData($token, $order->ref, $item->code, $lot, CarbonImmutable::now()), now());
+        $rejection = $this->masters->resolve(new ScanEventData($effectiveEventId, $order->ref, $item->code, $lot, CarbonImmutable::now()), now());
         if ($rejection instanceof ScanRejection) {
             throw PalletRuleViolation::boxRejected(mb_strtolower($rejection->label()));
         }
 
-        $result = $this->process->handleManual($this->device(), new ScanEventData($token, $order->ref, $item->code, $lot, CarbonImmutable::now()), $ctx);
+        $result = $this->process->handleManual($this->device(), new ScanEventData($effectiveEventId, $order->ref, $item->code, $lot, CarbonImmutable::now()), $ctx);
 
         return match ($result->outcome) {
             ScanOutcome::Accepted => new ManualBoxScan($order->ref, $item->code, $item->description, $lot, CarbonImmutable::parse($batch->expiration_date->toDateString()), $boxCode, $result, $testStandard),

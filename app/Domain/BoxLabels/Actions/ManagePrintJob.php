@@ -2,6 +2,7 @@
 
 namespace App\Domain\BoxLabels\Actions;
 
+use App\Domain\BoxLabels\Services\ZebraSessionLock;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
 use App\Enums\Permission;
@@ -19,6 +20,7 @@ class ManagePrintJob
     public function __construct(
         private readonly ZebraPrintService $zebra,
         private readonly TraceLogger $trace,
+        private readonly ZebraSessionLock $sessionLock,
     ) {}
 
     /**
@@ -129,6 +131,7 @@ class ManagePrintJob
             $job->completed_at = now();
             $job->save();
 
+            $this->sessionLock->release($job->printer_ip, $job->printer_port, $job->id);
             $this->recordPrintCompletion($job, $ctx);
 
             return [
@@ -137,6 +140,26 @@ class ManagePrintJob
                 'job' => $job->fresh(),
                 'message' => 'Todas las etiquetas han sido impresas.',
             ];
+        }
+
+        // Bloqueo de sesión exclusivo de la impresora Zebra: asegura que ninguna otra pestaña o usuario interfiera
+        $user = $job->user ?? User::query()->find($job->created_by);
+        if ($user) {
+            $sessId = session()->isStarted() ? session()->getId() : 'job-'.$job->id;
+            $lockStatus = $this->sessionLock->acquireOrRenew($job->printer_ip, $job->printer_port, $job, $user, $sessId);
+            if (! $lockStatus['acquired']) {
+                $job->status = 'paused_error';
+                $job->error_reason = $lockStatus['message'];
+                $job->save();
+
+                return [
+                    'success' => false,
+                    'status' => 'paused_error',
+                    'job' => $job->fresh(),
+                    'message' => $lockStatus['message'],
+                    'error_reason' => $lockStatus['message'],
+                ];
+            }
         }
 
         $chunkZpl = implode("\n", $chunkLabels);
@@ -159,6 +182,7 @@ class ManagePrintJob
                 $job->completed_at = now();
                 $job->save();
 
+                $this->sessionLock->release($job->printer_ip, $job->printer_port, $job->id);
                 $this->recordPrintCompletion($job, $ctx);
             } else {
                 $job->status = 'printing';
@@ -253,6 +277,8 @@ class ManagePrintJob
         $job->status = 'cancelled';
         $job->completed_at = now();
         $job->save();
+
+        $this->sessionLock->release($job->printer_ip, $job->printer_port, $job->id);
     }
 
     /**

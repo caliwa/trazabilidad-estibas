@@ -12,6 +12,7 @@ use App\Domain\BoxLabels\BoxQr;
 use App\Domain\BoxLabels\Itf14;
 use App\Domain\BoxLabels\LabelFormatConfig;
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
+use App\Domain\BoxLabels\Services\ZebraSessionLock;
 use App\Domain\Integration\Enums\MasterStatus;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
@@ -131,6 +132,13 @@ new #[Title('Etiquetas de caja')] class extends Component {
             return;
         }
 
+        // Validación de bloqueo de sesión exclusivo para la impresora Zebra
+        $lock = app(ZebraSessionLock::class)->getActiveLockForOther($this->printerIp, $this->printerPort, $this->activeJobId, session()->getId());
+        if ($lock !== null) {
+            Flux::toast(variant: 'warning', text: "La impresora está en uso por {$lock['user_name']} (Lote {$lock['lot_code']}, Trabajo #{$lock['job_id']}). No se permiten impresiones concurrentes.");
+            return;
+        }
+
         $manageJob = app(ManagePrintJob::class);
         $job = $manageJob->createOrGetJob(Auth::user(), $targetBatch->id, $this->printerIp, $this->printerPort);
         $this->activeJobId = $job->id;
@@ -216,6 +224,12 @@ new #[Title('Etiquetas de caja')] class extends Component {
             return;
         }
 
+        $lock = app(ZebraSessionLock::class)->getActiveLockForOther($this->printerIp, $this->printerPort, $id, session()->getId());
+        if ($lock !== null) {
+            Flux::toast(variant: 'warning', text: "La impresora está en uso por {$lock['user_name']} (Lote {$lock['lot_code']}, Trabajo #{$lock['job_id']}).");
+            return;
+        }
+
         $job = BoxLabelPrintJob::query()->find($id);
         if ($job) {
             $job->printer_ip = $this->printerIp;
@@ -270,10 +284,25 @@ new #[Title('Etiquetas de caja')] class extends Component {
         if ($job) {
             $this->isPrinting = false;
             app(ManagePrintJob::class)->cancelJob($job);
+            app(ZebraSessionLock::class)->release($this->printerIp, $this->printerPort, $job->id);
             Flux::toast(variant: 'warning', text: "Trabajo cancelado. Quedaron {$job->pending_labels} etiquetas sin imprimir.");
             Flux::modal('zebra-print-monitor-modal')->close();
             $this->activeJobId = null;
         }
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getActivePrinterLock(): ?array
+    {
+        return app(ZebraSessionLock::class)->getActiveLockForOther($this->printerIp, $this->printerPort, $this->activeJobId, session()->getId());
+    }
+
+    public function forceUnlockPrinter(): void
+    {
+        app(ZebraSessionLock::class)->forceRelease($this->printerIp, $this->printerPort);
+        Flux::toast(variant: 'info', text: 'Bloqueo exclusivo de impresora liberado manualmente.');
     }
 
     private function context(): TraceContext
@@ -776,7 +805,19 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
         @if ($order->boxLabelBatches->isNotEmpty())
             @php($prints = BoxLabelPrint::query()->where('production_order_id', $order->id)->selectRaw('box_label_batch_id, count(*) as n')->groupBy('box_label_batch_id')->pluck('n', 'box_label_batch_id')->map(fn ($n) => (int) $n)->all())
+            @php($printerLock = $this->getActivePrinterLock())
             <div>
+                @if ($printerLock)
+                    <div class="mb-4 flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-200">
+                        <div class="flex items-center gap-2">
+                            <flux:icon icon="lock-closed" class="size-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                            <div>
+                                <strong>Impresora Zebra en uso exclusivo:</strong> {{ $printerLock['user_name'] }} está imprimiendo el lote <code class="font-mono font-bold">{{ $printerLock['lot_code'] }}</code> (Trabajo #{{ $printerLock['job_id'] }}). Por control de búfer, no se permiten impresiones concurrentes.
+                            </div>
+                        </div>
+                        <flux:button size="xs" variant="ghost" wire:click="forceUnlockPrinter" class="text-amber-700 hover:text-amber-900 dark:text-amber-300">Liberar bloqueo</flux:button>
+                    </div>
+                @endif
                 <flux:heading size="lg" level="2" class="mb-3">Etiquetas generadas para esta orden</flux:heading>
                 <flux:table>
                     <flux:table.columns>
@@ -828,9 +869,15 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                 <flux:table.cell align="end">
                                     <div class="flex items-center justify-end gap-1">
                                         @if ($job && in_array($job->status, ['paused_error', 'cancelled'], true) && $job->pending_labels > 0)
-                                            <flux:button size="sm" variant="danger" icon="play" wire:click="resumePrintJob({{ $job->id }})" title="Reanudar desde caja #{{ $job->next_sequence }}">Reanudar #{{ $job->next_sequence }}</flux:button>
+                                            @if ($printerLock && ($printerLock['job_id'] ?? null) !== $job->id)
+                                                <flux:button size="sm" variant="ghost" disabled icon="lock-closed" title="Impresora ocupada por {{ $printerLock['user_name'] }}">En uso</flux:button>
+                                            @else
+                                                <flux:button size="sm" variant="danger" icon="play" wire:click="resumePrintJob({{ $job->id }})" title="Reanudar desde caja #{{ $job->next_sequence }}">Reanudar #{{ $job->next_sequence }}</flux:button>
+                                            @endif
                                         @elseif ($job && $job->status === 'printing')
                                             <flux:button size="sm" variant="subtle" icon="arrow-path" wire:click="openJobMonitor({{ $job->id }})" title="Ver progreso de impresión">Monitorear</flux:button>
+                                        @elseif ($printerLock)
+                                            <flux:button size="sm" variant="ghost" disabled icon="lock-closed" title="Impresora ocupada por {{ $printerLock['user_name'] }}">En uso</flux:button>
                                         @else
                                             <flux:button size="sm" variant="ghost" icon="printer" wire:click="printBatchDirect({{ $b->id }})" title="Imprimir directo en Zebra">Imprimir</flux:button>
                                         @endif
