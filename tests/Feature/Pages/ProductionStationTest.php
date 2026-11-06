@@ -5,6 +5,7 @@ namespace Tests\Feature\Pages;
 use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Enums\Role;
 use App\Models\Pallet;
+use App\Models\PalletCloseReason;
 use App\Models\PalletScanEvent;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -51,15 +52,37 @@ class ProductionStationTest extends TestCase
     public function test_closing_an_incomplete_pallet_from_the_station(): void
     {
         $pallet = Pallet::factory()->withBoxes(3)->create();
+        PalletCloseReason::query()->create(['name' => 'Fin de lote', 'sort_order' => 20]);
+        $shift = PalletCloseReason::query()->create(['name' => 'Cambio de turno', 'sort_order' => 10]);
+        PalletCloseReason::query()->create(['name' => 'Ya no se usa', 'active' => false]);
 
-        Livewire::actingAs($this->operator)->test('pages::production.station')
+        $station = Livewire::actingAs($this->operator)->test('pages::production.station')
             ->call('askClose', $pallet->id)
-            ->set('closeReason', 'Cambio de turno')
-            ->call('close')
-            ->assertHasNoErrors();
+            ->assertSeeInOrder(['Cambio de turno', 'Fin de lote'])
+            ->assertDontSee('Ya no se usa');
+
+        $station->call('close')->assertHasErrors(['closeReasonId' => 'required']);
+        $this->assertSame(PhysicalStatus::Stacking, $pallet->refresh()->physical_status);
+
+        $station->set('closeReasonId', (string) $shift->id)->set('closeNote', 'Se acabó el turno B')->call('close')->assertHasNoErrors();
 
         $this->assertSame(PhysicalStatus::Finished, $pallet->refresh()->physical_status);
         $this->assertSame($this->operator->id, $pallet->closed_by);
+        $this->assertSame($shift->id, $pallet->close_reason_id);
+        $this->assertSame('Se acabó el turno B', $pallet->close_note);
+    }
+
+    public function test_without_configured_reasons_the_station_explains_and_does_not_close(): void
+    {
+        $pallet = Pallet::factory()->withBoxes(3)->create();
+
+        Livewire::actingAs($this->operator)->test('pages::production.station')
+            ->call('askClose', $pallet->id)
+            ->assertSee('No hay motivos de cierre configurados')
+            ->call('close')
+            ->assertHasErrors(['closeReasonId']);
+
+        $this->assertSame(PhysicalStatus::Stacking, $pallet->refresh()->physical_status);
     }
 
     public function test_the_pallet_being_closed_cannot_be_swapped_from_the_browser(): void
@@ -73,8 +96,11 @@ class ProductionStationTest extends TestCase
     {
         $empty = Pallet::factory()->create();
 
+        $reason = PalletCloseReason::query()->create(['name' => 'Fin de lote']);
+
         Livewire::actingAs($this->operator)->test('pages::production.station')
             ->call('askClose', $empty->id)
+            ->set('closeReasonId', (string) $reason->id)
             ->call('close');
 
         $this->assertSame(PhysicalStatus::Stacking, $empty->refresh()->physical_status);

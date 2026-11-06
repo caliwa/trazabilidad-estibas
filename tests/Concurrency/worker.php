@@ -25,6 +25,7 @@ use App\Domain\Transfers\Actions\RequestInventoryTransfers;
 use App\Domain\Transfers\Exceptions\TransferRuleViolation;
 use App\Models\Device;
 use App\Models\Pallet;
+use App\Models\PalletCloseReason;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Console\Kernel;
@@ -112,13 +113,14 @@ if ($job['mode'] === 'scan') {
 } else {
     $user = User::query()->findOrFail($job['user_id']);
     $close = $app->make(CloseManually::class);
+    $reasonId = PalletCloseReason::query()->firstOrCreate(['name' => 'Prueba de concurrencia'])->id;
 
     for ($i = 0; $i < ($job['rounds'] ?? 0); $i++) {
         $open = Pallet::query()->where('lot_code', $job['lot'])->where('physical_status', PhysicalStatus::Stacking)->where('boxes_count', '>', 0)->value('id');
 
         if ($open !== null) {
             try {
-                $close->handle($user, $open, 'prueba de concurrencia', TraceContext::forUser($user, Origin::Job, (string) Str::uuid()));
+                $close->handle($user, $open, $reasonId, null, TraceContext::forUser($user, Origin::Job, (string) Str::uuid()));
                 $summary['closed']++;
             } catch (PalletRuleViolation) {
                 // A scan completed it, or another close won: expected under contention.

@@ -20,6 +20,11 @@ class PalletRuleViolation extends DomainException
         return new self("La estiba {$palletCode} solo se puede cerrar a mano con entre 1 y ".($standard - 1).' cajas.');
     }
 
+    public static function closeReasonUnavailable(): self
+    {
+        return new self('Escoge un motivo de cierre de la lista. El que estaba seleccionado ya no está disponible.');
+    }
+
     public static function notFinished(string $palletCode): self
     {
         return new self("La estiba {$palletCode} todavía está en estibado: hay que cerrarla antes de paletizar.");

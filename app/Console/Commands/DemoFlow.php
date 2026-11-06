@@ -31,6 +31,7 @@ use App\Models\BoxConversionFactor;
 use App\Models\Device;
 use App\Models\Item;
 use App\Models\Pallet;
+use App\Models\PalletCloseReason;
 use App\Models\PalletStandard;
 use App\Models\ProductionOrder;
 use App\Models\User;
@@ -134,7 +135,12 @@ class DemoFlow extends Command
         $this->at('07:10');
         $this->components->info('2. Cierre manual, paletizado y etiqueta (lectura del QR pegado)');
         $partial = $this->open($oats, $lotA1);
-        app(CloseManually::class)->handle($people['produccion'], $partial->id, 'Fin de turno', $this->web($people['produccion']));
+        // Demo reasons only: the real list is set up by a supervisor in Administración.
+        foreach (['Fin de turno', 'Fin de lote', 'Cambio de referencia'] as $i => $name) {
+            PalletCloseReason::query()->firstOrCreate(['name' => $name], ['sort_order' => ($i + 1) * 10]);
+        }
+        $shiftEnd = PalletCloseReason::query()->where('name', 'Fin de turno')->value('id');
+        app(CloseManually::class)->handle($people['produccion'], $partial->id, (int) $shiftEnd, null, $this->web($people['produccion']));
 
         $finished = Pallet::query()->where('physical_status', PhysicalStatus::Finished)->orderBy('id')->get();
         $unlabeled = $finished->last();
