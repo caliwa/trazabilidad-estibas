@@ -17,6 +17,7 @@ use App\Domain\Operations\Heartbeat;
 use App\Domain\Shared\TraceEventType;
 use App\Models\Device;
 use App\Models\Pallet;
+use App\Models\PalletCloseReason;
 use App\Models\PalletStandard;
 use App\Models\PalletScanEvent;
 use App\Models\TraceEvent;
@@ -45,7 +46,10 @@ new #[Title('Producción')] class extends Component {
     #[Locked]
     public ?int $closingId = null;
 
-    public string $closeReason = '';
+    /** Chosen reason from the configurable list (select value). */
+    public string $closeReasonId = '';
+
+    public string $closeNote = '';
 
     #[Locked]
     public ?int $confirmingId = null;
@@ -234,22 +238,42 @@ new #[Title('Producción')] class extends Component {
     public function askClose(int $palletId): void
     {
         $this->closingId = $palletId;
-        $this->closeReason = '';
+        $this->closeReasonId = '';
+        $this->closeNote = '';
+        unset($this->closeReasons);
         $this->resetValidation();
         Flux::modal('close-pallet')->show();
     }
 
     public function close(CloseManually $close): void
     {
-        $this->validate(['closeReason' => ['nullable', 'string', 'max:300']], attributes: ['closeReason' => 'motivo']);
+        $this->validate([
+            'closeReasonId' => ['required', 'integer'],
+            'closeNote' => ['nullable', 'string', 'max:300'],
+        ], ['closeReasonId.required' => 'Escoge el motivo del cierre.'], ['closeReasonId' => 'motivo', 'closeNote' => 'observación']);
 
-        $this->run(function () use ($close): string {
-            $pallet = $close->handle(Auth::user(), (int) $this->closingId, $this->closeReason, $this->context());
+        $closed = $this->run(function () use ($close): string {
+            $pallet = $close->handle(Auth::user(), (int) $this->closingId, (int) $this->closeReasonId, $this->closeNote, $this->context());
 
             return "Estiba {$pallet->pallet_code} cerrada con {$pallet->boxes_count} cajas.";
         });
 
-        Flux::modal('close-pallet')->close();
+        if ($closed) {
+            Flux::modal('close-pallet')->close();
+        } else {
+            unset($this->closeReasons);
+        }
+    }
+
+    /**
+     * Active reasons for closing an incomplete pallet, in the configured order.
+     *
+     * @return Collection<int, PalletCloseReason>
+     */
+    #[Computed]
+    public function closeReasons(): Collection
+    {
+        return PalletCloseReason::query()->active()->ordered()->get(['id', 'name']);
     }
 
     public function palletize(int $palletId, ConfirmPalletized $palletize): void
@@ -593,10 +617,21 @@ new #[Title('Producción')] class extends Component {
         <form wire:submit="close" class="flex flex-col gap-4">
             <flux:heading size="lg">Cerrar estiba incompleta</flux:heading>
             <flux:text>La estiba se cierra con las cajas que tiene ahora. No recibe más lecturas y la siguiente caja abre una estiba nueva.</flux:text>
-            <flux:input wire:model="closeReason" label="Motivo (opcional)" maxlength="300" />
+            @if ($this->closeReasons->isEmpty())
+                <flux:callout variant="warning" icon="exclamation-triangle">
+                    No hay motivos de cierre configurados. Pide a un supervisor que los cree en Administración, Motivos de cierre.
+                </flux:callout>
+            @else
+                <flux:select wire:model="closeReasonId" label="Motivo" placeholder="Escoge el motivo…">
+                    @foreach ($this->closeReasons as $option)
+                        <flux:select.option :value="$option->id" wire:key="cr-{{ $option->id }}">{{ $option->name }}</flux:select.option>
+                    @endforeach
+                </flux:select>
+                <flux:input wire:model="closeNote" label="Observación (opcional)" maxlength="300" />
+            @endif
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button variant="filled">Cancelar</flux:button></flux:modal.close>
-                <flux:button type="submit" variant="danger" wire:loading.attr="disabled" wire:target="close">Cerrar estiba</flux:button>
+                <flux:button type="submit" variant="danger" wire:loading.attr="disabled" wire:target="close" :disabled="$this->closeReasons->isEmpty()">Cerrar estiba</flux:button>
             </div>
         </form>
     </flux:modal>

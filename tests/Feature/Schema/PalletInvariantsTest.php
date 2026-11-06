@@ -8,6 +8,7 @@ use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Transfers\Enums\TransferStatus;
 use App\Models\Pallet;
+use App\Models\PalletCloseReason;
 use App\Models\PalletStandard;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -131,7 +132,8 @@ class PalletInvariantsTest extends TestCase
     public function test_manual_close_needs_between_one_box_and_standard_minus_one_and_who_closed(): void
     {
         $user = User::factory()->create();
-        $close = fn (Pallet $p, ?int $by) => $p->forceFill(['physical_status' => PhysicalStatus::Finished, 'close_type' => CloseType::Manual, 'finished_at' => now(), 'closed_by' => $by])->save();
+        $reason = PalletCloseReason::query()->create(['name' => 'Fin de lote'])->id;
+        $close = fn (Pallet $p, ?int $by) => $p->forceFill(['physical_status' => PhysicalStatus::Finished, 'close_type' => CloseType::Manual, 'finished_at' => now(), 'closed_by' => $by, 'close_reason_id' => $reason])->save();
 
         $empty = Pallet::factory()->create(['standard_boxes_snapshot' => 10]);
         $this->assertDatabaseRejects(fn () => $close($empty, $user->id), 'pallets_manual_close_is_partial_check');
@@ -150,7 +152,7 @@ class PalletInvariantsTest extends TestCase
     {
         $user = User::factory()->create();
         $pallet = Pallet::factory()->withBoxes(7)->create(['standard_boxes_snapshot' => 10]);
-        $pallet->forceFill(['physical_status' => PhysicalStatus::Finished, 'close_type' => CloseType::Manual, 'finished_at' => now(), 'closed_by' => $user->id])->save();
+        $pallet->forceFill(['physical_status' => PhysicalStatus::Finished, 'close_type' => CloseType::Manual, 'finished_at' => now(), 'closed_by' => $user->id, 'close_reason_id' => PalletCloseReason::query()->create(['name' => 'Fin de lote'])->id])->save();
 
         $this->assertDatabaseRejects(fn () => $pallet->forceFill(['boxes_count' => 8])->save(), 'no acepta cajas');
         $this->assertDatabaseRejects(fn () => $pallet->fresh()?->forceFill(['closed_by' => User::factory()->create()->id])->save(), 'ya quedó registrado');

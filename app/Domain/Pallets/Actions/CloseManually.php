@@ -10,13 +10,16 @@ use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
 use App\Enums\Permission;
 use App\Models\Pallet;
+use App\Models\PalletCloseReason;
 use App\Models\User;
 use App\Services\TraceLogger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Closes an incomplete pallet by hand, keeping its real box count.
+ * Closes an incomplete pallet by hand, keeping its real box count. The
+ * person picks one of the active reasons of the configurable list and may
+ * add a note.
  *
  * It takes the same combination lock as ProcessScanEvent, so a scan and a
  * close for the same pallet run one after the other: if the scan goes
@@ -27,11 +30,16 @@ class CloseManually
 {
     public function __construct(private readonly TraceLogger $trace) {}
 
-    public function handle(User $user, int $palletId, ?string $reason, TraceContext $ctx): Pallet
+    public function handle(User $user, int $palletId, int $reasonId, ?string $note, TraceContext $ctx): Pallet
     {
         Gate::forUser($user)->authorize(Permission::PalletsOperate->value);
 
-        return DB::transaction(function () use ($user, $palletId, $reason, $ctx): Pallet {
+        $note = $note === null || trim($note) === '' ? null : trim($note);
+
+        return DB::transaction(function () use ($user, $palletId, $reasonId, $note, $ctx): Pallet {
+            $reason = PalletCloseReason::query()->active()->find($reasonId)
+                ?? throw PalletRuleViolation::closeReasonUnavailable();
+
             $identity = Pallet::query()->findOrFail($palletId, ['production_order_id', 'item_id', 'lot_code']);
             PalletLocks::combination($identity->production_order_id, $identity->item_id, $identity->lot_code);
 
@@ -50,12 +58,15 @@ class CloseManually
                 'close_type' => CloseType::Manual,
                 'finished_at' => now(),
                 'closed_by' => $user->id,
+                'close_reason_id' => $reason->id,
+                'close_note' => $note,
             ])->save();
 
             $this->trace->record($ctx, TraceEventType::PalletClosedManually, $pallet,
                 from: ['physical_status' => PhysicalStatus::Stacking->value],
                 to: ['physical_status' => PhysicalStatus::Finished->value, 'close_type' => CloseType::Manual->value, 'boxes_count' => $pallet->boxes_count],
-                reason: $reason === null || trim($reason) === '' ? null : trim($reason),
+                reason: $note === null ? $reason->name : "{$reason->name}: {$note}",
+                context: ['close_reason_id' => $reason->id, 'close_reason' => $reason->name, 'close_note' => $note],
             );
 
             return $pallet;

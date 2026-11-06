@@ -59,7 +59,7 @@ new #[Title('Detalle de estiba')] class extends Component {
     #[Computed]
     public function pallet(): Pallet
     {
-        return Pallet::query()->with(['item:id,code,description', 'standard:id,version,sap_source_key'])->findOrFail($this->palletId);
+        return Pallet::query()->with(['item:id,code,description', 'standard:id,version,sap_source_key', 'closeReason:id,name'])->findOrFail($this->palletId);
     }
 
     /**
@@ -175,7 +175,7 @@ new #[Title('Detalle de estiba')] class extends Component {
 
     <dl class="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Cajas</dt><dd class="text-2xl font-semibold tabular-nums">{{ $pallet->boxes_count }} / {{ $pallet->standard_boxes_snapshot }}</dd><dd class="text-xs text-zinc-500">{{ number_format($pallet->completionPercent(), 1, ',', '.') }} % · estándar v{{ $pallet->standard->version }}</dd></div>
-        <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Físico</dt><dd class="font-medium">{{ $pallet->physical_status->label() }}</dd><dd class="text-xs text-zinc-500">{{ $pallet->close_type?->label() }}</dd></div>
+        <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Físico</dt><dd class="font-medium">{{ $pallet->physical_status->label() }}</dd><dd class="text-xs text-zinc-500">{{ $pallet->close_type?->label() }}</dd>@if ($pallet->closeReason)<dd class="text-xs text-zinc-500">Motivo: {{ $pallet->closeReason->name }}@if ($pallet->close_note) · {{ $pallet->close_note }}@endif</dd>@endif</div>
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Recepción</dt><dd class="font-medium">{{ $pallet->receipt_status->label() }}</dd></div>
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Auditoría</dt><dd class="font-medium">{{ $pallet->audit_status->label() }}</dd></div>
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Calidad</dt><dd class="font-medium">{{ $pallet->quality_status->label() }}</dd></div>

@@ -34,6 +34,10 @@ class AuditLog extends Model
         'user.role_changed' => 'Cambio de rol',
         'user.deactivated' => 'Usuario desactivado',
         'user.reactivated' => 'Usuario reactivado',
+        'pallet_close_reason.created' => 'Motivo de cierre creado',
+        'pallet_close_reason.updated' => 'Motivo de cierre actualizado',
+        'pallet_close_reason.deactivated' => 'Motivo de cierre desactivado',
+        'pallet_close_reason.activated' => 'Motivo de cierre reactivado',
     ];
 
     /**
