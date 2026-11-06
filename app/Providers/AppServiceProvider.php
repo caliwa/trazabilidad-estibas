@@ -15,6 +15,7 @@ use App\Models\InventoryTransfer;
 use App\Models\Item;
 use App\Models\Pallet;
 use App\Models\PalletAudit;
+use App\Models\PalletCloseReason;
 use App\Models\PalletScanEvent;
 use App\Models\PalletStandard;
 use App\Models\ProductionOrder;
@@ -126,6 +127,7 @@ class AppServiceProvider extends ServiceProvider
             'production_receipt' => ProductionReceipt::class,
             'inventory_transfer' => InventoryTransfer::class,
             'box_label_batch' => BoxLabelBatch::class,
+            'pallet_close_reason' => PalletCloseReason::class,
         ]);
     }
 

@@ -46,6 +46,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable $started_at
  * @property CarbonImmutable|null $finished_at
  * @property int|null $closed_by
+ * @property int|null $close_reason_id
+ * @property string|null $close_note
  * @property CarbonImmutable|null $palletized_at
  * @property int|null $palletized_by
  * @property CarbonImmutable|null $labeled_at
@@ -114,6 +116,14 @@ class Pallet extends Model
     public function productionOrder(): BelongsTo
     {
         return $this->belongsTo(ProductionOrder::class);
+    }
+
+    /**
+     * @return BelongsTo<PalletCloseReason, $this>
+     */
+    public function closeReason(): BelongsTo
+    {
+        return $this->belongsTo(PalletCloseReason::class);
     }
 
     /**

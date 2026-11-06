@@ -100,6 +100,7 @@ new #[Title('Auditoría')] class extends Component {
         <flux:select wire:model.live="kind" label="Tipo">
             <flux:select.option value="">Todos</flux:select.option>
             <flux:select.option value="user">Usuarios y roles</flux:select.option>
+            <flux:select.option value="pallet_close_reason">Motivos de cierre</flux:select.option>
         </flux:select>
         <flux:select wire:model.live="user" label="Persona">
             <flux:select.option value="">Todas</flux:select.option>

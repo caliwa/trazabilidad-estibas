@@ -22,6 +22,8 @@ enum Permission: string
     case BoxLabelsChangeLot = 'box_labels.change_lot';
     /** Management indicators on the home page (production, CEDI, SAP), for supervisors. */
     case DashboardKpis = 'dashboard.kpis';
+    /** Maintains the list of reasons for closing an incomplete pallet. */
+    case CloseReasonsManage = 'close_reasons.manage';
     /** Production order board: progress against SAP, refresh from SAP, "ready to close" alert. */
     case OrdersView = 'orders.view';
     /** Evaluate a rejected scan event again after fixing a master. */

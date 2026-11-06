@@ -55,9 +55,11 @@ enum Role: string
                 Permission::TraceView,
             ],
             // Sees the discrepancies and enables a new blind count; follows the orders and pallets;
-            // generates box labels and may change their lot.
+            // generates box labels and may change their lot; keeps the list of reasons
+            // for closing an incomplete pallet.
             self::ProductionSupervisor => [
                 Permission::DashboardKpis,
+                Permission::CloseReasonsManage,
                 Permission::BoxLabelsPrint,
                 Permission::BoxLabelsChangeLot,
                 Permission::DiscrepanciesResolve,
