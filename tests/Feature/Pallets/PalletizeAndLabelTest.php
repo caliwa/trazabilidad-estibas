@@ -158,23 +158,25 @@ class PalletizeAndLabelTest extends TestCase
         $this->assertSame(['confirmation' => 'button', 'physical_status' => 'ETIQUETADO'], collect(TraceEvent::where('event', 'pallet.labeled')->sole()->to_state)->sortKeys()->all());
     }
 
-    public function test_with_scan_mode_only_this_pallets_qr_confirms_it(): void
+    public function test_with_scan_mode_only_a_box_of_this_pallet_confirms_it(): void
     {
         config(['traceability.decisions.label_confirmation' => 'scan']);
         $pallet = Pallet::factory()->palletized()->create();
         $other = Pallet::factory()->palletized()->create();
         $this->print($pallet);
 
-        foreach ([null, '', PalletQr::payload($other), $pallet->qr_token, 'TRZ2:'.$pallet->qr_token, PalletQr::PREFIX.substr($pallet->qr_token, 1), PalletQr::PREFIX.$pallet->qr_token."' OR 1=1"] as $tampered) {
+        // Nothing that is not a box read counts: no box, labels, tampered or injected text.
+        foreach ([null, '', PalletQr::payload($pallet), PalletQr::payload($other), $pallet->qr_token, 'TRZB:'.substr(str_repeat('a', 32), 1), 'TRZB:'.str_repeat('a', 32)."' OR 1=1", 'TRZB:'.str_repeat('a', 32)] as $tampered) {
             try {
                 $this->confirm($pallet, $tampered);
                 $this->fail('Debía rechazar '.var_export($tampered, true));
             } catch (PalletRuleViolation $e) {
-                $this->assertSame('El código leído no corresponde a esta estiba.', $e->getMessage());
+                $this->assertMatchesRegularExpression('/Lee el QR de una caja|no es el QR de una caja/', $e->getMessage());
             }
         }
 
-        $this->assertSame(PhysicalStatus::Labeled, $this->confirm($pallet, ' '.PalletQr::payload($pallet)."\n")->physical_status);
+        // A real box of this pallet confirms it (ManualBoxScanTest).
+        $this->assertSame(PhysicalStatus::Palletized, $pallet->refresh()->physical_status);
     }
 
     public function test_with_print_mode_the_first_print_labels_the_pallet_and_confirming_is_not_needed(): void

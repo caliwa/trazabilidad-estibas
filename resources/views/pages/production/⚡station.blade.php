@@ -1,7 +1,6 @@
 <?php
 
 use App\Domain\Pallets\Actions\CloseManually;
-use App\Domain\Pallets\Actions\ConfirmLabelByScan;
 use App\Domain\Pallets\Actions\RegisterManualBoxScan;
 use App\Domain\Pallets\Actions\ConfirmLabeled;
 use App\Domain\Pallets\Actions\ConfirmPalletized;
@@ -90,7 +89,15 @@ new #[Title('Producción')] class extends Component {
 
     public string $reprintReason = '';
 
-    public string $scannedQr = '';
+    /** Second read of the confirmation dialog: one box of the pallet where the label was stuck. */
+    public string $scannedBoxQr = '';
+
+    /** Why the last confirmation in the dialog was refused; the dialog stays open to read again. */
+    #[Locked]
+    public ?string $confirmError = null;
+
+    #[Locked]
+    public int $confirmTries = 0;
 
     /**
      * Last box read by hand: what the label said and where the box went.
@@ -103,11 +110,6 @@ new #[Title('Producción')] class extends Component {
     #[Locked]
     public ?string $boxError = null;
 
-    #[Locked]
-    public ?string $labelScanMessage = null;
-
-    #[Locked]
-    public bool $labelScanOk = false;
 
     public bool $showDatalogicDebug = true;
 
@@ -289,23 +291,6 @@ new #[Title('Producción')] class extends Component {
         ];
     }
 
-    /**
-     * The QR of the label already stuck on a pallet, read to confirm it is applied.
-     */
-    public function scanLabel(string $scanned, string $scanId): void
-    {
-        try {
-            $pallet = app(ConfirmLabelByScan::class)->handle(Auth::user(), $scanned, $this->context());
-            $this->labelScanOk = true;
-            $this->labelScanMessage = "Etiqueta de la estiba {$pallet->pallet_code} confirmada. Ya se puede pedir su recibo.";
-        } catch (PalletRuleViolation $e) {
-            $this->labelScanOk = false;
-            $this->labelScanMessage = $e->getMessage();
-        } finally {
-            unset($this->pending);
-        }
-    }
-
     public function askClose(int $palletId): void
     {
         $this->closingId = $palletId;
@@ -385,20 +370,37 @@ new #[Title('Producción')] class extends Component {
     public function askConfirmLabel(int $palletId): void
     {
         $this->confirmingId = $palletId;
-        $this->scannedQr = '';
+        $this->scannedBoxQr = '';
+        $this->confirmError = null;
         $this->resetValidation();
         Flux::modal('confirm-label')->show();
     }
 
+    /**
+     * With "scan", one box read from the physical pallet where the label was
+     * stuck: it must be a box of the pallet whose button was pressed. A
+     * refusal stays in the dialog to read another box, as many times as needed.
+     */
     public function confirmLabel(ConfirmLabeled $confirm): void
     {
-        $this->validate(['scannedQr' => ['nullable', 'string', 'max:100']]);
+        $this->validate(['scannedBoxQr' => ['nullable', 'string', 'max:200']]);
 
-        $ok = $this->run(fn () => 'Etiqueta de '.$confirm->handle(Auth::user(), (int) $this->confirmingId, $this->scannedQr, $this->context())->pallet_code.' confirmada.');
+        try {
+            $pallet = $confirm->handle(Auth::user(), (int) $this->confirmingId, $this->scannedBoxQr, $this->context());
+        } catch (PalletRuleViolation $e) {
+            $this->confirmError = $e->getMessage();
+            $this->confirmTries++;
+            // Read another box.
+            $this->scannedBoxQr = '';
 
-        if ($ok) {
-            Flux::modal('confirm-label')->close();
+            return;
+        } finally {
+            unset($this->pending);
         }
+
+        $this->confirmError = null;
+        Flux::modal('confirm-label')->close();
+        Flux::toast(variant: 'success', text: "Etiqueta de {$pallet->pallet_code} confirmada en la estiba correcta.");
     }
 
     /**
@@ -742,23 +744,6 @@ new #[Title('Producción')] class extends Component {
         @endif
     </div>
 
-    @if ($this->labelMode() === LabelConfirmation::Scan)
-        @can('pallets.label')
-            <div class="grid gap-4 rounded-xl border border-zinc-200 p-5 lg:grid-cols-2 dark:border-zinc-700">
-                <div class="flex flex-col gap-3">
-                    <flux:heading size="lg" level="2">Confirmar etiqueta pegada</flux:heading>
-                    <flux:text>Después de pegar la etiqueta en la estiba paletizada, lee su QR. Con eso queda etiquetada.</flux:text>
-                    <x-scanner action="scanLabel" label="QR de la estiba" placeholder="Lee el QR de la etiqueta de la estiba" camera />
-                </div>
-                <div aria-live="polite">
-                    @if ($labelScanMessage)
-                        <div @class(['flex h-full items-center rounded-xl border p-5', 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200' => $labelScanOk, 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200' => ! $labelScanOk]) role="status">{{ $labelScanMessage }}</div>
-                    @endif
-                </div>
-            </div>
-        @endcan
-    @endif
-
     <div>
         <flux:heading size="lg" level="2" class="mb-3">Por paletizar y etiquetar</flux:heading>
         @if ($this->pending->isEmpty())
@@ -837,13 +822,43 @@ new #[Title('Producción')] class extends Component {
         </form>
     </flux:modal>
 
-    <flux:modal name="confirm-label" class="w-full max-w-md">
+    <flux:modal name="confirm-label" class="w-full max-w-lg">
         <form wire:submit="confirmLabel" class="flex flex-col gap-4">
-            <flux:heading size="lg">Confirmar etiqueta aplicada</flux:heading>
+            <flux:heading size="lg">Confirmar etiqueta aplicada{{ $confirmingId ? ' · '.$this->pending->firstWhere('id', $confirmingId)?->pallet_code : '' }}</flux:heading>
             @if ($this->labelMode() === LabelConfirmation::Scan)
-                <flux:text>Lee con el escáner el QR de la etiqueta ya pegada en la estiba.</flux:text>
-                <flux:input wire:model="scannedQr" label="Código leído" autofocus autocomplete="off" />
-                <x-qr-camera-button model="scannedQr" submit="confirmLabel" />
+                <flux:text>Lee el QR de <strong>una caja de la estiba donde pegaste la etiqueta</strong> (mejor del centro, no del borde). La aplicación comprueba que esa caja sea de esta estiba, así la etiqueta queda confirmada en la estiba correcta.</flux:text>
+                {{-- Hand readers type like a keyboard: once the box's QR is complete (or Enter comes) it confirms. No click needed. --}}
+                <div class="flex flex-col gap-3"
+                    x-data="{
+                        busy: false,
+                        boxDone(v) { return /TRZB.[0-9a-f]{32}/i.test(v); },
+                        // One confirmation at a time: a reader that also sends Enter must not confirm twice.
+                        go() {
+                            if (this.busy || $refs.box.value.trim() === '') return;
+                            this.busy = true;
+                            $wire.confirmLabel().finally(() => { this.busy = false; });
+                        },
+                    }">
+                    @if ($confirmError)
+                        {{-- Keyed by try: each refusal shows anew and puts the cursor back on the box. --}}
+                        <div wire:key="confirm-error-{{ $confirmTries }}" x-init="$nextTick(() => $refs.box.focus())" role="alert" data-label-result="error" class="flex items-center gap-3 rounded-xl border-4 border-red-700 bg-red-600 p-4 text-white shadow-lg">
+                            <flux:icon.x-circle class="size-10 shrink-0" />
+                            <div>
+                                <div class="font-bold uppercase tracking-wide">Etiqueta no confirmada</div>
+                                <div class="text-sm">{{ $confirmError }}</div>
+                            </div>
+                        </div>
+                    @endif
+                    <label class="flex flex-col gap-1">
+                        <span class="text-sm font-medium text-zinc-800 dark:text-white">QR de una caja de la estiba</span>
+                        {{-- autofocus: the dialog puts the cursor here when it opens, ready for the reader. --}}
+                        <input x-ref="box" wire:model="scannedBoxQr" autofocus autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Lee el QR de una caja de la estiba"
+                            x-on:input="if (boxDone($event.target.value)) $nextTick(() => go())"
+                            x-on:keydown.enter.prevent="go()" x-on:keydown.tab.prevent="go()"
+                            class="block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-base text-zinc-900 shadow-xs focus:border-zinc-500 focus:outline-none dark:border-white/10 dark:bg-white/10 dark:text-white" />
+                    </label>
+                    <x-qr-camera-button model="scannedBoxQr" submit="confirmLabel" />
+                </div>
             @else
                 <flux:text>Confirma que la etiqueta quedó pegada y legible en la estiba.</flux:text>
             @endif

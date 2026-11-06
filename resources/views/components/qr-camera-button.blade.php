@@ -1,8 +1,8 @@
 @props([
     // Livewire property that receives the text read.
     'model',
-    // Livewire method called right after, as if the person had pressed the button.
-    'submit',
+    // Livewire method called right after, as if the person had pressed the button; null only fills the field.
+    'submit' => null,
 ])
 
 {{--
@@ -22,8 +22,7 @@
             try {
                 this.stop = await window.QrCamera.start(this.$refs.video, (text) => {
                     this.close();
-                    $wire.set(@js($model), text.replace(/\s+$/, ''), false);
-                    $wire.call(@js($submit));
+                    @if ($submit) $wire.set(@js($model), text.replace(/\s+$/, ''), false); $wire.call(@js($submit)); @else $wire.set(@js($model), text.replace(/\s+$/, '')); @endif
                 });
             } catch (e) { this.open = false; alert('No se pudo abrir la cámara: ' + e.message); }
         },

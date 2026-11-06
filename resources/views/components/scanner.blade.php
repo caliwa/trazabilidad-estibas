@@ -10,6 +10,8 @@
     // The field takes the cursor back on its own whenever nothing else is being typed in or no
     // dialog is open, so a hand reader always types into it without clicking it first.
     'keepFocus' => false,
+    // Takes the cursor when it appears, even on a page whose field keeps it (a step that expects the next read).
+    'claimFocus' => false,
 ])
 
 {{--
@@ -48,7 +50,7 @@
             if (read.trim() === '') return;
             $wire.call(@js($action), read, this.id());
             // After any read the cursor goes to the field that keeps it, if the page has one.
-            this.$nextTick(() => (window.scannerKeepsFocus?.isConnected ? window.scannerKeepsFocus : this.$refs.field)?.focus());
+            this.$nextTick(() => (! @js((bool) $claimFocus) && window.scannerKeepsFocus?.isConnected ? window.scannerKeepsFocus : this.$refs.field)?.focus());
         },
         keepFocus() {
             const field = this.$refs.field;
@@ -104,7 +106,7 @@
             this.$nextTick(() => this.$refs.field?.focus());
         },
     }"
-    x-init="@if ($keepFocus) keepFocus(); @endif $nextTick(() => (window.scannerKeepsFocus?.isConnected ? window.scannerKeepsFocus : $refs.field)?.focus())"
+    x-init="@if ($keepFocus) keepFocus(); @endif $nextTick(() => (! @js((bool) $claimFocus) && window.scannerKeepsFocus?.isConnected ? window.scannerKeepsFocus : $refs.field)?.focus())"
     {{ $attributes->class('flex flex-col gap-2') }}
 >
     <label class="text-sm font-medium text-zinc-800 dark:text-white">{{ $label }}</label>

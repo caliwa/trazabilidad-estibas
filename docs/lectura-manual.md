@@ -5,13 +5,13 @@
 | Dónde | Para qué | Permiso |
 |---|---|---|
 | Estación de producción → **Lectura manual de cajas** | Leer la etiqueta de cada caja y llenar la estiba | `pallets.operate` |
-| Estación de producción → **Confirmar etiqueta pegada** | Leer el QR de la etiqueta ya pegada en la estiba paletizada | `pallets.label` |
+| Estación de producción → **Por paletizar y etiquetar** → **Confirmar etiqueta aplicada** | Leer el QR de una caja de la estiba donde se pegó la etiqueta | `pallets.label` |
 | Conteo ciego | Buscar la estiba leyendo su QR | `audits.count` |
 
 Las tres usan el mismo campo de escáner:
 - **Lector de mano** USB o Bluetooth, de los que escriben como teclado. Se deja el cursor en el campo y se lee; la lectura se envía sola cuando el lector deja de escribir.
   En la estación de producción el campo **Etiqueta de la caja** recupera el cursor solo: al cargar la página, después de leer en otro campo, al cerrar una ventana o al hacer clic en otra parte. No hay que hacer clic en él para leer. Si el operario pone el cursor en otro campo para escribir, se respeta hasta que sale de ahí. En celulares no lo hace, para no abrir el teclado sobre la pantalla (ahí se usa la cámara).
-- **Cámara del celular:** al leer las cajas y el QR de la estiba (confirmar etiqueta pegada, el diálogo "Confirmar etiqueta aplicada", conteo ciego y calidad) aparece el botón "Cámara" o "Leer con la cámara" en cualquier celular: Chrome en Android, Safari en iPhone y otros. Abre la cámara trasera, lee el QR y lo envía solo. Donde el navegador no trae lector de QR propio, lo decodifica la aplicación (jsQR).
+- **Cámara del celular:** al leer las cajas y el QR de la estiba (el diálogo "Confirmar etiqueta aplicada", conteo ciego y calidad) aparece el botón "Cámara" o "Leer con la cámara" en cualquier celular: Chrome en Android, Safari en iPhone y otros. Abre la cámara trasera, lee el QR y lo envía solo. Donde el navegador no trae lector de QR propio, lo decodifica la aplicación (jsQR).
 - La cámara solo funciona si la aplicación se abre por **HTTPS** (o en `localhost`). Por `http://` el navegador no la ofrece y el botón no aparece. La aplicación permite la cámara solo para sus propias páginas (`Permissions-Policy: camera=(self)`).
 
 ## 2. Lectura de una caja
@@ -42,10 +42,13 @@ Si el producto ya tiene un estándar, se usa ese.
 
 ## 4. Configuración
 
-- `TRACE_LABEL_CONFIRMATION=scan`: la etiqueta se confirma leyendo su QR (DP-03). Es el valor por defecto. Revisa que en el `.env` no esté vacío.
-- `TRACE_TEST_PALLET_BOXES=40`: estándar de prueba.
-- La lectura manual no depende de `TRACE_SCAN_INGESTION_ENABLED` (DP-01), que es solo para el endpoint de sensores.
-- Un lector fijo en la línea lee el mismo QR y cuenta con estas mismas reglas: ver `docs/lectura-automatica.md`. Una caja leída por el lector y a mano cuenta una vez.
+- `TRACE_LABEL_CONFIRMATION=scan`: la etiqueta se confirma leyendo una caja de la estiba (DP-03). Es el valor por defecto. Revisa que en el `.env` no esté vacío.
+
+## Confirmar la etiqueta pegada
+
+Leer el QR de la etiqueta solo probaba que se imprimió, no en qué estiba quedó. Ahora se confirma desde el botón **Confirmar etiqueta aplicada** de la estiba en "Por paletizar y etiquetar" (la estiba cuya etiqueta se acaba de imprimir): la ventana abre con el cursor listo y pide leer el QR de **una caja de la estiba donde se pegó la etiqueta** (mejor del centro, no del borde). Al leerla se confirma sola, sin clic.
+
+La aplicación comprueba que esa caja se contó en la estiba del botón. Si es así, la estiba queda etiquetada y la bitácora guarda la caja usada. Si la caja es de otra estiba, la ventana muestra en rojo "La caja leída es de EST-B, no de EST-A", no se confirma y queda registrado (`pallet.label_mismatch`); se puede leer otra caja las veces que haga falta. También se puede leer con la cámara del celular.
 
 ## 5. Pruebas
 
