@@ -102,6 +102,10 @@ class RegisterManualBoxScan
 
         // Already read: said plainly, without sending it to be counted (that would log a reused-id alarm).
         $previous = PalletScanEvent::query()->with('pallet:id,pallet_code')->where('device_id', $this->device()->id)->where('external_event_id', $boxCode)->first();
+        // A voided box stays out for good (VoidBox).
+        if ($previous !== null && $previous->void()->exists()) {
+            throw PalletRuleViolation::boxAlreadyVoided($boxCode);
+        }
         if ($previous !== null) {
             throw $previous->processing_status === ScanEventStatus::Accepted && $previous->pallet !== null
                 ? PalletRuleViolation::boxAlreadyRead($boxCode, $previous->pallet->pallet_code)

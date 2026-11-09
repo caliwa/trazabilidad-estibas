@@ -8,7 +8,6 @@ use App\Domain\Audits\Enums\DiscrepancyStatus;
 use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Orders\Enums\OrderStage;
 use App\Domain\Pallets\Enums\PhysicalStatus;
-use App\Domain\Pallets\Enums\ScanEventStatus;
 use App\Domain\Quality\Enums\QualityStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Transfers\Enums\TransferStatus;
@@ -46,7 +45,7 @@ class DashboardQuery
 
         $boxes = $this->boxesBetween($today, $now);
         // The average pace counts from the first box of the day, not from midnight.
-        $firstRead = PalletScanEvent::query()->where('processing_status', ScanEventStatus::Accepted)->where('received_at', '>=', $today)->min('received_at');
+        $firstRead = PalletScanEvent::query()->counted()->where('received_at', '>=', $today)->min('received_at');
         $hoursSoFar = max(1, ($firstRead === null ? 0 : CarbonImmutable::parse((string) $firstRead)->diffInMinutes($now)) / 60);
         $stacking = Pallet::query()->where('physical_status', PhysicalStatus::Stacking);
 
@@ -178,7 +177,7 @@ class DashboardQuery
 
     private function boxesBetween(CarbonImmutable $from, CarbonImmutable $to): int
     {
-        return PalletScanEvent::query()->where('processing_status', ScanEventStatus::Accepted)->whereBetween('received_at', [$from, $to])->count();
+        return PalletScanEvent::query()->counted()->whereBetween('received_at', [$from, $to])->count();
     }
 
     /**
@@ -190,7 +189,7 @@ class DashboardQuery
     private function hourly(CarbonImmutable $today, CarbonImmutable $yesterday, CarbonImmutable $now): array
     {
         $byHour = fn (CarbonImmutable $from, CarbonImmutable $to) => PalletScanEvent::query()
-            ->where('processing_status', ScanEventStatus::Accepted)->whereBetween('received_at', [$from, $to])
+            ->counted()->whereBetween('received_at', [$from, $to])
             ->selectRaw('extract(hour from received_at at time zone ?)::int as h, count(*) as n', [config('app.timezone')])
             ->groupBy('h')->pluck('n', 'h')->map(fn ($n) => (int) $n)->all();
 
@@ -208,7 +207,7 @@ class DashboardQuery
      */
     private function daily(CarbonImmutable $from, CarbonImmutable $now): array
     {
-        $byDay = PalletScanEvent::query()->where('processing_status', ScanEventStatus::Accepted)->whereBetween('received_at', [$from, $now])
+        $byDay = PalletScanEvent::query()->counted()->whereBetween('received_at', [$from, $now])
             ->selectRaw('(received_at at time zone ?)::date as d, count(*) as n', [config('app.timezone')])
             ->groupBy('d')->pluck('n', 'd')->map(fn ($n) => (int) $n)->all();
 

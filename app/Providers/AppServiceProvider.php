@@ -9,6 +9,8 @@ use App\Integrations\Sap\ServiceLayer\ServiceLayerClient;
 use App\Integrations\Sap\ServiceLayer\ServiceLayerGateway;
 use App\Models\BoxConversionFactor;
 use App\Models\BoxLabelBatch;
+use App\Models\BoxVoid;
+use App\Models\BoxVoidReason;
 use App\Models\Device;
 use App\Models\DiscrepancyCase;
 use App\Models\InventoryTransfer;
@@ -128,6 +130,8 @@ class AppServiceProvider extends ServiceProvider
             'inventory_transfer' => InventoryTransfer::class,
             'box_label_batch' => BoxLabelBatch::class,
             'pallet_close_reason' => PalletCloseReason::class,
+            'box_void_reason' => BoxVoidReason::class,
+            'box_void' => BoxVoid::class,
         ]);
     }
 

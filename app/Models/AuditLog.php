@@ -38,6 +38,10 @@ class AuditLog extends Model
         'pallet_close_reason.updated' => 'Motivo de cierre actualizado',
         'pallet_close_reason.deactivated' => 'Motivo de cierre desactivado',
         'pallet_close_reason.activated' => 'Motivo de cierre reactivado',
+        'box_void_reason.created' => 'Motivo de anulación creado',
+        'box_void_reason.updated' => 'Motivo de anulación actualizado',
+        'box_void_reason.deactivated' => 'Motivo de anulación desactivado',
+        'box_void_reason.activated' => 'Motivo de anulación reactivado',
     ];
 
     /**

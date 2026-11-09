@@ -21,6 +21,8 @@ enum TraceEventType: string
     case LabelReprinted = 'label.reprinted';
     case PalletLabeled = 'pallet.labeled';
     case PalletLabelMismatch = 'pallet.label_mismatch';
+    case BoxVoided = 'box.voided';
+    case PalletReopened = 'pallet.reopened';
 
     case ReceiptRequested = 'receipt.requested';
     case ReceiptConfirmed = 'receipt.confirmed';
@@ -71,6 +73,8 @@ enum TraceEventType: string
             self::LabelReprinted => 'Etiqueta reimpresa',
             self::PalletLabeled => 'Etiqueta aplicada',
             self::PalletLabelMismatch => 'Etiqueta pegada en otra estiba',
+            self::BoxVoided => 'Caja anulada',
+            self::PalletReopened => 'Estiba reabierta por anulación de caja',
             self::ReceiptRequested => 'Recibo de producción solicitado',
             self::ReceiptConfirmed => 'Recibo de producción confirmado en SAP',
             self::ReceiptFailed => 'Recibo de producción fallido',

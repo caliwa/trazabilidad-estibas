@@ -2,9 +2,11 @@
 
 namespace Tests\Feature\Pages;
 
-use App\Actions\Pallets\ManagePalletCloseReasons;
+use App\Actions\Pallets\ManageReasons;
+use App\Domain\Pallets\Enums\ReasonList;
 use App\Enums\Role;
 use App\Models\AuditLog;
+use App\Models\BoxVoidReason;
 use App\Models\PalletCloseReason;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -12,7 +14,7 @@ use Livewire\Livewire;
 use Tests\Concerns\CreatesUsers;
 use Tests\TestCase;
 
-class PalletCloseReasonsTest extends TestCase
+class ReasonsPageTest extends TestCase
 {
     use CreatesUsers, RefreshDatabase;
 
@@ -26,23 +28,23 @@ class PalletCloseReasonsTest extends TestCase
     public function test_supervisors_and_admins_manage_the_list_other_roles_do_not(): void
     {
         foreach ([Role::Admin, Role::ProductionSupervisor] as $role) {
-            $this->actingAs($this->userWithRole($role))->get(route('admin.close-reasons'))->assertOk()->assertSee('Motivos de cierre');
+            $this->actingAs($this->userWithRole($role))->get(route('admin.reasons'))->assertOk()->assertSee('Motivos de cierre');
         }
 
         foreach ([Role::TraceabilityAdmin, Role::ProductionOperator, Role::Quality, Role::LogisticsOperator, Role::Viewer] as $role) {
             $user = $this->userWithRole($role);
-            $this->actingAs($user)->get(route('admin.close-reasons'))->assertForbidden();
-            Livewire::actingAs($user)->test('pages::admin.close-reasons')->assertForbidden();
+            $this->actingAs($user)->get(route('admin.reasons'))->assertForbidden();
+            Livewire::actingAs($user)->test('pages::admin.reasons')->assertForbidden();
         }
 
         $this->expectException(AuthorizationException::class);
-        app(ManagePalletCloseReasons::class)->create($this->userWithRole(Role::ProductionOperator), ['name' => 'X', 'sort_order' => 0]);
+        app(ManageReasons::class)->create($this->userWithRole(Role::ProductionOperator), ReasonList::PalletClose, ['name' => 'X', 'sort_order' => 0]);
     }
 
     public function test_create_edit_and_deactivate_a_reason_with_audit(): void
     {
         $supervisor = $this->userWithRole(Role::ProductionSupervisor);
-        $page = Livewire::actingAs($supervisor)->test('pages::admin.close-reasons')
+        $page = Livewire::actingAs($supervisor)->test('pages::admin.reasons')
             ->assertSee('No hay motivos activos')
             ->call('create')
             ->set('form.name', '  Fin   de turno ')
@@ -71,7 +73,26 @@ class PalletCloseReasonsTest extends TestCase
 
     public function test_the_name_is_required(): void
     {
-        Livewire::actingAs($this->userWithRole(Role::Admin))->test('pages::admin.close-reasons')
+        Livewire::actingAs($this->userWithRole(Role::Admin))->test('pages::admin.reasons')
             ->call('create')->set('form.name', '')->call('save')->assertHasErrors(['form.name' => 'required']);
+    }
+
+    public function test_the_void_reasons_live_in_their_own_list(): void
+    {
+        $supervisor = $this->userWithRole(Role::ProductionSupervisor);
+        PalletCloseReason::query()->create(['name' => 'Fin de turno']);
+
+        Livewire::actingAs($supervisor)->test('pages::admin.reasons')
+            ->set('list', 'anulacion')
+            ->assertSee('Cajas anuladas')
+            ->assertDontSee('Fin de turno')
+            ->call('create')->set('form.name', 'Caja averiada')->call('save')->assertHasNoErrors()
+            ->assertSee('Caja averiada');
+
+        $this->assertSame('Caja averiada', BoxVoidReason::query()->sole()->name);
+        $this->assertSame(1, PalletCloseReason::query()->count());
+        $this->assertSame('box_void_reason.created', AuditLog::query()->latest('id')->value('action'));
+
+        $this->actingAs($supervisor)->get(route('admin.reasons', ['lista' => 'anulacion']))->assertOk()->assertSee('Caja averiada');
     }
 }
