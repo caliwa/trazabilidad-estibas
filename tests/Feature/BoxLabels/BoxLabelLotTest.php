@@ -149,8 +149,7 @@ class BoxLabelLotTest extends TestCase
         $order = $this->ready();
         $batch = $this->generate($this->operator, $order, 2);
 
-        // Downloading the ZPL is not a print.
-        $this->actingAs($this->operator)->get(route('box-labels.zpl', $batch))->assertOk();
+        // Generated but not printed: the lot can still change.
         $this->assertSame('33128-A', $this->generate($this->supervisor, $order, 1, '33128-A')->lot_code);
 
         // A print the Zebra did not take is not a print either.
@@ -219,5 +218,37 @@ class BoxLabelLotTest extends TestCase
             ->set('docNum', '33128')->call('consult')
             ->assertSee('Ya tiene etiquetas impresas en la Zebra')
             ->assertDontSee('Vacío usa');
+    }
+
+    public function test_a_printed_batch_is_never_printed_again(): void
+    {
+        $order = $this->ready();
+        $batch = $this->generate($this->operator, $order, 2);
+        $this->assertTrue($this->print($batch)['success']);
+
+        $again = $this->print($batch);
+        $this->assertFalse($again['success']);
+        $this->assertStringContainsString('ya se imprimieron', $again['message']);
+        $this->assertSame(1, BoxLabelPrint::query()->count());
+
+        // The database refuses a second print record too.
+        try {
+            DB::transaction(fn () => DB::table('box_label_prints')->insert([
+                'box_label_batch_id' => $batch->id, 'production_order_id' => $order->id, 'lot_code' => $batch->lot_code,
+                'labels' => 2, 'printer' => 'x', 'printed_by' => $this->operator->id, 'printed_at' => now(),
+            ]));
+            $this->fail('La base aceptó una segunda impresión de la tanda.');
+        } catch (QueryException $e) {
+            $this->assertStringContainsString('no se vuelven a imprimir', $e->getMessage());
+        }
+
+        // The page no longer offers it; boxes still without a label get a new batch that continues the sequence.
+        Livewire::actingAs($this->operator)->test('pages::box-labels.index')
+            ->set('docNum', '33128')->call('consult')
+            ->assertSee('No se reimprime')
+            ->assertSee('Cada tanda se imprime una sola vez')
+            ->call('printBatchDirect', $batch->id);
+        $this->assertSame(1, BoxLabelPrint::query()->count());
+        $this->assertSame('33128293-0003', BoxLabel::query()->where('box_label_batch_id', $this->generate($this->operator, $order, 1)->id)->value('code'));
     }
 }

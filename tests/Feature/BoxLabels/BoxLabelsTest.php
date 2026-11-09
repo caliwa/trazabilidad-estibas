@@ -401,26 +401,21 @@ class BoxLabelsTest extends TestCase
             ->call('generate');
 
         $batch = BoxLabelBatch::sole();
-        $page->assertSee('Descargar ZPL (12 etiquetas)')
+        $page->assertSee('Imprimir en Zebra (12 etiquetas)')
+            ->assertDontSee('Descargar ZPL')
             ->assertSee(BoxQr::payload((string) BoxLabel::query()->where('box_label_batch_id', $batch->id)->orderBy('sequence')->value('qr_token')))
             ->assertSee('Caja 33128293-0001')
             ->assertSee(Itf14::readable($batch->barcode));
 
-        $response = $this->actingAs($this->operator)->get(route('box-labels.zpl', $batch));
-        $response->assertOk()->assertHeader('Content-Disposition', 'attachment; filename="OF33128-lote33128293-12cajas.zpl"');
-        $this->assertSame($batch->zpl, $response->getContent());
-        $this->assertSame(TraceEventType::BoxLabelsDownloaded->value, TraceEvent::query()->latest('id')->value('event'));
+        // No ZPL download: the labels go to paper only through the Zebra, once.
+        $this->actingAs($this->operator)->get('/box-labels/batches/'.$batch->id.'/zpl')->assertNotFound();
     }
 
-    public function test_the_page_and_the_download_need_the_permission(): void
+    public function test_the_page_needs_the_permission(): void
     {
-        $batch = $this->generate($this->ready(), 1);
-
         $this->actingAs($this->userWithRole(Role::TraceabilityAdmin))->get(route('box-labels.index'))->assertOk();
         foreach ([Role::LogisticsOperator, Role::Viewer] as $role) {
-            $user = $this->userWithRole($role);
-            $this->actingAs($user)->get(route('box-labels.index'))->assertForbidden();
-            $this->actingAs($user)->get(route('box-labels.zpl', $batch))->assertForbidden();
+            $this->actingAs($this->userWithRole($role))->get(route('box-labels.index'))->assertForbidden();
         }
     }
 
