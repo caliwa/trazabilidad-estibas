@@ -26,7 +26,7 @@ Al leerlo:
 
 La pantalla muestra lo que se sabe de esa caja (OF, producto, lote, código de caja, vence) y cómo va la estiba (cajas / estándar). Si la caja no se cuenta, dice por qué.
 
-**Cada caja se cuenta una sola vez.** El código de la caja (lote + consecutivo, por ejemplo `33128293-0007`, impreso debajo del QR) es el identificador de la lectura, y la base de datos lo acepta una sola vez. Leer la misma caja otra vez, un reintento de la red o un lector que dispara dos veces, aunque sea desde dos estaciones al mismo tiempo, no cuenta de nuevo. La pantalla dice "La caja … ya fue leída y está en la estiba …".
+**Cada caja se cuenta una sola vez, por cualquier tipo de lectura.** El token del QR (o el código de caja, lote + consecutivo, por ejemplo `33128293-0007`, impreso debajo del QR) identifica la caja. Cada lectura guardada queda ligada a su etiqueta (`pallet_scan_events.box_label_id`, lo llena la base de datos misma al guardar la lectura) y un índice único (`pallet_scan_events_one_per_box`) acepta **una sola lectura por caja**, venga de la lectura manual, la PDA, la cámara, el lector fijo de la línea o un dispositivo por la API, y aunque llegue desde dos equipos al mismo tiempo. Si ya está leída, la pantalla dice "La caja … ya fue leída y está en la estiba …" y no suma. Una caja anulada tampoco se vuelve a leer.
 
 **Etiquetas anteriores:** las que llevaban el texto dentro del QR ya no se aceptan. Hay que reimprimir esos lotes.
 
@@ -64,3 +64,11 @@ La aplicación comprueba que esa caja se contó en la estiba del botón. Si es a
 - permisos;
 - confirmación de etiqueta por lectura;
 - pantallas de la estación y del conteo ciego.
+
+## 6. Regla de un token, una lectura (base de datos)
+
+- `pallet_scan_events.box_label_id` liga cada lectura a la etiqueta de su caja. Lo llena el trigger `pallet_scan_events_box_link` al insertar, a partir del identificador de la lectura: el código de caja o el token (solo o dentro del texto del QR). No depende de que la aplicación lo mande.
+- El índice único `pallet_scan_events_one_per_box` deja una sola lectura por etiqueta, cualquiera sea el dispositivo.
+- La caja de una lectura no se puede cambiar después (`pallet_scan_events_guard`).
+- Al migrar se ligaron las lecturas que ya existían. Si alguna caja tenía más de una lectura contada de antes, solo la primera quedó ligada y las otras quedan como estaban. `php artisan boxes:duplicates` las lista para revisarlas y, si corresponde, anular la sobrante.
+- Pruebas: `BoxReadOnceTest` (la base rechaza la segunda lectura por QR, token o código desde otro dispositivo; sensor y mano en los dos órdenes; API y estación) y `ScanEventApiTest`.

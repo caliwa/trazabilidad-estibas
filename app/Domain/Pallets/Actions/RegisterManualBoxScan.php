@@ -79,12 +79,46 @@ class RegisterManualBoxScan
         return $this->count($scanned, $ctx);
     }
 
+    /**
+     * A box read sent by a device through the API (POST /api/v1/scan-events),
+     * whose event id is the box's QR, token or code: same rules, same single
+     * read per box. The order, product and lot always come from the box.
+     */
+    public function fromDevice(Device $device, string $scanned, TraceContext $ctx): ManualBoxScan
+    {
+        if (! $device->active || $device->code === self::DEVICE_CODE) {
+            throw new \InvalidArgumentException("El dispositivo {$device->code} no puede registrar lecturas de cajas.");
+        }
+
+        $box = self::boxNamedBy($scanned) ?? throw PalletRuleViolation::notABoxLabel();
+
+        return $this->countBox($box, $ctx);
+    }
+
+    /**
+     * The printed box a device's event id names: the QR text, the token alone or the box code.
+     */
+    public static function boxNamedBy(string $eventId): ?BoxLabel
+    {
+        $token = BoxQr::tokenFrom($eventId) ?? BoxQr::typedToken($eventId);
+
+        return BoxLabel::query()->with('batch')
+            ->when($token !== null, fn ($q) => $q->where('qr_token', $token), fn ($q) => $q->where('code', trim($eventId)))
+            ->first();
+    }
+
     private function count(string $scanned, TraceContext $ctx): ManualBoxScan
     {
         // The QR only names the box; everything else comes from the label printed for it.
         $token = BoxQr::tokenFrom($scanned)
             ?? throw (PalletQr::tokenFrom($scanned) !== null ? PalletRuleViolation::palletQrInBoxField() : PalletRuleViolation::notABoxLabel());
         $box = BoxLabel::query()->with('batch')->where('qr_token', $token)->first() ?? throw PalletRuleViolation::unknownBoxQr();
+
+        return $this->countBox($box, $ctx);
+    }
+
+    private function countBox(BoxLabel $box, TraceContext $ctx): ManualBoxScan
+    {
         $batch = $box->batch;
         $boxCode = $box->code;
         $lot = $box->lot_code;
@@ -100,8 +134,12 @@ class RegisterManualBoxScan
             throw PalletRuleViolation::boxItemMismatch($order->ref, $item->code, $batch->item_code);
         }
 
-        // Already read: said plainly, without sending it to be counted (that would log a reused-id alarm).
-        $previous = PalletScanEvent::query()->with('pallet:id,pallet_code')->where('device_id', $this->device()->id)->where('external_event_id', $boxCode)->first();
+        // Already read, by any device and in any way (its token is tied to one read in the database):
+        // said plainly, without sending it to be counted (that would log a reused-id alarm).
+        $previous = PalletScanEvent::query()->with('pallet:id,pallet_code')
+            ->where(fn ($q) => $q->where('box_label_id', $box->id)->orWhere(fn ($q) => $q->where('device_id', $this->device()->id)->where('external_event_id', $boxCode)))
+            ->orderBy('id')
+            ->first();
         // A voided box stays out for good (VoidBox).
         if ($previous !== null && $previous->void()->exists()) {
             throw PalletRuleViolation::boxAlreadyVoided($boxCode);
