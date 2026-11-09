@@ -9,6 +9,11 @@ use DomainException;
  */
 class ReceiptRuleViolation extends DomainException
 {
+    public static function orderAtLimit(string $ref, int $limit): self
+    {
+        return new self("La OF {$ref} ya llegó al {$limit} % de lo planificado. Hay que cerrar la OF en SAP. Si producción debe continuar, el supervisor de producción la habilita en el Tablero de OF.");
+    }
+
     public static function noPallets(): self
     {
         return new self('Selecciona al menos una estiba.');

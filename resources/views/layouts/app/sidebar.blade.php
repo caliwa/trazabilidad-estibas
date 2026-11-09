@@ -58,7 +58,7 @@
                     </flux:sidebar.group>
                 @endcan
 
-                @canany(['users.manage', 'audit.view', 'ops.alerts', 'close_reasons.manage'])
+                @canany(['users.manage', 'audit.view', 'ops.alerts', 'close_reasons.manage', 'settings.manage'])
                     <flux:sidebar.group heading="Administración" class="grid">
                         @can('ops.alerts')
                             <flux:sidebar.item icon="bell-alert" :href="route('operations.index')" :current="request()->routeIs('operations.*')" wire:navigate>Estado operativo</flux:sidebar.item>
@@ -68,6 +68,9 @@
                         @endcan
                         @can('close_reasons.manage')
                             <flux:sidebar.item icon="list-bullet" :href="route('admin.reasons')" :current="request()->routeIs('admin.reasons')" wire:navigate>Motivos</flux:sidebar.item>
+                        @endcan
+                        @can('settings.manage')
+                            <flux:sidebar.item icon="adjustments-horizontal" :href="route('admin.settings')" :current="request()->routeIs('admin.settings')" wire:navigate>Parámetros</flux:sidebar.item>
                         @endcan
                         @can('audit.view')
                             <flux:sidebar.item icon="shield-check" :href="route('admin.audit')" :current="request()->routeIs('admin.audit')" wire:navigate>Auditoría</flux:sidebar.item>

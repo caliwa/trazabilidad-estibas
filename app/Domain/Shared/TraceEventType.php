@@ -50,6 +50,8 @@ enum TraceEventType: string
     case ProductionOrderRefreshed = 'production_order.refreshed';
     case ProductionOrderReadyToClose = 'production_order.ready_to_close';
     case ProductionOrderClosedInSap = 'production_order.closed_in_sap';
+    case ProductionOrderReceiptLimitReached = 'production_order.receipt_limit_reached';
+    case ProductionOrderReceiptsUnlocked = 'production_order.receipts_unlocked';
     case QualityHeld = 'quality.held';
     case QualityReleased = 'quality.released';
     case NonConformingRequested = 'quality.non_conforming_requested';
@@ -97,6 +99,8 @@ enum TraceEventType: string
             self::ProductionOrderRefreshed => 'Orden de fabricación actualizada desde SAP',
             self::ProductionOrderReadyToClose => 'Orden de fabricación lista para cerrar en SAP',
             self::ProductionOrderClosedInSap => 'Orden de fabricación cerrada en SAP',
+            self::ProductionOrderReceiptLimitReached => 'Orden de fabricación llegó al límite de recibos: cerrarla en SAP',
+            self::ProductionOrderReceiptsUnlocked => 'Recibos habilitados de nuevo en la orden de fabricación',
             self::QualityHeld => 'Estiba retenida por calidad',
             self::QualityReleased => 'Estiba liberada por calidad',
             self::NonConformingRequested => 'Traslado a no conforme solicitado',
