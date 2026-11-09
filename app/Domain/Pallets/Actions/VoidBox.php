@@ -15,7 +15,6 @@ use App\Enums\Permission;
 use App\Models\BoxLabel;
 use App\Models\BoxVoid;
 use App\Models\BoxVoidReason;
-use App\Models\Device;
 use App\Models\Pallet;
 use App\Models\PalletScanEvent;
 use App\Models\User;
@@ -68,7 +67,8 @@ class VoidBox
         return DB::transaction(function () use ($user, $scanned, $reasonId, $note, $ctx): BoxVoid {
             $reason = BoxVoidReason::query()->active()->find($reasonId) ?? throw PalletRuleViolation::voidReasonUnavailable();
             $event = $this->countedRead($scanned);
-            $boxCode = $event->external_event_id;
+            // Shown to people and kept on the void; the read was found by its QR token.
+            $boxCode = $event->boxCodeForDisplay();
 
             $identity = Pallet::query()->findOrFail($event->pallet_id, ['production_order_id', 'item_id', 'lot_code']);
             PalletLocks::combination($identity->production_order_id, $identity->item_id, $identity->lot_code);
@@ -171,13 +171,13 @@ class VoidBox
         // The QR read, or its token typed by hand when the label is too damaged to read.
         $token = BoxQr::tokenFrom($scanned) ?? BoxQr::typedToken($scanned)
             ?? throw (PalletQr::tokenFrom($scanned) !== null ? PalletRuleViolation::palletQrInBoxField() : PalletRuleViolation::notABoxLabel());
-        $code = BoxLabel::query()->where('qr_token', $token)->value('code') ?? throw PalletRuleViolation::unknownBoxQr();
+        $box = BoxLabel::query()->where('qr_token', $token)->first(['id', 'code']) ?? throw PalletRuleViolation::unknownBoxQr();
+        $code = $box->code;
 
-        // Every box read, by hand or by a fixed reader, is counted under the shared box-read device.
+        // The read of that box, found by its QR token, whatever device counted it.
         $event = PalletScanEvent::query()
             ->with('pallet')
-            ->where('device_id', Device::query()->where('code', RegisterManualBoxScan::DEVICE_CODE)->value('id'))
-            ->where('external_event_id', $code)
+            ->where('box_label_id', $box->id)
             ->where('processing_status', ScanEventStatus::Accepted)
             ->first() ?? throw PalletRuleViolation::boxNotCounted((string) $code);
 

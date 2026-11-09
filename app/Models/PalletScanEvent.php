@@ -31,6 +31,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property string|null $rejection_reason
  * @property string $payload_hash
  * @property bool $is_late
+ * @property int|null $box_label_id Box this read belongs to, set by the database from the QR token (one read per box)
  * @property int|null $read_by_device_id Fixed reader that read the box, when counted from boxes:reader
  */
 class PalletScanEvent extends Model
@@ -68,6 +69,20 @@ class PalletScanEvent extends Model
     public function pallet(): BelongsTo
     {
         return $this->belongsTo(Pallet::class);
+    }
+
+    /**
+     * @return BelongsTo<BoxLabel, $this>
+     */
+    public function boxLabel(): BelongsTo
+    {
+        return $this->belongsTo(BoxLabel::class);
+    }
+
+    /** What people read on the label (Caja 33128293-0007); the read itself is identified by the QR token. */
+    public function boxCodeForDisplay(): string
+    {
+        return $this->boxLabel->code ?? $this->external_event_id;
     }
 
     /**

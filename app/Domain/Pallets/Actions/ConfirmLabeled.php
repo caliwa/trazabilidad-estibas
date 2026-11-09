@@ -12,7 +12,6 @@ use App\Domain\Shared\TraceEventType;
 use App\Domain\Shared\TraceResult;
 use App\Enums\Permission;
 use App\Models\BoxLabel;
-use App\Models\Device;
 use App\Models\Pallet;
 use App\Models\PalletScanEvent;
 use App\Models\User;
@@ -83,12 +82,12 @@ class ConfirmLabeled
         }
 
         $token = BoxQr::tokenFrom($boxQr) ?? throw PalletRuleViolation::labelBoxNotABox();
-        $code = BoxLabel::query()->where('qr_token', $token)->value('code') ?? throw PalletRuleViolation::labelBoxNotABox();
+        $box = BoxLabel::query()->where('qr_token', $token)->first(['id', 'code']) ?? throw PalletRuleViolation::labelBoxNotABox();
+        $code = $box->code;
 
-        // Every box read, by hand or by a fixed reader, is counted under the shared box-read device.
+        // The read of that box, found by its QR token whatever device counted it.
         $read = PalletScanEvent::query()
-            ->where('device_id', Device::query()->where('code', RegisterManualBoxScan::DEVICE_CODE)->value('id'))
-            ->where('external_event_id', $code)
+            ->where('box_label_id', $box->id)
             ->where('processing_status', ScanEventStatus::Accepted)
             ->first(['id', 'pallet_id']);
 

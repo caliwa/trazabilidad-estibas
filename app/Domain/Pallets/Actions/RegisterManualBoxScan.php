@@ -41,9 +41,11 @@ use Illuminate\Support\Str;
  * pallet of that order + product + lot, which closes when it reaches the
  * standard.
  *
- * The box code is the read's event id: the database accepts it once, so
- * reading the same box again, a retried request or a reader firing twice
- * never counts twice.
+ * The QR token is the read's event id and the only thing that identifies
+ * the box (the printed box code is for people). The database ties every
+ * read to the box of its token and accepts one read per box, so reading
+ * the same box again, a retried request, a reader firing twice or another
+ * device never counts twice.
  *
  * A fixed reader on the line (fromReader) goes through the same rules and
  * records its reads under the same device, so a box read by the line and
@@ -81,8 +83,9 @@ class RegisterManualBoxScan
 
     /**
      * A box read sent by a device through the API (POST /api/v1/scan-events),
-     * whose event id is the box's QR, token or code: same rules, same single
+     * whose event id is the box's QR or token: same rules, same single
      * read per box. The order, product and lot always come from the box.
+     * The event id must be the box's QR text or its token.
      */
     public function fromDevice(Device $device, string $scanned, TraceContext $ctx): ManualBoxScan
     {
@@ -96,15 +99,14 @@ class RegisterManualBoxScan
     }
 
     /**
-     * The printed box a device's event id names: the QR text, the token alone or the box code.
+     * The printed box a device's event id names: the QR text or the token alone. Never the box code.
      */
     public static function boxNamedBy(string $eventId): ?BoxLabel
     {
+        // Only the QR token identifies a box; the printed box code is for people.
         $token = BoxQr::tokenFrom($eventId) ?? BoxQr::typedToken($eventId);
 
-        return BoxLabel::query()->with('batch')
-            ->when($token !== null, fn ($q) => $q->where('qr_token', $token), fn ($q) => $q->where('code', trim($eventId)))
-            ->first();
+        return $token === null ? null : BoxLabel::query()->with('batch')->where('qr_token', $token)->first();
     }
 
     private function count(string $scanned, TraceContext $ctx): ManualBoxScan
@@ -134,12 +136,10 @@ class RegisterManualBoxScan
             throw PalletRuleViolation::boxItemMismatch($order->ref, $item->code, $batch->item_code);
         }
 
-        // Already read, by any device and in any way (its token is tied to one read in the database):
+        // Already read, by any device and in any way: the read is found by the box of its QR token,
+        // which the database ties to one read only.
         // said plainly, without sending it to be counted (that would log a reused-id alarm).
-        $previous = PalletScanEvent::query()->with('pallet:id,pallet_code')
-            ->where(fn ($q) => $q->where('box_label_id', $box->id)->orWhere(fn ($q) => $q->where('device_id', $this->device()->id)->where('external_event_id', $boxCode)))
-            ->orderBy('id')
-            ->first();
+        $previous = PalletScanEvent::query()->with('pallet:id,pallet_code')->where('box_label_id', $box->id)->first();
         // A voided box stays out for good (VoidBox).
         if ($previous !== null && $previous->void()->exists()) {
             throw PalletRuleViolation::boxAlreadyVoided($boxCode);
@@ -153,12 +153,12 @@ class RegisterManualBoxScan
         $testStandard = $this->ensureStandard($item, $ctx);
 
         // Checked before counting so a refused box leaves no rejected read under its code.
-        $rejection = $this->masters->resolve(new ScanEventData($boxCode, $order->ref, $item->code, $lot, CarbonImmutable::now()), now());
+        $rejection = $this->masters->resolve(new ScanEventData((string) $box->qr_token, $order->ref, $item->code, $lot, CarbonImmutable::now()), now());
         if ($rejection instanceof ScanRejection) {
             throw PalletRuleViolation::boxRejected(mb_strtolower($rejection->label()));
         }
 
-        $result = $this->process->handleManual($this->device(), new ScanEventData($boxCode, $order->ref, $item->code, $lot, CarbonImmutable::now()), $ctx);
+        $result = $this->process->handleManual($this->device(), new ScanEventData((string) $box->qr_token, $order->ref, $item->code, $lot, CarbonImmutable::now()), $ctx);
 
         return match ($result->outcome) {
             ScanOutcome::Accepted => new ManualBoxScan($order->ref, $item->code, $item->description, $lot, CarbonImmutable::parse($batch->expiration_date->toDateString()), $boxCode, $result, $testStandard),

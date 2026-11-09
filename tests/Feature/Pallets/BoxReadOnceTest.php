@@ -78,10 +78,13 @@ class BoxReadOnceTest extends TestCase
         $this->manual(1);
         $read = PalletScanEvent::sole();
         $this->assertSame($this->label(1)->id, $read->box_label_id);
+        // The read is identified by the QR token, not by the printed box code.
+        $this->assertSame($this->label(1)->qr_token, $read->external_event_id);
+        $this->assertSame('33128293-0001', $read->boxCodeForDisplay());
 
-        // Another device writing the same box, by its QR text, its token or its code: refused by the database.
+        // Another device writing the same box, by its QR text or its token: refused by the database.
         $other = Device::factory()->create();
-        foreach (['TRZB:'.$this->label(1)->qr_token, (string) $this->label(1)->qr_token, '33128293-0001'] as $eventId) {
+        foreach (['TRZB:'.$this->label(1)->qr_token, (string) $this->label(1)->qr_token, '  TRZB;'.strtoupper((string) $this->label(1)->qr_token)."\r\n"] as $eventId) {
             try {
                 DB::transaction(fn () => DB::table('pallet_scan_events')->insert([
                     'device_id' => $other->id, 'external_event_id' => $eventId, 'production_order_ref' => '33128', 'item_code' => 'PT1350023', 'lot_code' => '33128293',
@@ -106,8 +109,8 @@ class BoxReadOnceTest extends TestCase
         // A box read by hand first loads the test pallet standard the sensor read needs.
         $this->manual(3);
 
-        // Sensor first, naming the box by its code.
-        $this->assertSame(ScanOutcome::Accepted, $sensorRead('33128293-0001')->outcome);
+        // Sensor first, naming the box by its QR token.
+        $this->assertSame(ScanOutcome::Accepted, $sensorRead((string) $this->label(1)->qr_token)->outcome);
         try {
             $this->manual(1);
             $this->fail('La caja ya la contó el sensor.');
