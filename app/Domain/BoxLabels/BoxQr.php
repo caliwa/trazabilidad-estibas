@@ -24,8 +24,6 @@ final class BoxQr
 
     /**
      * The token inside a scanned value, or null when it is not a box QR.
-    /**
-     * The token inside a scanned value, or null when it is not a box QR.
      * Tolerates what keyboard-like readers and PDAs do: spaces or a line
      * break around it, the ":" typed as another symbol on a different keyboard
      * layout, capitals with caps lock on, invisible control characters (a
@@ -37,11 +35,6 @@ final class BoxQr
         $scanned = preg_replace('/[\p{Cc}\p{Cf}]/u', ' ', $scanned) ?? $scanned;
 
         if (preg_match('/(?:\][A-Za-z][0-9A-Za-z]\s*)?TRZB\X([0-9a-f]{32})/iu', $scanned, $m) !== 1) {
-            return null;
-        }
-
-        return strtolower($m[1]);
-    }
             return null;
         }
 
