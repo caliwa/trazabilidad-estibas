@@ -27,7 +27,7 @@ Nada está validado contra SAP real: solo existe el simulador (`SAP_DRIVER=fake`
 composer install
 cp .env.example .env            # ajustar DB_PASSWORD
 php artisan key:generate
-php artisan migrate --seed      # roles y admin@example.com / password (solo fuera de producción)
+php artisan migrate --seed      # roles y un usuario por rol, contraseña "password" (solo fuera de producción)
 npm install && npm run build
 composer dev
 ```
