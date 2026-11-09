@@ -28,6 +28,8 @@ enum Permission: string
     case CloseReasonsManage = 'close_reasons.manage';
     /** Production order board: progress against SAP, refresh from SAP, "ready to close" alert. */
     case OrdersView = 'orders.view';
+    /** Let an order that reached the receipt limit take production receipts again. */
+    case OrdersUnlockReceipts = 'orders.unlock_receipts';
     /** Evaluate a rejected scan event again after fixing a master. */
     case ScansReprocess = 'scans.reprocess';
     case ReceiptsRequest = 'receipts.request';
@@ -48,4 +50,6 @@ enum Permission: string
     /** Administration audit (users and roles). */
     case AuditView = 'audit.view';
     case UsersManage = 'users.manage';
+    /** Application parameters (Administración → Parámetros). */
+    case SettingsManage = 'settings.manage';
 }

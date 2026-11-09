@@ -102,6 +102,7 @@ new #[Title('Auditoría')] class extends Component {
             <flux:select.option value="user">Usuarios y roles</flux:select.option>
             <flux:select.option value="pallet_close_reason">Motivos de cierre</flux:select.option>
             <flux:select.option value="box_void_reason">Motivos de anulación</flux:select.option>
+            <flux:select.option value="setting">Parámetros</flux:select.option>
         </flux:select>
         <flux:select wire:model.live="user" label="Persona">
             <flux:select.option value="">Todas</flux:select.option>

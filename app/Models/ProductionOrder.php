@@ -17,6 +17,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable|null $due_date
  * @property CarbonImmutable|null $ready_to_close_notified_at
  * @property CarbonImmutable|null $sap_closed_at
+ * @property CarbonImmutable|null $receipts_unlocked_at
+ * @property int|null $receipts_unlocked_by
+ * @property string|null $receipts_unlock_reason
  */
 class ProductionOrder extends Model
 {
@@ -38,6 +41,7 @@ class ProductionOrder extends Model
             'consulted_at' => 'datetime',
             'ready_to_close_notified_at' => 'datetime',
             'sap_closed_at' => 'datetime',
+            'receipts_unlocked_at' => 'datetime',
         ];
     }
 
