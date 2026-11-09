@@ -160,7 +160,7 @@ class VoidBox
         return match (true) {
             $open !== null && $boxes === 0 => "No se puede: {$pallet->pallet_code} quedaría cerrada y sin cajas, y {$open->pallet_code} está abierta para la misma orden y lote.",
             $pallet->close_type === CloseType::Automatic && $open === null => "{$pallet->pallet_code} se reabre con {$left}: la siguiente caja de esta orden y lote vuelve a ella.",
-            $pallet->close_type === CloseType::Automatic => "{$pallet->pallet_code} no se puede reabrir porque {$open?->pallet_code} ya está abierta: queda cerrada como incompleta con {$left}.",
+            $pallet->close_type === CloseType::Automatic => "{$pallet->pallet_code} no se puede reabrir porque {$open->pallet_code} ya está abierta: queda cerrada como incompleta con {$left}.",
             $boxes === 0 => "{$pallet->pallet_code} queda sin cajas y se reabre.",
             default => "{$pallet->pallet_code} sigue cerrada (se cerró a mano) y queda con {$left}.",
         };

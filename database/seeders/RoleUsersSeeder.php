@@ -44,7 +44,7 @@ class RoleUsersSeeder extends Seeder
             $check = Validator::make(['password' => $password], ['password' => ['required', Password::defaults()]]);
 
             if ($check->fails()) {
-                $this->command?->error('En producción define ROLE_USERS_PASSWORD con una contraseña que cumpla la política (mínimo 12 caracteres, mayúsculas, minúsculas, números y símbolos). No se creó ningún usuario.');
+                $this->say('error', 'En producción define ROLE_USERS_PASSWORD con una contraseña que cumpla la política (mínimo 12 caracteres, mayúsculas, minúsculas, números y símbolos). No se creó ningún usuario.');
 
                 return;
             }
@@ -58,7 +58,7 @@ class RoleUsersSeeder extends Seeder
                 $user = User::query()->where('email', $email)->first();
 
                 if ($user !== null) {
-                    $this->command?->line("  {$email} ya existe: no se modificó.");
+                    $this->say('line', "  {$email} ya existe: no se modificó.");
 
                     continue;
                 }
@@ -66,8 +66,16 @@ class RoleUsersSeeder extends Seeder
                 $user = new User(['name' => $name, 'email' => $email]);
                 $user->forceFill(['password' => $password, 'email_verified_at' => now()])->save();
                 $user->assignRole($role->value);
-                $this->command?->line("  {$email} · {$role->label()}");
+                $this->say('line', "  {$email} · {$role->label()}");
             }
         });
+    }
+
+    /** Console output, when run by db:seed (there is no console when called directly). */
+    private function say(string $style, string $text): void
+    {
+        if (isset($this->command)) {
+            $this->command->{$style}($text);
+        }
     }
 }
