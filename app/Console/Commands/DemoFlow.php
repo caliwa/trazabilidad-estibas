@@ -28,6 +28,7 @@ use App\Integrations\Sap\Fake\FakeSapCatalog;
 use App\Integrations\Sap\Fake\FakeSapGateway;
 use App\Integrations\Sap\Fake\FakeScenario;
 use App\Models\BoxConversionFactor;
+use App\Models\BoxVoidReason;
 use App\Models\Device;
 use App\Models\Item;
 use App\Models\Pallet;
@@ -138,6 +139,9 @@ class DemoFlow extends Command
         // Demo reasons only: the real list is set up by a supervisor in Administración.
         foreach (['Fin de turno', 'Fin de lote', 'Cambio de referencia'] as $i => $name) {
             PalletCloseReason::query()->firstOrCreate(['name' => $name], ['sort_order' => ($i + 1) * 10]);
+        }
+        foreach (['Caja averiada', 'Lectura por error'] as $i => $name) {
+            BoxVoidReason::query()->firstOrCreate(['name' => $name], ['sort_order' => ($i + 1) * 10]);
         }
         $shiftEnd = PalletCloseReason::query()->where('name', 'Fin de turno')->value('id');
         app(CloseManually::class)->handle($people['produccion'], $partial->id, (int) $shiftEnd, null, $this->web($people['produccion']));

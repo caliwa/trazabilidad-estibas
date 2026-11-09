@@ -2,8 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Enums\Role;
-use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -26,12 +24,7 @@ class DatabaseSeeder extends Seeder
             return;
         }
 
-        $admin = User::firstOrCreate(['email' => 'admin@example.com'], [
-            'name' => 'Administrador',
-            'password' => 'password',
-            'email_verified_at' => now(),
-        ]);
-
-        $admin->assignRole(Role::Admin->value);
+        // One user per role (admin@example.com, operario@example.com, ...), password "password".
+        $this->call(RoleUsersSeeder::class);
     }
 }

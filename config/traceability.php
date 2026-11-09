@@ -31,6 +31,10 @@ return [
     */
     'test_pallet_boxes' => (int) env('TRACE_TEST_PALLET_BOXES', 40),
 
+    // Password of the per-role users created by RoleUsersSeeder. Required in
+    // production; "password" elsewhere when empty.
+    'role_users_password' => env('ROLE_USERS_PASSWORD'),
+
     // Scan events accepted per device per minute before answering 429.
     'scan_rate_per_minute' => (int) env('TRACE_SCAN_RATE_PER_MINUTE', 300),
 

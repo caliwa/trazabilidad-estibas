@@ -86,11 +86,17 @@ class ConfirmLabeled
         $code = BoxLabel::query()->where('qr_token', $token)->value('code') ?? throw PalletRuleViolation::labelBoxNotABox();
 
         // Every box read, by hand or by a fixed reader, is counted under the shared box-read device.
-        $boxPalletId = PalletScanEvent::query()
+        $read = PalletScanEvent::query()
             ->where('device_id', Device::query()->where('code', RegisterManualBoxScan::DEVICE_CODE)->value('id'))
             ->where('external_event_id', $code)
             ->where('processing_status', ScanEventStatus::Accepted)
-            ->value('pallet_id');
+            ->first(['id', 'pallet_id']);
+
+        if ($read !== null && $read->void()->exists()) {
+            throw PalletRuleViolation::boxAlreadyVoided((string) $code);
+        }
+
+        $boxPalletId = $read?->pallet_id;
 
         if ($boxPalletId === null) {
             throw PalletRuleViolation::labelBoxNotRead((string) $code);

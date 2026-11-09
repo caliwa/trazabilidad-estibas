@@ -5,9 +5,12 @@ namespace App\Models;
 use App\Domain\Pallets\Enums\ScanEventStatus;
 use Carbon\CarbonImmutable;
 use Database\Factories\PalletScanEventFactory;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * One box read by a sensor. Accepted events count exactly once; rejected ones
@@ -65,5 +68,24 @@ class PalletScanEvent extends Model
     public function pallet(): BelongsTo
     {
         return $this->belongsTo(Pallet::class);
+    }
+
+    /**
+     * @return HasOne<BoxVoid, $this>
+     */
+    public function void(): HasOne
+    {
+        return $this->hasOne(BoxVoid::class);
+    }
+
+    /**
+     * Reads that count as a box: accepted and not voided.
+     *
+     * @param  Builder<self>  $query
+     */
+    #[Scope]
+    protected function counted(Builder $query): void
+    {
+        $query->where('processing_status', ScanEventStatus::Accepted)->whereDoesntHave('void');
     }
 }

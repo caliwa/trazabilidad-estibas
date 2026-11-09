@@ -5,8 +5,9 @@ namespace Tests\Feature\Admin;
 use App\Enums\Role;
 use App\Models\AuditLog;
 use App\Models\User;
-use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
@@ -39,7 +40,7 @@ class UserAdministrationTest extends TestCase
         $this->actingAs($this->userWithRole(Role::ProductionOperator))->get(route('admin.users'))->assertForbidden();
     }
 
-    public function test_admin_creates_a_user_who_sets_their_own_password(): void
+    public function test_admin_creates_a_user_with_the_password_they_set(): void
     {
         Notification::fake();
 
@@ -48,14 +49,72 @@ class UserAdministrationTest extends TestCase
             ->set('form.name', 'Diana Salazar')
             ->set('form.email', 'Diana@Empresa.co')
             ->set('form.role', Role::LogisticsOperator->value)
+            ->set('password', 'Clave-Segura-2026')
+            ->set('password_confirmation', 'Clave-Segura-2026')
             ->call('save')
-            ->assertHasNoErrors();
+            ->assertHasNoErrors()
+            ->assertSet('password', '');
 
         $user = User::where('email', 'diana@empresa.co')->sole();
         $this->assertTrue($user->hasRole(Role::LogisticsOperator->value));
-        Notification::assertSentTo($user, ResetPassword::class);
+        $this->assertTrue(Hash::check('Clave-Segura-2026', $user->password));
+        Notification::assertNothingSent();
         $this->assertSame('user.created', AuditLog::sole()->action);
         $this->assertSame($this->admin->id, AuditLog::sole()->user_id);
+        $this->assertStringNotContainsString('Clave-Segura-2026', json_encode(AuditLog::sole()->toArray()));
+
+        $this->post(route('logout'));
+        $this->post(route('login.store'), ['email' => 'diana@empresa.co', 'password' => 'Clave-Segura-2026'])->assertRedirect();
+        $this->assertAuthenticatedAs($user);
+    }
+
+    public function test_a_new_user_needs_a_confirmed_password(): void
+    {
+        $this->page()
+            ->call('create')
+            ->set('form.name', 'Diana')
+            ->set('form.email', 'diana@empresa.co')
+            ->call('save')
+            ->assertHasErrors(['password' => 'required'])
+            ->set('password', 'Clave-Segura-2026')
+            ->set('password_confirmation', 'otra')
+            ->call('save')
+            ->assertHasErrors(['password' => 'confirmed']);
+
+        $this->assertNull(User::where('email', 'diana@empresa.co')->first());
+    }
+
+    public function test_admin_sets_a_new_password_and_closes_the_other_sessions(): void
+    {
+        config(['session.driver' => 'database']);
+        $user = $this->userWithRole(Role::ProductionOperator);
+        DB::table('sessions')->insert(['id' => 'old-session', 'user_id' => $user->id, 'payload' => '', 'last_activity' => time()]);
+        $token = $user->remember_token;
+
+        $this->page()
+            ->call('askPassword', $user->id)
+            ->assertSee($user->email)
+            ->set('password', 'Nueva-Clave-2026')
+            ->set('password_confirmation', 'Nueva-Clave-2026')
+            ->call('savePassword')
+            ->assertHasNoErrors()
+            ->assertSet('password', '');
+
+        $user->refresh();
+        $this->assertTrue(Hash::check('Nueva-Clave-2026', $user->password));
+        $this->assertNotSame($token, $user->remember_token);
+        $this->assertSame(0, DB::table('sessions')->where('user_id', $user->id)->count());
+        $log = AuditLog::query()->where('action', 'user.password_set')->sole();
+        $this->assertSame([$this->admin->id, $user->id], [$log->user_id, $log->auditable_id]);
+        $this->assertNull($log->new_values);
+    }
+
+    public function test_only_admins_set_passwords(): void
+    {
+        $user = $this->userWithRole(Role::Viewer);
+
+        Livewire::actingAs($this->userWithRole(Role::ProductionSupervisor))->test('pages::admin.users')->assertForbidden();
+        $this->page()->call('askPassword', $user->id)->set('password', 'corta')->set('password_confirmation', 'corta')->call('savePassword')->assertHasErrors(['password']);
     }
 
     public function test_validation(): void

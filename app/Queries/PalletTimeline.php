@@ -40,19 +40,21 @@ class PalletTimeline
     }
 
     /**
-     * @return array{accepted: int, late: int, first: CarbonImmutable|null, last: CarbonImmutable|null}
+     * @return array{accepted: int, voided: int, late: int, first: CarbonImmutable|null, last: CarbonImmutable|null}
      */
     public function scanSummary(Pallet $pallet): array
     {
         $row = PalletScanEvent::query()
-            ->where('pallet_id', $pallet->id)
+            ->where('pallet_scan_events.pallet_id', $pallet->id)
             ->where('processing_status', ScanEventStatus::Accepted)
-            ->selectRaw('count(*) AS accepted, count(*) FILTER (WHERE is_late) AS late, min(event_occurred_at) AS first, max(event_occurred_at) AS last')
+            ->leftJoin('box_voids', 'box_voids.pallet_scan_event_id', '=', 'pallet_scan_events.id')
+            ->selectRaw('count(*) FILTER (WHERE box_voids.id IS NULL) AS accepted, count(box_voids.id) AS voided, count(*) FILTER (WHERE is_late AND box_voids.id IS NULL) AS late, min(event_occurred_at) AS first, max(event_occurred_at) AS last')
             ->toBase()
             ->first();
 
         return [
             'accepted' => (int) ($row->accepted ?? 0),
+            'voided' => (int) ($row->voided ?? 0),
             'late' => (int) ($row->late ?? 0),
             'first' => $row?->first === null ? null : new CarbonImmutable($row->first),
             'last' => $row?->last === null ? null : new CarbonImmutable($row->last),

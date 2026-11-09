@@ -8,6 +8,7 @@ use Flux\Flux;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
@@ -42,6 +43,14 @@ new #[Title('Usuarios')] class extends Component {
     /** @var array{name: string, email: string, role: string} */
     public array $form = ['name' => '', 'email' => '', 'role' => 'viewer'];
 
+    /** Password typed by the administrator, for a new user or to set a new one. Never kept after saving. */
+    public string $password = '';
+
+    public string $password_confirmation = '';
+
+    #[Locked]
+    public ?int $passwordUserId = null;
+
     public function updated(string $property): void
     {
         if (in_array($property, ['search', 'role', 'status'], true)) {
@@ -51,7 +60,7 @@ new #[Title('Usuarios')] class extends Component {
 
     public function create(): void
     {
-        $this->reset('editingId', 'form');
+        $this->reset('editingId', 'form', 'password', 'password_confirmation');
         $this->resetValidation();
         Flux::modal('user-form')->show();
     }
@@ -67,15 +76,22 @@ new #[Title('Usuarios')] class extends Component {
 
     public function save(ManageUsers $users): void
     {
-        $data = $this->validate([
+        $rules = [
             'form.name' => ['required', 'string', 'max:255'],
             'form.email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($this->editingId)],
             'form.role' => ['required', Rule::enum(Role::class)],
-        ], attributes: ['form.name' => 'nombre', 'form.email' => 'correo', 'form.role' => 'rol'])['form'];
+        ];
+        if ($this->editingId === null) {
+            $rules['password'] = ['required', 'string', 'confirmed', Password::defaults()];
+        }
+
+        $valid = $this->validate($rules, attributes: ['form.name' => 'nombre', 'form.email' => 'correo', 'form.role' => 'rol', 'password' => 'contraseña']);
+        $data = $valid['form'];
 
         if ($this->editingId === null) {
-            $user = $users->create(Auth::user(), $data);
-            Flux::toast(variant: 'success', text: "Usuario creado. Se envió a {$user->email} un enlace para definir su contraseña.");
+            $user = $users->create(Auth::user(), [...$data, 'password' => $this->password]);
+            $this->reset('password', 'password_confirmation');
+            Flux::toast(variant: 'success', text: "Usuario creado. {$user->name} ya puede entrar con su correo y la contraseña que le asignaste.");
         } else {
             $users->update(Auth::user(), User::findOrFail($this->editingId), $data);
             Flux::toast(variant: 'success', text: 'Usuario actualizado.');
@@ -83,6 +99,26 @@ new #[Title('Usuarios')] class extends Component {
 
         Flux::modal('user-form')->close();
         unset($this->users);
+    }
+
+    public function askPassword(int $userId): void
+    {
+        $this->passwordUserId = User::query()->findOrFail($userId)->id;
+        $this->reset('password', 'password_confirmation');
+        $this->resetValidation();
+        Flux::modal('user-password')->show();
+    }
+
+    public function savePassword(ManageUsers $users): void
+    {
+        $this->validate(['password' => ['required', 'string', 'confirmed', Password::defaults()]], attributes: ['password' => 'contraseña']);
+
+        $user = User::query()->findOrFail($this->passwordUserId);
+        $users->setPassword(Auth::user(), $user, $this->password);
+        $this->reset('password', 'password_confirmation', 'passwordUserId');
+
+        Flux::modal('user-password')->close();
+        Flux::toast(variant: 'success', text: "Contraseña de {$user->name} actualizada. Sus otras sesiones se cerraron.");
     }
 
     public function toggleActive(int $userId, ManageUsers $users): void
@@ -182,6 +218,7 @@ new #[Title('Usuarios')] class extends Component {
                     <flux:table.cell align="end">
                         <div class="flex justify-end gap-1">
                             <flux:button size="sm" variant="ghost" icon="pencil-square" wire:click="edit({{ $user->id }})" aria-label="Editar a {{ $user->name }}" />
+                            <flux:button size="sm" variant="ghost" icon="key" wire:click="askPassword({{ $user->id }})" aria-label="Asignar contraseña a {{ $user->name }}" />
                             @if (! $user->is(auth()->user()))
                                 @if ($user->isActive())
                                     <flux:button size="sm" variant="ghost" icon="no-symbol" wire:click="toggleActive({{ $user->id }})"
@@ -209,11 +246,32 @@ new #[Title('Usuarios')] class extends Component {
                 @endforeach
             </flux:select>
             @unless ($editingId)
-                <flux:text class="text-sm">La persona recibirá un correo con un enlace para definir su contraseña.</flux:text>
+                <flux:input wire:model="password" type="password" label="Contraseña" autocomplete="new-password" viewable required />
+                <flux:input wire:model="password_confirmation" type="password" label="Confirmar contraseña" autocomplete="new-password" viewable required />
+                <flux:text class="text-sm">Entrégale la contraseña a la persona por un medio seguro. Podrá cambiarla después en su perfil.</flux:text>
             @endunless
             <div class="flex justify-end gap-2">
                 <flux:modal.close><flux:button variant="ghost">Cancelar</flux:button></flux:modal.close>
                 <flux:button type="submit" variant="primary">Guardar</flux:button>
+            </div>
+        </form>
+    </flux:modal>
+
+    <flux:modal name="user-password" class="w-full max-w-md">
+        <form wire:submit="savePassword" class="flex flex-col gap-4">
+            @php
+                $passwordUser = $passwordUserId ? \App\Models\User::query()->find($passwordUserId, ['id', 'name', 'email']) : null;
+            @endphp
+            <flux:heading size="lg">Asignar contraseña</flux:heading>
+            @if ($passwordUser)
+                <flux:text>{{ $passwordUser->name }} · {{ $passwordUser->email }}</flux:text>
+            @endif
+            <flux:input wire:model="password" type="password" label="Nueva contraseña" autocomplete="new-password" viewable required />
+            <flux:input wire:model="password_confirmation" type="password" label="Confirmar contraseña" autocomplete="new-password" viewable required />
+            <flux:text class="text-sm">La contraseña anterior deja de servir y se cierran las sesiones abiertas de esa persona. Queda en Auditoría quién la cambió, nunca la contraseña.</flux:text>
+            <div class="flex justify-end gap-2">
+                <flux:modal.close><flux:button variant="ghost">Cancelar</flux:button></flux:modal.close>
+                <flux:button type="submit" variant="primary">Guardar contraseña</flux:button>
             </div>
         </form>
     </flux:modal>

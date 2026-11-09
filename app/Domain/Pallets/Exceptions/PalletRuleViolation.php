@@ -20,6 +20,31 @@ class PalletRuleViolation extends DomainException
         return new self("La estiba {$palletCode} solo se puede cerrar a mano con entre 1 y ".($standard - 1).' cajas.');
     }
 
+    public static function voidReasonUnavailable(): self
+    {
+        return new self('Escoge un motivo de anulación de la lista. El que estaba seleccionado ya no está disponible.');
+    }
+
+    public static function boxNotCounted(string $boxCode): self
+    {
+        return new self("La caja {$boxCode} no tiene una lectura contada: no hay nada que anular.");
+    }
+
+    public static function boxAlreadyVoided(string $boxCode): self
+    {
+        return new self("La caja {$boxCode} ya fue anulada. Una caja anulada no se vuelve a contar.");
+    }
+
+    public static function boxVoidTooLate(string $boxCode, string $palletCode): self
+    {
+        return new self("La caja {$boxCode} está en {$palletCode}, que ya fue paletizada: solo se anulan cajas de estibas sin paletizar.");
+    }
+
+    public static function boxVoidWouldEmptyClosed(string $boxCode, string $palletCode, string $openCode): self
+    {
+        return new self("Anular {$boxCode} dejaría {$palletCode} cerrada y sin cajas, y no se puede reabrir porque {$openCode} está abierta para la misma orden y lote.");
+    }
+
     public static function closeReasonUnavailable(): self
     {
         return new self('Escoge un motivo de cierre de la lista. El que estaba seleccionado ya no está disponible.');
