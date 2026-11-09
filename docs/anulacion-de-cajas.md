@@ -8,7 +8,7 @@ Necesita el permiso `boxes.void`. Lo tienen el Operario de producción, el Admin
 
 ## Cómo
 
-1. Se lee el QR de la caja, con el lector o con la cámara.
+1. Se lee el QR de la caja con la PDA, el lector o la cámara. El campo es el mismo que el de la lectura de cajas: se envía solo cuando el lector termina, con Enter o sin él, y acepta lo que agregan algunas PDA (identificador de simbología como `]Q1`, teclas invisibles antes o después). Si la etiqueta está tan dañada que el QR no se puede leer, se escribe a mano el token de la caja (los 32 caracteres, sin `TRZB:`) y se presiona Enter. Esto solo vale para anular: el campo de lectura de cajas sigue exigiendo el QR completo.
 2. La pantalla muestra la caja, su estiba y qué le va a pasar a la estiba.
 3. Se escoge el motivo de la lista, que es obligatorio, y se puede escribir una observación.
 4. **Anular caja.**

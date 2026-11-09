@@ -300,8 +300,10 @@ new #[Title('Producción')] class extends Component {
     /**
      * First step: the box read in the dialog, its pallet and what voiding it would do.
      */
-    public function findVoidBox(VoidBox $void): void
+    public function findVoidBox(string $scanned, ?string $scanId = null): void
     {
+        $void = app(VoidBox::class);
+        $this->voidQr = $scanned;
         $this->voidBox = null;
         $this->voidFoundQr = null;
 
@@ -734,39 +736,21 @@ new #[Title('Producción')] class extends Component {
             <div class="flex flex-col gap-4">
                 <flux:heading size="lg">Anular caja leída</flux:heading>
                 @if (! $voidBox)
-                    <flux:text>Lee el QR de la caja que se averió o se leyó por error. La caja deja de contar en su estiba y no se puede volver a leer. Solo se anulan cajas de estibas que todavía no se paletizan.</flux:text>
-                    <form class="flex flex-col gap-3"
-                        x-data="{
-                            busy: false,
-                            boxDone(v) { return /TRZB.[0-9a-f]{32}/i.test(v); },
-                            go() {
-                                if (this.busy || $refs.box.value.trim() === '') return;
-                                this.busy = true;
-                                $wire.findVoidBox().finally(() => { this.busy = false; });
-                            },
-                        }" x-on:submit.prevent="go()">
-                        @if ($voidError)
-                            <div wire:key="void-error-{{ $voidTries }}" x-init="$nextTick(() => $refs.box.focus())" role="alert" data-void-result="error" class="flex items-center gap-3 rounded-xl border-4 border-red-700 bg-red-600 p-4 text-white shadow-lg">
-                                <flux:icon.x-circle class="size-10 shrink-0" />
-                                <div>
-                                    <div class="font-bold uppercase tracking-wide">No se puede anular</div>
-                                    <div class="text-sm">{{ $voidError }}</div>
-                                </div>
+                    <flux:text>Lee con la PDA (o el lector) el QR de la caja que se averió o se leyó por error. Si el QR no se puede leer, escribe a mano el token de la caja (los 32 caracteres, sin «TRZB:»). La caja deja de contar en su estiba y no se puede volver a leer. Solo se anulan cajas de estibas que todavía no se paletizan.</flux:text>
+                    @if ($voidError)
+                        <div wire:key="void-error-{{ $voidTries }}" role="alert" data-void-result="error" class="flex items-center gap-3 rounded-xl border-4 border-red-700 bg-red-600 p-4 text-white shadow-lg">
+                            <flux:icon.x-circle class="size-10 shrink-0" />
+                            <div>
+                                <div class="font-bold uppercase tracking-wide">No se puede anular</div>
+                                <div class="text-sm">{{ $voidError }}</div>
                             </div>
-                        @endif
-                        <label class="flex flex-col gap-1">
-                            <span class="text-sm font-medium text-zinc-800 dark:text-white">QR de la caja a anular</span>
-                            <input x-ref="box" wire:model="voidQr" autofocus autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Lee el QR de la caja"
-                                x-on:input="if (boxDone($event.target.value)) $nextTick(() => go())"
-                                x-on:keydown.enter.prevent="go()" x-on:keydown.tab.prevent="go()"
-                                class="block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-base text-zinc-900 shadow-xs focus:border-zinc-500 focus:outline-none dark:border-white/10 dark:bg-white/10 dark:text-white" />
-                        </label>
-                        <x-qr-camera-button model="voidQr" submit="findVoidBox" />
-                        <div class="flex justify-end gap-2">
-                            <flux:modal.close><flux:button variant="filled">Cancelar</flux:button></flux:modal.close>
-                            <flux:button type="submit" variant="primary">Buscar caja</flux:button>
                         </div>
-                    </form>
+                    @endif
+                    {{-- The same reading field as the box count, so a PDA or hand reader works the same here: it sends when the reader stops, with or without Enter, and the 2 s refresh never clears it. --}}
+                    <x-scanner action="findVoidBox" label="QR o token de la caja a anular" placeholder="Lee el QR con la PDA o escribe el token" camera claim-focus autofocus wire:key="void-scanner-{{ $voidTries }}" />
+                    <div class="flex justify-end">
+                        <flux:modal.close><flux:button variant="filled">Cancelar</flux:button></flux:modal.close>
+                    </div>
                 @else
                     <form wire:submit="confirmVoid" class="flex flex-col gap-4" data-void-box="{{ $voidBox['box'] }}">
                         <dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1 rounded-xl border border-zinc-200 p-4 text-sm dark:border-zinc-700">
