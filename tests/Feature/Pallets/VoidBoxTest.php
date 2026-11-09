@@ -255,12 +255,10 @@ class VoidBoxTest extends TestCase
         Livewire::actingAs($this->operator)->test('pages::production.station')
             ->assertSee('Anular caja leída')
             ->call('askVoid')
-            ->set('voidQr', $this->box(9))
-            ->call('findVoidBox')
+            ->call('findVoidBox', $this->box(9))
             ->assertSet('voidBox', null)
             ->assertSee('no tiene una lectura contada')
-            ->set('voidQr', $this->box(2))
-            ->call('findVoidBox')
+            ->call('findVoidBox', $this->box(2))
             ->assertSee('33128293-0002')
             ->assertSee('se reabre con 2 cajas')
             ->assertSee('Caja averiada')
@@ -294,8 +292,7 @@ class VoidBoxTest extends TestCase
 
         Livewire::actingAs($this->operator)->test('pages::production.station')
             ->call('askVoid')
-            ->set('voidQr', 'abc123')
-            ->call('findVoidBox')
+            ->call('findVoidBox', 'abc123')
             ->assertSet('voidBox', null)
             ->assertSee('No se puede anular');
     }
@@ -306,5 +303,27 @@ class VoidBoxTest extends TestCase
 
         $this->expectException(PalletRuleViolation::class);
         app(RegisterManualBoxScan::class)->handle($this->operator, $token, $this->ctx());
+    }
+
+    public function test_a_pda_read_with_its_extra_characters_voids_the_box(): void
+    {
+        $this->read(1);
+        $this->read(2);
+        $token = fn (int $n) => (string) BoxLabel::query()->where('box_label_batch_id', $this->batch->id)->where('sequence', $n)->value('qr_token');
+
+        // Symbology identifier in front and Enter behind, as some PDAs send it.
+        Livewire::actingAs($this->operator)->test('pages::production.station')
+            ->call('askVoid')
+            ->call('findVoidBox', ']Q1TRZB:'.$token(1)."\r\n", 'scan-1')
+            ->assertSee('33128293-0001')
+            ->set('voidReasonId', (string) $this->damaged->id)
+            ->call('confirmVoid')
+            ->assertHasNoErrors();
+
+        // Invisible prefix and suffix keys (STX/ETX) around the read.
+        $void = app(VoidBox::class)->handle($this->operator, "\x02TRZB:".$token(2)."\x03", $this->damaged->id, null, $this->ctx());
+
+        $this->assertSame('33128293-0002', $void->box_code);
+        $this->assertSame(0, Pallet::sole()->boxes_count);
     }
 }
