@@ -67,7 +67,7 @@
                             <flux:sidebar.item icon="users" :href="route('admin.users')" :current="request()->routeIs('admin.users')" wire:navigate>Usuarios</flux:sidebar.item>
                         @endcan
                         @can('close_reasons.manage')
-                            <flux:sidebar.item icon="list-bullet" :href="route('admin.close-reasons')" :current="request()->routeIs('admin.close-reasons')" wire:navigate>Motivos de cierre</flux:sidebar.item>
+                            <flux:sidebar.item icon="list-bullet" :href="route('admin.reasons')" :current="request()->routeIs('admin.reasons')" wire:navigate>Motivos</flux:sidebar.item>
                         @endcan
                         @can('audit.view')
                             <flux:sidebar.item icon="shield-check" :href="route('admin.audit')" :current="request()->routeIs('admin.audit')" wire:navigate>Auditoría</flux:sidebar.item>

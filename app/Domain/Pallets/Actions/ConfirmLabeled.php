@@ -87,7 +87,7 @@ class ConfirmLabeled
 
         // Every box read, by hand or by a fixed reader, is counted under the shared box-read device.
         // Soporta tanto eventos con external_event_id como token (actual) o como código legible (anterior)
-        $boxPalletId = PalletScanEvent::query()
+        $read = PalletScanEvent::query()
             ->where('device_id', Device::query()->where('code', RegisterManualBoxScan::DEVICE_CODE)->value('id'))
             ->where(function ($q) use ($token, $code) {
                 $q->where('external_event_id', $token)
@@ -95,7 +95,13 @@ class ConfirmLabeled
                     ->orWhere('external_event_id', $code);
             })
             ->where('processing_status', ScanEventStatus::Accepted)
-            ->value('pallet_id');
+            ->first(['id', 'pallet_id']);
+
+        if ($read !== null && $read->void()->exists()) {
+            throw PalletRuleViolation::boxAlreadyVoided((string) $code);
+        }
+
+        $boxPalletId = $read?->pallet_id;
 
         if ($boxPalletId === null) {
             throw PalletRuleViolation::labelBoxNotRead((string) $code);

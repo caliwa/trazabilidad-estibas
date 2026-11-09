@@ -12,6 +12,8 @@ enum Permission: string
     case PalletsView = 'pallets.view';
     /** Production station: watch the active pallet and close it manually. */
     case PalletsOperate = 'pallets.operate';
+    /** Void a box already counted (damaged, misread), before its pallet is palletized. */
+    case BoxesVoid = 'boxes.void';
     case PalletsPalletize = 'pallets.palletize';
     /** Print the label and confirm it was applied. */
     case PalletsLabel = 'pallets.label';
@@ -22,7 +24,7 @@ enum Permission: string
     case BoxLabelsChangeLot = 'box_labels.change_lot';
     /** Management indicators on the home page (production, CEDI, SAP), for supervisors. */
     case DashboardKpis = 'dashboard.kpis';
-    /** Maintains the list of reasons for closing an incomplete pallet. */
+    /** Maintains the lists of reasons the station asks for (closing an incomplete pallet, voiding a box). */
     case CloseReasonsManage = 'close_reasons.manage';
     /** Production order board: progress against SAP, refresh from SAP, "ready to close" alert. */
     case OrdersView = 'orders.view';

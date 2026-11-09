@@ -196,7 +196,7 @@ new #[Title('Detalle de estiba')] class extends Component {
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Auditoría</dt><dd class="font-medium">{{ $pallet->audit_status->label() }}</dd></div>
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Calidad</dt><dd class="font-medium">{{ $pallet->quality_status->label() }}</dd></div>
         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Traslado</dt><dd class="font-medium">{{ $pallet->transfer_status->label() }}</dd></div>
-        <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Lecturas</dt><dd class="font-medium tabular-nums">{{ $scans['accepted'] }} aceptadas</dd><dd class="text-xs text-zinc-500">{{ $scans['late'] }} tardías</dd></div>
+        <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"><dt class="text-xs text-zinc-500">Lecturas</dt><dd class="font-medium tabular-nums">{{ $scans['accepted'] }} aceptadas</dd><dd class="text-xs text-zinc-500">{{ $scans['late'] }} tardías @if ($scans['voided']) · {{ $scans['voided'] }} {{ $scans['voided'] === 1 ? 'anulada' : 'anuladas' }}@endif</dd></div>
     </dl>
 
     <div class="grid gap-6 lg:grid-cols-2">

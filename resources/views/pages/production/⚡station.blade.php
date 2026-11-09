@@ -5,6 +5,7 @@ use App\Domain\Pallets\Actions\RegisterManualBoxScan;
 use App\Domain\Pallets\Actions\ConfirmLabeled;
 use App\Domain\Pallets\Actions\ConfirmPalletized;
 use App\Domain\Pallets\Actions\PrintLabel;
+use App\Domain\Pallets\Actions\VoidBox;
 use App\Domain\Pallets\Enums\LabelConfirmation;
 use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Domain\Pallets\Enums\ScanEventStatus;
@@ -20,6 +21,7 @@ use App\Domain\Shared\TraceEventType;
 use App\Models\Device;
 use App\Models\Pallet;
 use App\Models\PalletCloseReason;
+use App\Models\BoxVoidReason;
 use App\Models\PalletStandard;
 use App\Models\PalletScanEvent;
 use App\Models\TraceEvent;
@@ -84,6 +86,27 @@ new #[Title('Producción')] class extends Component {
     public string $closeReasonId = '';
 
     public string $closeNote = '';
+
+    /** Void dialog: the box QR read, the box found, the chosen reason and the note. */
+    public string $voidQr = '';
+
+    /** @var array{box: string, pallet: string, order: string, lot: string, boxes: int, standard: int, status: string, consequence: string, blocked: bool}|null */
+    #[Locked]
+    public ?array $voidBox = null;
+
+    /** The QR of the box shown in the dialog, kept so the confirmation voids that box and no other. */
+    #[Locked]
+    public ?string $voidFoundQr = null;
+
+    #[Locked]
+    public ?string $voidError = null;
+
+    #[Locked]
+    public int $voidTries = 0;
+
+    public string $voidReasonId = '';
+
+    public string $voidNote = '';
 
     #[Locked]
     public ?int $confirmingId = null;
@@ -325,6 +348,94 @@ new #[Title('Producción')] class extends Component {
         }
     }
 
+    public function askVoid(): void
+    {
+        abort_unless(Auth::user()?->can(Permission::BoxesVoid->value), 403);
+        $this->reset('voidQr', 'voidBox', 'voidFoundQr', 'voidError', 'voidReasonId', 'voidNote');
+        unset($this->voidReasons);
+        $this->resetValidation();
+        Flux::modal('void-box')->show();
+    }
+
+    /**
+     * First step: the box read in the dialog, its pallet and what voiding it would do.
+     */
+    public function findVoidBox(VoidBox $void): void
+    {
+        $this->voidBox = null;
+        $this->voidFoundQr = null;
+
+        try {
+            $event = $void->preview(Auth::user(), $this->voidQr);
+        } catch (PalletRuleViolation $e) {
+            $this->voidError = $e->getMessage();
+            $this->voidTries++;
+            $this->voidQr = '';
+
+            return;
+        }
+
+        $pallet = $event->pallet;
+        $consequence = $void->consequence($pallet);
+        $this->voidError = null;
+        $this->voidFoundQr = $this->voidQr;
+        $this->voidBox = [
+            'box' => $event->external_event_id,
+            'pallet' => $pallet->pallet_code,
+            'order' => $pallet->production_order_ref,
+            'lot' => $pallet->lot_code,
+            'boxes' => $pallet->boxes_count,
+            'standard' => $pallet->standard_boxes_snapshot,
+            'status' => $pallet->physical_status->label().($pallet->close_type ? ' · '.$pallet->close_type->label() : ''),
+            'consequence' => $consequence,
+            'blocked' => str_starts_with($consequence, 'No se puede'),
+        ];
+    }
+
+    public function cancelVoidBox(): void
+    {
+        $this->reset('voidQr', 'voidBox', 'voidFoundQr', 'voidError', 'voidReasonId', 'voidNote');
+        $this->resetValidation();
+    }
+
+    public function confirmVoid(VoidBox $void): void
+    {
+        if ($this->voidBox === null || $this->voidFoundQr === null) {
+            return;
+        }
+
+        $this->validate([
+            'voidReasonId' => ['required', 'integer'],
+            'voidNote' => ['nullable', 'string', 'max:300'],
+        ], ['voidReasonId.required' => 'Escoge el motivo de la anulación.'], ['voidReasonId' => 'motivo', 'voidNote' => 'observación']);
+
+        $done = $this->run(function () use ($void): string {
+            $voided = $void->handle(Auth::user(), $this->voidFoundQr, (int) $this->voidReasonId, $this->voidNote, $this->context());
+            $after = $voided->pallet_after;
+            $state = $after['physical_status'] === PhysicalStatus::Stacking->value ? 'en estibado' : 'cerrada';
+
+            return "Caja {$voided->box_code} anulada. {$this->voidBox['pallet']} queda {$state} con {$after['boxes']} cajas.";
+        });
+
+        if ($done) {
+            $this->reset('voidQr', 'voidBox', 'voidFoundQr', 'voidError', 'voidReasonId', 'voidNote');
+            Flux::modal('void-box')->close();
+        } else {
+            unset($this->voidReasons);
+        }
+    }
+
+    /**
+     * Active reasons for voiding a box, in the configured order.
+     *
+     * @return Collection<int, BoxVoidReason>
+     */
+    #[Computed]
+    public function voidReasons(): Collection
+    {
+        return BoxVoidReason::query()->active()->ordered()->get(['id', 'name']);
+    }
+
     /**
      * Active reasons for closing an incomplete pallet, in the configured order.
      *
@@ -453,7 +564,6 @@ new #[Title('Producción')] class extends Component {
             <flux:heading size="xl" level="1">Producción</flux:heading>
             <flux:subheading>Estibas en proceso y por despachar a paletizado</flux:subheading>
         </div>
-
         <div class="flex flex-wrap items-center gap-3">
             {{-- Estado en tiempo real de la Zebra y control de velocidad --}}
             <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
@@ -483,6 +593,10 @@ new #[Title('Producción')] class extends Component {
             @if (! config('traceability.decisions.scan_ingestion_enabled'))
                 <flux:badge color="amber" icon="exclamation-triangle" size="lg">Sensor automático apagado (DP-01): usa la lectura manual</flux:badge>
             @endif
+
+            @can('boxes.void')
+                <flux:button icon="minus-circle" wire:click="askVoid">Anular caja leída</flux:button>
+            @endcan
         </div>
     </div>
 
@@ -822,13 +936,84 @@ new #[Title('Producción')] class extends Component {
         </div>
     @endif
 
+    @can('boxes.void')
+        <flux:modal name="void-box" class="w-full max-w-lg" x-on:close="$wire.cancelVoidBox()">
+            <div class="flex flex-col gap-4">
+                <flux:heading size="lg">Anular caja leída</flux:heading>
+                @if (! $voidBox)
+                    <flux:text>Lee el QR de la caja que se averió o se leyó por error. La caja deja de contar en su estiba y no se puede volver a leer. Solo se anulan cajas de estibas que todavía no se paletizan.</flux:text>
+                    <form class="flex flex-col gap-3"
+                        x-data="{
+                            busy: false,
+                            boxDone(v) { return /TRZB.[0-9a-f]{32}/i.test(v); },
+                            go() {
+                                if (this.busy || $refs.box.value.trim() === '') return;
+                                this.busy = true;
+                                $wire.findVoidBox().finally(() => { this.busy = false; });
+                            },
+                        }" x-on:submit.prevent="go()">
+                        @if ($voidError)
+                            <div wire:key="void-error-{{ $voidTries }}" x-init="$nextTick(() => $refs.box.focus())" role="alert" data-void-result="error" class="flex items-center gap-3 rounded-xl border-4 border-red-700 bg-red-600 p-4 text-white shadow-lg">
+                                <flux:icon.x-circle class="size-10 shrink-0" />
+                                <div>
+                                    <div class="font-bold uppercase tracking-wide">No se puede anular</div>
+                                    <div class="text-sm">{{ $voidError }}</div>
+                                </div>
+                            </div>
+                        @endif
+                        <label class="flex flex-col gap-1">
+                            <span class="text-sm font-medium text-zinc-800 dark:text-white">QR de la caja a anular</span>
+                            <input x-ref="box" wire:model="voidQr" autofocus autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Lee el QR de la caja"
+                                x-on:input="if (boxDone($event.target.value)) $nextTick(() => go())"
+                                x-on:keydown.enter.prevent="go()" x-on:keydown.tab.prevent="go()"
+                                class="block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-base text-zinc-900 shadow-xs focus:border-zinc-500 focus:outline-none dark:border-white/10 dark:bg-white/10 dark:text-white" />
+                        </label>
+                        <x-qr-camera-button model="voidQr" submit="findVoidBox" />
+                        <div class="flex justify-end gap-2">
+                            <flux:modal.close><flux:button variant="filled">Cancelar</flux:button></flux:modal.close>
+                            <flux:button type="submit" variant="primary">Buscar caja</flux:button>
+                        </div>
+                    </form>
+                @else
+                    <form wire:submit="confirmVoid" class="flex flex-col gap-4" data-void-box="{{ $voidBox['box'] }}">
+                        <dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1 rounded-xl border border-zinc-200 p-4 text-sm dark:border-zinc-700">
+                            <dt class="text-zinc-500">Caja</dt><dd class="font-mono font-semibold">{{ $voidBox['box'] }}</dd>
+                            <dt class="text-zinc-500">Estiba</dt><dd class="font-mono">{{ $voidBox['pallet'] }} · {{ $voidBox['boxes'] }} / {{ $voidBox['standard'] }} cajas</dd>
+                            <dt class="text-zinc-500">Estado</dt><dd>{{ $voidBox['status'] }}</dd>
+                            <dt class="text-zinc-500">OF · Lote</dt><dd class="font-mono">{{ $voidBox['order'] }} · {{ $voidBox['lot'] }}</dd>
+                        </dl>
+                        <flux:callout :variant="$voidBox['blocked'] ? 'danger' : 'warning'" :icon="$voidBox['blocked'] ? 'x-circle' : 'information-circle'">{{ $voidBox['consequence'] }}</flux:callout>
+                        @unless ($voidBox['blocked'])
+                            @if ($this->voidReasons->isEmpty())
+                                <flux:callout variant="warning" icon="exclamation-triangle">
+                                    No hay motivos de anulación configurados. Pide a un supervisor que los cree en Administración, Motivos.
+                                </flux:callout>
+                            @else
+                                <flux:select wire:model="voidReasonId" label="Motivo" placeholder="Escoge el motivo…">
+                                    @foreach ($this->voidReasons as $option)
+                                        <flux:select.option :value="$option->id" wire:key="vr-{{ $option->id }}">{{ $option->name }}</flux:select.option>
+                                    @endforeach
+                                </flux:select>
+                                <flux:input wire:model="voidNote" label="Observación (opcional)" maxlength="300" />
+                            @endif
+                        @endunless
+                        <div class="flex justify-end gap-2">
+                            <flux:button variant="filled" wire:click="cancelVoidBox">Leer otra caja</flux:button>
+                            <flux:button type="submit" variant="danger" wire:loading.attr="disabled" wire:target="confirmVoid" :disabled="$voidBox['blocked'] || $this->voidReasons->isEmpty()">Anular caja</flux:button>
+                        </div>
+                    </form>
+                @endif
+            </div>
+        </flux:modal>
+    @endcan
+
     <flux:modal name="close-pallet" class="w-full max-w-md">
         <form wire:submit="close" class="flex flex-col gap-4">
             <flux:heading size="lg">Cerrar estiba incompleta</flux:heading>
             <flux:text>La estiba se cierra con las cajas que tiene ahora. No recibe más lecturas y la siguiente caja abre una estiba nueva.</flux:text>
             @if ($this->closeReasons->isEmpty())
                 <flux:callout variant="warning" icon="exclamation-triangle">
-                    No hay motivos de cierre configurados. Pide a un supervisor que los cree en Administración, Motivos de cierre.
+                    No hay motivos de cierre configurados. Pide a un supervisor que los cree en Administración, Motivos.
                 </flux:callout>
             @else
                 <flux:select wire:model="closeReasonId" label="Motivo" placeholder="Escoge el motivo…">

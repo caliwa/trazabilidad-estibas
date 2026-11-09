@@ -116,6 +116,11 @@ class RegisterManualBoxScan
             ->orderBy('id', 'asc')
             ->get();
 
+        // A voided box stays out for good (VoidBox).
+        if ($previousScans->contains(fn (PalletScanEvent $scan) => $scan->void()->exists())) {
+            throw PalletRuleViolation::boxAlreadyVoided($boxCode);
+        }
+
         $acceptedScans = $previousScans->where('processing_status', ScanEventStatus::Accepted);
         $scannedCount = $acceptedScans->count();
 

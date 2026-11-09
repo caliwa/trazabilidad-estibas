@@ -40,6 +40,7 @@ enum Role: string
             self::TraceabilityAdmin => [
                 Permission::PalletsView,
                 Permission::PalletsOperate,
+                Permission::BoxesVoid,
                 Permission::PalletsPalletize,
                 Permission::PalletsLabel,
                 Permission::PalletsReprint,
@@ -75,6 +76,7 @@ enum Role: string
             ],
             self::ProductionOperator => [
                 Permission::PalletsOperate,
+                Permission::BoxesVoid,
                 Permission::PalletsPalletize,
                 Permission::PalletsLabel,
                 Permission::PalletsReprint,
