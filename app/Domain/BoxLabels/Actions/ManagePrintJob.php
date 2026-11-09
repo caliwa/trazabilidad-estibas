@@ -305,7 +305,8 @@ class ManagePrintJob
                 $job->printer_ip,
                 $job->printer_port,
                 $chunkZpl,
-                $countInChunk
+                $countInChunk,
+                skipPreCheck: true
             );
 
             if ($result['success']) {

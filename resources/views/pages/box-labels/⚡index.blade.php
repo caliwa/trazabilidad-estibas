@@ -144,8 +144,8 @@ new #[Title('Etiquetas de caja')] class extends Component {
         $this->activeJobId = $job->id;
         $this->resumeSequence = $job->next_sequence;
 
-        // Si ya estaba completado, permitir reimprimir reiniciando el trabajo
-        if ($job->status === 'completed') {
+        // Si ya estaba completado o sin pendientes, reiniciar desde cero para imprimir de nuevo
+        if ($job->status === 'completed' || $job->pending_labels <= 0) {
             $job->forceFill([
                 'sent_labels' => 0,
                 'printed_labels' => 0,
@@ -158,6 +158,12 @@ new #[Title('Etiquetas de caja')] class extends Component {
                 'completed_at' => null,
             ])->save();
             $this->resumeSequence = $job->start_sequence;
+        } elseif ($job->status === 'paused_error') {
+            // Si estaba en pausa por error previo, reactivar a printing
+            $job->status = 'printing';
+            $job->error_reason = null;
+            $job->save();
+            $this->resumeSequence = $job->next_sequence;
         }
 
         // Siempre abrir el monitor interactivo y procesar de forma estrictamente granular
@@ -1034,7 +1040,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
     <flux:modal name="zebra-print-monitor-modal" class="w-full max-w-lg">
         @php($job = $this->activeJob)
         @if ($job)
-            <div class="flex flex-col gap-4" @if ($isPrinting && $job && $job->status === 'printing') wire:poll.250ms="processActivePrintJob" @endif>
+            <div class="flex flex-col gap-4" @if ($isPrinting) wire:poll.300ms="processActivePrintJob" @endif>
                 <div class="flex items-start justify-between">
                     <div>
                         <flux:heading size="lg">Monitor de Impresión Zebra ZT411</flux:heading>

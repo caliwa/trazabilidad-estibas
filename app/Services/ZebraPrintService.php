@@ -327,71 +327,73 @@ class ZebraPrintService
      *     unprinted_in_buffer?: int
      * }
      */
-    public function printChunk(string $ip, int $port, string $chunkZpl, int $expectedLabels): array
+    public function printChunk(string $ip, int $port, string $chunkZpl, int $expectedLabels, bool $skipPreCheck = false): array
     {
-        // 1. Verificar estado físico de la impresora antes de enviar (modo rápido ~45ms)
-        $status = $this->getPrinterStatus($ip, $port, 2.0, fast: true);
-
-        if ($status['is_paused'] ?? false) {
-            // Intentar despausar con ~PS automáticamente
-            $this->unpausePrinter($ip, $port);
-            usleep(40000);
+        if (! $skipPreCheck) {
+            // 1. Verificar estado físico de la impresora antes de enviar (modo rápido ~45ms)
             $status = $this->getPrinterStatus($ip, $port, 2.0, fast: true);
-        }
 
-        if ($status['is_paused'] ?? false) {
-            return [
-                'success' => false,
-                'status' => 'HARDWARE_PAUSED',
-                'message' => 'La impresora Zebra está en PAUSA (botón presionado en panel frontal).',
-                'printed_count' => 0,
-                'remaining_in_chunk' => $expectedLabels,
-                'error_reason' => 'Impresora en pausa física en panel',
-            ];
-        }
+            if ($status['is_paused'] ?? false) {
+                // Intentar despausar con ~PS automáticamente
+                $this->unpausePrinter($ip, $port);
+                usleep(40000);
+                $status = $this->getPrinterStatus($ip, $port, 2.0, fast: true);
+            }
 
-        if (! ($status['online'] ?? false)) {
-            return [
-                'success' => false,
-                'status' => 'OFFLINE',
-                'message' => "La impresora Zebra no responde en {$ip}:{$port}.",
-                'printed_count' => 0,
-                'remaining_in_chunk' => $expectedLabels,
-                'error_reason' => $status['error_explanation'] ?? 'Impresora fuera de línea',
-            ];
-        }
+            if ($status['is_paused'] ?? false) {
+                return [
+                    'success' => false,
+                    'status' => 'HARDWARE_PAUSED',
+                    'message' => 'La impresora Zebra está en PAUSA (botón presionado en panel frontal).',
+                    'printed_count' => 0,
+                    'remaining_in_chunk' => $expectedLabels,
+                    'error_reason' => 'Impresora en pausa física en panel',
+                ];
+            }
 
-        if ($status['head_open'] ?? false) {
-            return [
-                'success' => false,
-                'status' => 'HEAD_OPEN',
-                'message' => 'Cabezal de la impresora abierto. Por favor ciérrelo para continuar.',
-                'printed_count' => 0,
-                'remaining_in_chunk' => $expectedLabels,
-                'error_reason' => 'Cabezal abierto',
-            ];
-        }
+            if (! ($status['online'] ?? false)) {
+                return [
+                    'success' => false,
+                    'status' => 'OFFLINE',
+                    'message' => "La impresora Zebra no responde en {$ip}:{$port}.",
+                    'printed_count' => 0,
+                    'remaining_in_chunk' => $expectedLabels,
+                    'error_reason' => $status['error_explanation'] ?? 'Impresora fuera de línea',
+                ];
+            }
 
-        if ($status['paper_out'] ?? false) {
-            return [
-                'success' => false,
-                'status' => 'PAPER_OUT',
-                'message' => 'Falta de rollo de etiquetas o papel atascado en la impresora.',
-                'printed_count' => 0,
-                'remaining_in_chunk' => $expectedLabels,
-                'error_reason' => 'Sin papel / rollo de etiquetas',
-            ];
-        }
+            if ($status['head_open'] ?? false) {
+                return [
+                    'success' => false,
+                    'status' => 'HEAD_OPEN',
+                    'message' => 'Cabezal de la impresora abierto. Por favor ciérrelo para continuar.',
+                    'printed_count' => 0,
+                    'remaining_in_chunk' => $expectedLabels,
+                    'error_reason' => 'Cabezal abierto',
+                ];
+            }
 
-        if ($status['ribbon_out'] ?? false) {
-            return [
-                'success' => false,
-                'status' => 'RIBBON_OUT',
-                'message' => 'Cinta de impresión (Ribbon) agotada en la impresora.',
-                'printed_count' => 0,
-                'remaining_in_chunk' => $expectedLabels,
-                'error_reason' => 'Sin cinta ribbon',
-            ];
+            if ($status['paper_out'] ?? false) {
+                return [
+                    'success' => false,
+                    'status' => 'PAPER_OUT',
+                    'message' => 'Falta de rollo de etiquetas o papel atascado en la impresora.',
+                    'printed_count' => 0,
+                    'remaining_in_chunk' => $expectedLabels,
+                    'error_reason' => 'Sin papel / rollo de etiquetas',
+                ];
+            }
+
+            if ($status['ribbon_out'] ?? false) {
+                return [
+                    'success' => false,
+                    'status' => 'RIBBON_OUT',
+                    'message' => 'Cinta de impresión (Ribbon) agotada en la impresora.',
+                    'printed_count' => 0,
+                    'remaining_in_chunk' => $expectedLabels,
+                    'error_reason' => 'Sin cinta ribbon',
+                ];
+            }
         }
 
         // 2. Asegurar velocidad configurada e inyectar
