@@ -13,7 +13,7 @@ Un lector fijo en la línea lee el QR de cada caja (`TRZB:` y el código opaco) 
 
 No depende de `TRACE_SCAN_INGESTION_ENABLED`, que es del endpoint de dispositivos (`POST /api/v1/scan-events`).
 
-**Dispositivos por la API.** Desde la regla de un token, una lectura, el `event_id` que manda un dispositivo tiene que ser el QR de la caja, su token o su código. La caja pasa por las mismas reglas de esta sección y la OF, el producto y el lote enviados deben ser los de la caja. Un `event_id` que no nombra una caja impresa se rechaza (422, `NO_ES_CAJA`) y no suma: sin la caja no hay forma de garantizar que se cuente una sola vez. Si la caja ya estaba leída responde 200 `duplicate`.
+**Dispositivos por la API.** Desde la regla de un token, una lectura, el `event_id` que manda un dispositivo tiene que ser el QR de la caja o su token. El código de caja impreso no se acepta. La caja pasa por las mismas reglas de esta sección y la OF, el producto y el lote enviados deben ser los de la caja. Un `event_id` que no nombra una caja impresa se rechaza (422, `NO_ES_CAJA`) y no suma: sin la caja no hay forma de garantizar que se cuente una sola vez. Si la caja ya estaba leída responde 200 `duplicate`.
 
 ## 2. Configurar el lector
 

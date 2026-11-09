@@ -98,9 +98,10 @@ class ScanEventApiTest extends TestCase
     {
         $this->send($this->payload(1))->assertCreated();
         $this->send($this->payload(1))->assertOk()->assertJson(['status' => 'duplicate', 'box_code' => '33128293-0001']);
-        // Its token alone or its code: still the same box.
+        // Its token alone: still the same box.
         $this->send($this->payload(1, ['event_id' => $this->label(1)->qr_token]))->assertOk()->assertJson(['status' => 'duplicate']);
-        $this->send($this->payload(1, ['event_id' => '33128293-0001']))->assertOk()->assertJson(['status' => 'duplicate']);
+        // The printed box code does not identify a box: only the QR token does.
+        $this->send($this->payload(1, ['event_id' => '33128293-0001']))->assertUnprocessable()->assertJson(['rejection' => 'NO_ES_CAJA']);
 
         $this->assertSame(1, Pallet::sole()->boxes_count);
         $this->assertSame(1, PalletScanEvent::count());

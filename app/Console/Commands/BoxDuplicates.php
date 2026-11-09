@@ -22,7 +22,8 @@ class BoxDuplicates extends Command
             SELECT b.code AS box, count(*) AS reads,
                    string_agg(e.id || ' ' || d.code || ' ' || coalesce(p.pallet_code, '-') || ' ' || to_char(e.received_at, 'YYYY-MM-DD HH24:MI:SS'), ' | ' ORDER BY e.id) AS detail
             FROM pallet_scan_events e
-            JOIN box_labels b ON b.id = box_label_for_event(e.external_event_id)
+            -- Reads from before the token rule may name the box by its code: this report looks for those too.
+            JOIN box_labels b ON b.id = coalesce(e.box_label_id, box_label_for_event(e.external_event_id), (SELECT id FROM box_labels WHERE code = e.external_event_id))
             JOIN devices d ON d.id = e.device_id
             LEFT JOIN pallets p ON p.id = e.pallet_id
             WHERE e.processing_status = 'ACEPTADO'

@@ -17,8 +17,8 @@ use Illuminate\Http\JsonResponse;
 /**
  * POST /api/v1/scan-events: one box read by a device.
  *
- * The event id has to name a box printed by this application: its QR text,
- * its token or its code. The box goes through the same rules as every other
+ * The event id has to be the QR (or its token) of a box printed by this
+ * application; the printed box code does not identify a box. The box goes through the same rules as every other
  * read (RegisterManualBoxScan) and its token counts once, whoever reads it.
  * The order, product and lot sent must be the box's.
  *
@@ -42,7 +42,7 @@ class ScanEventController extends Controller
         $box = RegisterManualBoxScan::boxNamedBy($data->externalEventId);
 
         if ($box === null) {
-            return $this->rejected('NO_ES_CAJA', 'El event_id debe ser el QR, el token o el código de una caja impresa por esta aplicación. Sin la caja no se puede garantizar que se cuente una sola vez.');
+            return $this->rejected('NO_ES_CAJA', 'El event_id debe ser el QR o el token del QR de una caja impresa por esta aplicación (el código de caja impreso no sirve). Sin la caja no se puede garantizar que se cuente una sola vez.');
         }
 
         if ([$box->batch->production_order_ref, $box->batch->item_code, $box->lot_code] !== [$data->productionOrderRef, $data->itemCode, $data->lotCode]) {
