@@ -90,7 +90,9 @@ class ProcessScanEvent
                 ? DB::transaction(fn () => $this->reject($device, $data, $resolved, $existing, $now, $ctx))
                 : DB::transaction(fn () => $this->accept($device, $data, $resolved, $existing, $now, $ctx));
         } catch (DuplicateScanEvent) {
-            $winner = $this->find($device, $data->externalEventId);
+            // The same event from this device, or another read of the same box token (any device):
+            // the database keeps one read per box (pallet_scan_events_one_per_box).
+            $winner = $this->find($device, $data->externalEventId) ?? $this->findSameBox($data->externalEventId);
 
             return $winner === null ? throw new \LogicException('Evento duplicado sin registro previo.') : $this->duplicate($winner, $data, $ctx);
         }
@@ -254,6 +256,16 @@ class ProcessScanEvent
             rejection: $existing->rejection_reason === null ? null : ScanRejection::tryFrom($existing->rejection_reason),
             payloadMismatch: $mismatch,
         );
+    }
+
+    /**
+     * The read already stored for the box this event id names (its code or its token), from any device.
+     */
+    private function findSameBox(string $externalEventId): ?PalletScanEvent
+    {
+        $box = DB::scalar('SELECT box_label_for_event(?)', [$externalEventId]);
+
+        return $box === null ? null : PalletScanEvent::query()->where('box_label_id', $box)->first();
     }
 
     private function find(Device $device, string $externalEventId): ?PalletScanEvent

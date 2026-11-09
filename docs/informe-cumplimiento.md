@@ -73,7 +73,7 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | ID | Criterio | Pruebas | Resultado |
 |---|---|---|---|
 | CA-01 | El primer evento crea la estiba con el estándar congelado | `ProcessScanEventTest::test_the_first_scan_creates_a_pallet_with_the_standard_frozen` | Pasa |
-| CA-02 | Cada evento suma una caja; un duplicado no | `ProcessScanEventTest::test_each_valid_scan_adds_exactly_one_box`, `ScanEventApiTest::test_a_resend_answers_200_and_changes_nothing` | Pasa |
+| CA-02 | Cada evento suma una caja; un duplicado no | `ProcessScanEventTest::test_each_valid_scan_adds_exactly_one_box`, `ScanEventApiTest::test_the_same_box_sent_again_answers_200_and_changes_nothing` | Pasa |
 | CA-03 | Al estándar se finaliza una vez y el siguiente abre otra | `ProcessScanEventTest::test_reaching_the_standard_closes_the_pallet_once_and_the_next_scan_opens_another` | Pasa |
 | CA-04 | Eventos concurrentes: una estiba activa y suma exacta | `ScanConcurrencyTest::test_parallel_scans_of_one_combination_fill_pallets_exactly` | Pasa |
 | CA-05 | No se mezclan órdenes, productos ni lotes | `ProcessScanEventTest::test_orders_items_and_lots_never_mix`, `ScanConcurrencyTest::test_parallel_combinations_never_mix_and_share_one_gapless_sequence` | Pasa |
@@ -165,7 +165,7 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | Manipulación de propiedades Livewire | `ProductionStationTest::test_the_pallet_being_closed_cannot_be_swapped_from_the_browser`, `BlindCountSecrecyTest::test_the_count_in_progress_cannot_be_swapped_from_the_browser` |
 | Acceso cruzado a estibas de otros procesos o usuarios | `BlindCountTest::test_a_count_belongs_to_whoever_started_it`, `PalletDetailAndLabelTest::test_a_print_that_does_not_exist_or_belongs_to_another_pallet_is_404_and_access_needs_permission`, `NotificationBellTest::test_people_only_open_their_own_notifications` |
 | Consultar cantidades durante el conteo ciego | `BlindCountSecrecyTest::test_no_other_screen_or_endpoint_shows_quantities_to_the_operator` |
-| Repetición de solicitudes HTTP | `ScanEventApiTest::test_a_resend_answers_200_and_changes_nothing`, `InventoryTransferFlowTest::test_a_pallet_with_an_active_transfer_cannot_be_requested_again`, `ProductionReceiptFlowTest::test_running_the_send_twice_sends_once` |
+| Repetición de solicitudes HTTP | `ScanEventApiTest::test_the_same_box_sent_again_answers_200_and_changes_nothing`, `InventoryTransferFlowTest::test_a_pallet_with_an_active_transfer_cannot_be_requested_again`, `ProductionReceiptFlowTest::test_running_the_send_twice_sends_once` |
 | Manipulación de QR | `PalletizeAndLabelTest::test_with_scan_mode_only_a_box_of_this_pallet_confirms_it` |
 | Credenciales en logs | `TraceEventsTest::test_context_and_log_lines_never_carry_secrets`, `HardeningTest::test_log_lines_are_json_with_the_correlation_id_and_no_secrets` |
 | Recibir o trasladar la misma estiba a la vez | `ReceiptConcurrencyTest::test_parallel_receipt_requests_for_the_same_pallets_hold_each_pallet_once`, `TransferConcurrencyTest::test_parallel_retries_for_the_same_pallets_hold_each_pallet_once` |
@@ -230,6 +230,7 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 |---|---|
 | Cada caja leída llena la estiba de su OF y lote y la cierra en el estándar (de prueba si no hay real) | `ManualBoxScanTest::test_each_box_read_fills_the_pallet_of_its_order_and_lot_with_the_test_standard`, `ManualBoxScanTest::test_a_real_pallet_standard_is_used_when_there_is_one` |
 | El QR de la caja lleva solo su código opaco; la caja se busca por él y su OF debe estar liberada | `ManualBoxScanTest::test_the_box_qr_carries_only_the_token`, `ManualBoxScanTest::test_only_a_box_qr_printed_here_for_a_released_order_is_counted` |
+| Un token de caja, una sola lectura, por cualquier tipo de lectura (base de datos) | `BoxReadOnceTest::test_every_read_is_tied_to_its_box_and_the_database_refuses_a_second_one_from_any_device`, `BoxReadOnceTest::test_a_box_counted_by_a_sensor_cannot_be_read_again_by_hand_and_the_other_way_round`, `BoxReadOnceTest::test_the_api_and_the_station_share_the_one_read_of_each_box` |
 | Cada caja se cuenta una sola vez, también en paralelo | `ManualBoxScanTest::test_a_box_is_counted_only_once_by_its_code`, `ManualBoxScanConcurrencyTest::test_parallel_reads_of_the_same_box_count_it_once`, `BoxLabelsTest::test_every_box_label_has_its_own_code_continuing_the_lot` |
 | Lectores con otra distribución de teclado | `ManualBoxScanTest::test_what_a_hand_reader_types_is_read_even_with_another_keyboard_layout` |
 | Etiqueta confirmada leyendo una caja de la estiba elegida; caja de otra estiba rechazada y registrada | `ManualBoxScanTest::test_the_label_is_confirmed_with_a_box_of_the_pallet_whose_button_was_pressed` |
