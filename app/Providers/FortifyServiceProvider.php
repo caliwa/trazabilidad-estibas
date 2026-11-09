@@ -40,9 +40,13 @@ class FortifyServiceProvider extends ServiceProvider
     {
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
 
-        // Same credential check as Fortify, plus: deactivated users cannot sign in.
+        // Permite autenticación por correo electrónico o por nombre de usuario (ej: liz.garcia)
         Fortify::authenticateUsing(function (Request $request): ?User {
-            $user = User::query()->where(Fortify::username(), $request->input(Fortify::username()))->first();
+            $input = trim((string) $request->input(Fortify::username()));
+            $user = User::query()
+                ->where('email', $input)
+                ->orWhere('name', $input)
+                ->first();
 
             if ($user === null || ! Hash::check((string) $request->input('password'), $user->password)) {
                 return null;
