@@ -281,4 +281,30 @@ class VoidBoxTest extends TestCase
         Livewire::actingAs($onlyOperates)->test('pages::production.station')->assertDontSee('Anular caja leída');
         Livewire::actingAs($onlyOperates)->test('pages::production.station')->call('askVoid')->assertForbidden();
     }
+
+    public function test_a_damaged_box_is_voided_typing_its_token_by_hand(): void
+    {
+        $this->read(1);
+        $token = (string) BoxLabel::query()->where('box_label_batch_id', $this->batch->id)->where('sequence', 1)->value('qr_token');
+
+        $void = app(VoidBox::class)->handle($this->operator, '  '.strtoupper($token).' ', $this->damaged->id, null, $this->ctx());
+
+        $this->assertSame('33128293-0001', $void->box_code);
+        $this->assertSame(0, Pallet::sole()->boxes_count);
+
+        Livewire::actingAs($this->operator)->test('pages::production.station')
+            ->call('askVoid')
+            ->set('voidQr', 'abc123')
+            ->call('findVoidBox')
+            ->assertSet('voidBox', null)
+            ->assertSee('No se puede anular');
+    }
+
+    public function test_the_counting_field_still_needs_the_full_qr(): void
+    {
+        $token = (string) BoxLabel::query()->where('box_label_batch_id', $this->batch->id)->where('sequence', 1)->value('qr_token');
+
+        $this->expectException(PalletRuleViolation::class);
+        app(RegisterManualBoxScan::class)->handle($this->operator, $token, $this->ctx());
+    }
 }

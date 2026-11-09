@@ -36,4 +36,14 @@ final class BoxQr
 
         return strtolower($m[1]);
     }
+
+    /**
+     * The token typed by hand when the QR cannot be read: the 32 characters
+     * alone, without "TRZB:". Only where a person types it on purpose (voiding
+     * a damaged box), never on the counting field.
+     */
+    public static function typedToken(string $typed): ?string
+    {
+        return preg_match('/^\s*([0-9a-f]{32})\s*$/i', $typed, $m) === 1 ? strtolower($m[1]) : null;
+    }
 }

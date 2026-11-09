@@ -734,7 +734,7 @@ new #[Title('Producción')] class extends Component {
             <div class="flex flex-col gap-4">
                 <flux:heading size="lg">Anular caja leída</flux:heading>
                 @if (! $voidBox)
-                    <flux:text>Lee el QR de la caja que se averió o se leyó por error. La caja deja de contar en su estiba y no se puede volver a leer. Solo se anulan cajas de estibas que todavía no se paletizan.</flux:text>
+                    <flux:text>Lee el QR de la caja que se averió o se leyó por error. Si el QR no se puede leer, escribe a mano el token de la caja (los 32 caracteres, sin «TRZB:») y presiona Enter. La caja deja de contar en su estiba y no se puede volver a leer. Solo se anulan cajas de estibas que todavía no se paletizan.</flux:text>
                     <form class="flex flex-col gap-3"
                         x-data="{
                             busy: false,
@@ -755,8 +755,8 @@ new #[Title('Producción')] class extends Component {
                             </div>
                         @endif
                         <label class="flex flex-col gap-1">
-                            <span class="text-sm font-medium text-zinc-800 dark:text-white">QR de la caja a anular</span>
-                            <input x-ref="box" wire:model="voidQr" autofocus autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Lee el QR de la caja"
+                            <span class="text-sm font-medium text-zinc-800 dark:text-white">QR o token de la caja a anular</span>
+                            <input x-ref="box" wire:model="voidQr" autofocus autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Lee el QR o escribe el token"
                                 x-on:input="if (boxDone($event.target.value)) $nextTick(() => go())"
                                 x-on:keydown.enter.prevent="go()" x-on:keydown.tab.prevent="go()"
                                 class="block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-base text-zinc-900 shadow-xs focus:border-zinc-500 focus:outline-none dark:border-white/10 dark:bg-white/10 dark:text-white" />
