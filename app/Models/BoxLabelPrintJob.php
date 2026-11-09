@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $production_order_id
  * @property string $lot_code
  * @property int $total_labels
+ * @property int $sent_labels
  * @property int $printed_labels
  * @property int $pending_labels
  * @property int $start_sequence
@@ -47,6 +48,7 @@ class BoxLabelPrintJob extends Model
     {
         return [
             'total_labels' => 'integer',
+            'sent_labels' => 'integer',
             'printed_labels' => 'integer',
             'pending_labels' => 'integer',
             'start_sequence' => 'integer',

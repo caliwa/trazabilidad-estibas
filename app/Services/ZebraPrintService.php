@@ -443,16 +443,15 @@ class ZebraPrintService
             ];
         }
 
-        // Pacing físico optimizado: 80ms es suficiente para que el socket descargue
-        // el paquete en la memoria de la impresora sin frenar artificialmente el software.
-        $sleepMicroseconds = min(500000, max(80000, $expectedLabels * 80000));
-        usleep($sleepMicroseconds);
+        // Entrega inmediata al socket sin retardos artificiales que desincronicen el conteo
+        usleep(15000);
 
         return [
             'success' => true,
             'status' => 'CHUNK_COMPLETED',
             'message' => "Sub-lote de {$expectedLabels} etiquetas transmitido exitosamente.",
             'printed_count' => $expectedLabels,
+            'sent_count' => $expectedLabels,
             'remaining_in_chunk' => 0,
         ];
     }

@@ -147,6 +147,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
         // Si ya estaba completado, permitir reimprimir reiniciando el trabajo
         if ($job->status === 'completed') {
             $job->forceFill([
+                'sent_labels' => 0,
                 'printed_labels' => 0,
                 'pending_labels' => $job->total_labels,
                 'last_printed_sequence' => 0,
@@ -1033,7 +1034,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
     <flux:modal name="zebra-print-monitor-modal" class="w-full max-w-lg">
         @php($job = $this->activeJob)
         @if ($job)
-            <div class="flex flex-col gap-4" @if ($isPrinting && $job && $job->status === 'printing') wire:poll.200ms="processActivePrintJob" @endif>
+            <div class="flex flex-col gap-4" @if ($isPrinting && $job && $job->status === 'printing') wire:poll.250ms="processActivePrintJob" @endif>
                 <div class="flex items-start justify-between">
                     <div>
                         <flux:heading size="lg">Monitor de Impresión Zebra ZT411</flux:heading>
@@ -1045,7 +1046,13 @@ new #[Title('Etiquetas de caja')] class extends Component {
                         @elseif ($job->status === 'paused_error')
                             <flux:badge color="amber" size="lg" icon="pause-circle">Pausada ({{ $job->printed_labels }}/{{ $job->total_labels }})</flux:badge>
                         @elseif ($job->status === 'printing')
-                            <flux:badge color="blue" size="lg" icon="arrow-path" class="animate-pulse">Imprimiendo ({{ $job->printed_labels }}/{{ $job->total_labels }})...</flux:badge>
+                            <flux:badge color="blue" size="lg" icon="arrow-path" class="animate-pulse">
+                                @if (($job->sent_labels ?? 0) >= $job->total_labels && $job->printed_labels < $job->total_labels)
+                                    Finalizando salida física ({{ $job->printed_labels }}/{{ $job->total_labels }})...
+                                @else
+                                    Imprimiendo ({{ $job->printed_labels }}/{{ $job->total_labels }})...
+                                @endif
+                            </flux:badge>
                         @else
                             <flux:badge color="zinc" size="lg">{{ ucfirst($job->status) }}</flux:badge>
                         @endif
@@ -1122,7 +1129,11 @@ new #[Title('Etiquetas de caja')] class extends Component {
                     @elseif ($job->status === 'printing')
                         <div class="flex items-center gap-2 text-xs text-zinc-500">
                             <flux:icon icon="arrow-path" class="size-4 animate-spin text-blue-500" />
-                            <span>Imprimiendo de forma granular (1 a 1)...</span>
+                            @if (($job->sent_labels ?? 0) >= $job->total_labels && $job->printed_labels < $job->total_labels)
+                                <span>Esperando salida física de las últimas {{ $job->total_labels - $job->printed_labels }} etiquetas...</span>
+                            @else
+                                <span>Imprimiendo en sincronía física con la Zebra...</span>
+                            @endif
                         </div>
                         <flux:button variant="ghost" size="sm" wire:click="pausePrintJob({{ $job->id }})">Pausar</flux:button>
                     @else
