@@ -24,16 +24,37 @@ final class BoxQr
 
     /**
      * The token inside a scanned value, or null when it is not a box QR.
-     * Tolerates what keyboard-like readers do: spaces or line breaks,
-     * separators, capitals, or trailing suffixes/box numbers (e.g. 001-02).
-     * Extracts strictly the 32-hexadecimal token of the label.
+    /**
+     * The token inside a scanned value, or null when it is not a box QR.
+     * Tolerates what keyboard-like readers and PDAs do: spaces or a line
+     * break around it, the ":" typed as another symbol on a different keyboard
+     * layout, capitals with caps lock on, invisible control characters (a
+     * PDA's prefix or suffix keys) and the symbology identifier some readers
+     * put in front (]Q1 for a QR).
      */
     public static function tokenFrom(string $scanned): ?string
     {
-        if (preg_match('/TRZB.{1,4}?([0-9a-f]{32})/i', $scanned, $m) !== 1) {
+        $scanned = preg_replace('/[\p{Cc}\p{Cf}]/u', ' ', $scanned) ?? $scanned;
+
+        if (preg_match('/(?:\][A-Za-z][0-9A-Za-z]\s*)?TRZB\X([0-9a-f]{32})/iu', $scanned, $m) !== 1) {
             return null;
         }
 
         return strtolower($m[1]);
+    }
+            return null;
+        }
+
+        return strtolower($m[1]);
+    }
+
+    /**
+     * The token typed by hand when the QR cannot be read: the 32 characters
+     * alone, without "TRZB:". Only where a person types it on purpose (voiding
+     * a damaged box), never on the counting field.
+     */
+    public static function typedToken(string $typed): ?string
+    {
+        return preg_match('/^\s*([0-9a-f]{32})\s*$/i', $typed, $m) === 1 ? strtolower($m[1]) : null;
     }
 }

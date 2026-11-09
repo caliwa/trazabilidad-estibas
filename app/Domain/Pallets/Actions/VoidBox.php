@@ -168,7 +168,8 @@ class VoidBox
 
     private function countedRead(string $scanned): PalletScanEvent
     {
-        $token = BoxQr::tokenFrom($scanned)
+        // The QR read, or its token typed by hand when the label is too damaged to read.
+        $token = BoxQr::tokenFrom($scanned) ?? BoxQr::typedToken($scanned)
             ?? throw (PalletQr::tokenFrom($scanned) !== null ? PalletRuleViolation::palletQrInBoxField() : PalletRuleViolation::notABoxLabel());
         $code = BoxLabel::query()->where('qr_token', $token)->value('code') ?? throw PalletRuleViolation::unknownBoxQr();
 

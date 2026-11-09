@@ -12,6 +12,8 @@
     'keepFocus' => false,
     // Takes the cursor when it appears, even on a page whose field keeps it (a step that expects the next read).
     'claimFocus' => false,
+    // Inside a dialog: the dialog puts the cursor here when it opens.
+    'autofocus' => false,
 ])
 
 {{--
@@ -111,7 +113,7 @@
 >
     <label class="text-sm font-medium text-zinc-800 dark:text-white">{{ $label }}</label>
     <div class="flex gap-2">
-        <textarea x-ref="field" x-model="value" @input="typed" @keydown.enter="enter($event)"
+        <textarea x-ref="field" @if ($autofocus) autofocus @endif x-model="value" @input="typed" @keydown.enter="enter($event)"
             rows="{{ $multiline ? 3 : 1 }}" placeholder="{{ $placeholder }}" autocomplete="off" autocapitalize="off" spellcheck="false"
             class="block w-full resize-none rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-base text-zinc-900 shadow-xs focus:border-zinc-500 focus:outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"></textarea>
         <template x-if="canUseCamera">

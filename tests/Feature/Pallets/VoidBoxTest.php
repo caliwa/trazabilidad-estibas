@@ -255,12 +255,10 @@ class VoidBoxTest extends TestCase
         Livewire::actingAs($this->operator)->test('pages::production.station')
             ->assertSee('Anular caja leída')
             ->call('askVoid')
-            ->set('voidQr', $this->box(9))
-            ->call('findVoidBox')
+            ->call('findVoidBox', $this->box(9))
             ->assertSet('voidBox', null)
             ->assertSee('no tiene una lectura contada')
-            ->set('voidQr', $this->box(2))
-            ->call('findVoidBox')
+            ->call('findVoidBox', $this->box(2))
             ->assertSee('33128293-0002')
             ->assertSee('se reabre con 2 cajas')
             ->assertSee('Caja averiada')
@@ -280,5 +278,52 @@ class VoidBoxTest extends TestCase
         $onlyOperates = User::factory()->create()->givePermissionTo('pallets.operate');
         Livewire::actingAs($onlyOperates)->test('pages::production.station')->assertDontSee('Anular caja leída');
         Livewire::actingAs($onlyOperates)->test('pages::production.station')->call('askVoid')->assertForbidden();
+    }
+
+    public function test_a_damaged_box_is_voided_typing_its_token_by_hand(): void
+    {
+        $this->read(1);
+        $token = (string) BoxLabel::query()->where('box_label_batch_id', $this->batch->id)->where('sequence', 1)->value('qr_token');
+
+        $void = app(VoidBox::class)->handle($this->operator, '  '.strtoupper($token).' ', $this->damaged->id, null, $this->ctx());
+
+        $this->assertSame('33128293-0001', $void->box_code);
+        $this->assertSame(0, Pallet::sole()->boxes_count);
+
+        Livewire::actingAs($this->operator)->test('pages::production.station')
+            ->call('askVoid')
+            ->call('findVoidBox', 'abc123')
+            ->assertSet('voidBox', null)
+            ->assertSee('No se puede anular');
+    }
+
+    public function test_the_counting_field_still_needs_the_full_qr(): void
+    {
+        $token = (string) BoxLabel::query()->where('box_label_batch_id', $this->batch->id)->where('sequence', 1)->value('qr_token');
+
+        $this->expectException(PalletRuleViolation::class);
+        app(RegisterManualBoxScan::class)->handle($this->operator, $token, $this->ctx());
+    }
+
+    public function test_a_pda_read_with_its_extra_characters_voids_the_box(): void
+    {
+        $this->read(1);
+        $this->read(2);
+        $token = fn (int $n) => (string) BoxLabel::query()->where('box_label_batch_id', $this->batch->id)->where('sequence', $n)->value('qr_token');
+
+        // Symbology identifier in front and Enter behind, as some PDAs send it.
+        Livewire::actingAs($this->operator)->test('pages::production.station')
+            ->call('askVoid')
+            ->call('findVoidBox', ']Q1TRZB:'.$token(1)."\r\n", 'scan-1')
+            ->assertSee('33128293-0001')
+            ->set('voidReasonId', (string) $this->damaged->id)
+            ->call('confirmVoid')
+            ->assertHasNoErrors();
+
+        // Invisible prefix and suffix keys (STX/ETX) around the read.
+        $void = app(VoidBox::class)->handle($this->operator, "\x02TRZB:".$token(2)."\x03", $this->damaged->id, null, $this->ctx());
+
+        $this->assertSame('33128293-0002', $void->box_code);
+        $this->assertSame(0, Pallet::sole()->boxes_count);
     }
 }
