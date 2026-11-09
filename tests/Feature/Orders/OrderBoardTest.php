@@ -5,6 +5,7 @@ namespace Tests\Feature\Orders;
 use App\Domain\Audits\Actions\StartBlindCount;
 use App\Domain\Audits\Actions\SubmitBlindCount;
 use App\Domain\Orders\Actions\SyncReleasedOrders;
+use App\Domain\Orders\Actions\UnlockOrderReceipts;
 use App\Domain\Orders\Enums\OrderStage;
 use App\Domain\Orders\OrderProgress;
 use App\Domain\Orders\OrderSyncStatus;
@@ -59,6 +60,12 @@ class OrderBoardTest extends TestCase
     private function ctx(?User $user = null): TraceContext
     {
         return TraceContext::forUser($user ?? $this->admin, Origin::Web, (string) Str::uuid());
+    }
+
+    private function unlockReceipts(ProductionOrder $order): void
+    {
+        $supervisor = $this->userWithRole(Role::ProductionSupervisor);
+        app(UnlockOrderReceipts::class)->handle($supervisor, $order->id, 'Sigue la producción', $this->ctx($supervisor));
     }
 
     private function sync(): void
@@ -171,6 +178,8 @@ class OrderBoardTest extends TestCase
         $this->assertSame([OrderStage::ReadyToClose, 100, 50], [$p->stage(), $p->receivedPercent(), $p->transferredPercent()]);
         $this->assertFalse($p->allInCedi());
 
+        // Past the receipt limit, more needs the supervisor's go-ahead.
+        $this->unlockReceipts($order);
         $this->receive($order, 'L-3');
         $this->assertSame(OrderStage::OverProduced, $this->progress($order)->stage());
     }
@@ -216,6 +225,7 @@ class OrderBoardTest extends TestCase
         $this->assertNotNull($order->refresh()->ready_to_close_notified_at);
         $this->assertSame(1, TraceEvent::query()->where('event', TraceEventType::ProductionOrderReadyToClose->value)->count());
 
+        $this->unlockReceipts($order);
         $this->receive($order, 'L-3');
         $this->sync();
         Notification::assertSentToTimes($this->admin, OrderReadyToClose::class, 1);

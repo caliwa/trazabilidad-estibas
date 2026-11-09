@@ -6,11 +6,13 @@ use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Domain\Receipts\Actions\RequestProductionReceipts;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Receipts\Exceptions\ReceiptRuleViolation;
+use App\Domain\Receipts\ReceiptLimit;
 use App\Domain\Receipts\ProductionReceiptLifecycle;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Enums\Permission;
 use App\Integrations\Sap\Dto\Quantity;
+use App\Support\Quantities;
 use App\Jobs\ReconcileProductionReceipt;
 use App\Models\Pallet;
 use App\Models\ProductionOrder;
@@ -79,6 +81,19 @@ new #[Title('Recibos de producción')] class extends Component {
     }
 
     /**
+     * Where the chosen order stands against the receipt limit.
+     *
+     * @return array{limit: int, planned_micro: int|null, committed_micro: int, percent: int|null, reached: bool, unlocked: bool, blocked: bool}|null
+     */
+    #[Computed]
+    public function limit(): ?array
+    {
+        $order = $this->orderId === null ? null : ProductionOrder::query()->find($this->orderId);
+
+        return $order === null ? null : app(ReceiptLimit::class)->status($order);
+    }
+
+    /**
      * @return Collection<int, Pallet>
      */
     #[Computed]
@@ -135,6 +150,8 @@ new #[Title('Recibos de producción')] class extends Component {
 
     public function request(RequestProductionReceipts $request): void
     {
+        $orderRef = $this->orderId === null ? '' : (string) ProductionOrder::query()->whereKey($this->orderId)->value('ref');
+
         try {
             $created = $request->handle(Auth::user(), $this->selected, $this->documents === 'per_pallet', $this->context());
         } catch (ReceiptRuleViolation $e) {
@@ -145,7 +162,12 @@ new #[Title('Recibos de producción')] class extends Component {
 
         $this->waitForSap(count($created) === 1 ? 'Recibo de producción enviado a SAP' : count($created).' recibos de producción enviados a SAP', array_map(fn ($r) => ['type' => 'receipt', 'id' => $r->id], $created));
         $this->selected = [];
-        unset($this->eligible, $this->orders, $this->receipts);
+        unset($this->eligible, $this->orders, $this->receipts, $this->limit);
+
+        // This receipt took the order to its limit: say it now, while the person is here.
+        if ($this->limit !== null && $this->limit['blocked']) {
+            Flux::toast(variant: 'warning', heading: "La OF {$orderRef} llegó al {$this->limit['limit']} %", text: 'Hay que realizar el cierre de la OF en SAP. No acepta más recibos hasta que el supervisor la habilite.', duration: 0);
+        }
 
         // Every pallet of the order was requested: it leaves the list, so it is no longer the chosen one.
         if ($this->eligible->isEmpty()) {
@@ -208,6 +230,22 @@ new #[Title('Recibos de producción')] class extends Component {
                 @endforeach
             </flux:select>
 
+            @if ($this->limit !== null && $this->limit['planned_micro'] !== null)
+                @php
+                    $lim = $this->limit;
+                @endphp
+                @if ($lim['blocked'])
+                    <flux:callout variant="danger" icon="lock-closed" data-receipt-limit="blocked">
+                        <flux:callout.heading>La OF llegó al {{ $lim['limit'] }} % de lo planificado: hay que cerrarla en SAP</flux:callout.heading>
+                        <flux:callout.text>Lleva {{ $lim['percent'] }} % recibido o en trámite ({{ Quantities::format($lim['committed_micro']) }} de {{ Quantities::format($lim['planned_micro']) }}). No acepta más recibos. Si producción debe continuar, el supervisor de producción la habilita en el Tablero de OF.</flux:callout.text>
+                    </flux:callout>
+                @elseif ($lim['unlocked'])
+                    <flux:callout variant="secondary" icon="lock-open" data-receipt-limit="unlocked">Recibos habilitados por el supervisor después de llegar al límite. Lleva {{ $lim['percent'] }} % de lo planificado.</flux:callout>
+                @else
+                    <flux:text class="text-sm" data-receipt-limit="ok">Lleva {{ $lim['percent'] }} % de lo planificado recibido o en trámite. Al llegar al {{ $lim['limit'] }} % la OF deja de aceptar recibos y hay que cerrarla en SAP.</flux:text>
+                @endif
+            @endif
+
             @if ($orderId !== null)
                 @if ($this->eligible->isEmpty())
                     <flux:text>Esta orden no tiene estibas etiquetadas por recibir.</flux:text>
@@ -248,7 +286,7 @@ new #[Title('Recibos de producción')] class extends Component {
             </flux:radio.group>
 
             <flux:button variant="primary" icon="paper-airplane" wire:click="request" wire:loading.attr="disabled" wire:target="request"
-                wire:confirm="¿Solicitar el recibo en SAP para las estibas seleccionadas?" :disabled="$selected === []">
+                wire:confirm="¿Solicitar el recibo en SAP para las estibas seleccionadas?" :disabled="$selected === [] || ($this->limit['blocked'] ?? false)">
                 Solicitar recibo
             </flux:button>
         </div>

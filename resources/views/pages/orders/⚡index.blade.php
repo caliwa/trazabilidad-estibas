@@ -1,7 +1,12 @@
 <?php
 
 use App\Domain\Orders\Enums\OrderStage;
+use App\Domain\Orders\Actions\UnlockOrderReceipts;
 use App\Domain\Orders\OrderSyncStatus;
+use App\Domain\Receipts\ReceiptLimit;
+use App\Domain\Shared\Origin;
+use App\Domain\Shared\TraceContext;
+use App\Models\ProductionOrder;
 use App\Enums\Permission;
 use App\Jobs\SyncReleasedOrdersFromSap;
 use App\Queries\OrderBoardQuery;
@@ -10,6 +15,7 @@ use Flux\Flux;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -85,6 +91,63 @@ new #[Title('Tablero de OF')] class extends Component {
     public function rows(): Collection
     {
         return app(OrderBoardQuery::class)->rows($this->search, $this->stage);
+    }
+
+    /** Order whose receipts the supervisor is about to unlock, and why. */
+    #[Locked]
+    public ?int $unlockingId = null;
+
+    public string $unlockReason = '';
+
+    /**
+     * Each listed order against the receipt limit, keyed by order id.
+     *
+     * @return array<int, array{limit: int, planned_micro: int|null, committed_micro: int, percent: int|null, reached: bool, unlocked: bool, blocked: bool}>
+     */
+    #[Computed]
+    public function limits(): array
+    {
+        $limit = app(ReceiptLimit::class);
+        $percent = $limit->percent();
+        $orders = [];
+        foreach ($this->rows as $row) {
+            $orders[$row['order']->id] = $row['order'];
+        }
+        $committed = $limit->committedFor(array_keys($orders));
+
+        $result = [];
+        foreach ($orders as $id => $order) {
+            $result[$id] = $limit->status($order, $percent, $committed[$id] ?? 0);
+        }
+
+        return $result;
+    }
+
+    public function askUnlock(int $orderId): void
+    {
+        abort_unless(Auth::user()?->can(Permission::OrdersUnlockReceipts->value), 403);
+        $this->unlockingId = ProductionOrder::query()->findOrFail($orderId)->id;
+        $this->unlockReason = '';
+        $this->resetValidation();
+        Flux::modal('unlock-receipts')->show();
+    }
+
+    public function unlock(UnlockOrderReceipts $unlock): void
+    {
+        $this->validate(['unlockReason' => ['required', 'string', 'max:300']], attributes: ['unlockReason' => 'motivo']);
+
+        try {
+            $order = $unlock->handle(Auth::user(), (int) $this->unlockingId, $this->unlockReason, TraceContext::forUser(Auth::user(), Origin::Web, app(CorrelationId::class)->get(), request()->ip()));
+        } catch (\DomainException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+
+        $this->reset('unlockingId', 'unlockReason');
+        unset($this->limits);
+        Flux::modal('unlock-receipts')->close();
+        Flux::toast(variant: 'success', text: "Recibos habilitados de nuevo en la OF {$order->ref}.");
     }
 
     /**
@@ -199,7 +262,9 @@ new #[Title('Tablero de OF')] class extends Component {
                 </flux:table.columns>
                 <flux:table.rows>
                     @foreach ($this->rows as ['order' => $order, 'progress' => $p])
-                        @php($rowStage = $p->stage())
+                        @php
+                            $rowStage = $p->stage();
+                        @endphp
                         <flux:table.row :key="$order->id">
                             <flux:table.cell>
                                 <span class="font-mono font-semibold">{{ $order->ref }}</span>
@@ -225,6 +290,18 @@ new #[Title('Tablero de OF')] class extends Component {
                                 @if ($rowStage === OrderStage::Closed && $order->sap_closed_at)<div class="mt-1 text-xs text-zinc-500">el {{ $order->sap_closed_at->timezone(config('app.timezone'))->format('d/m/Y') }}</div>@endif
                                 @if ($rowStage->closable() && $p->allInCedi())<div class="mt-1"><flux:badge size="sm" color="violet">Completa en CEDI</flux:badge></div>@endif
                                 @if ($p->pendingInSap > 0)<div class="mt-1 text-xs text-amber-700 dark:text-amber-400">Pendiente de conciliar en SAP</div>@endif
+                                @php
+                                    $lim = $this->limits[$order->id] ?? null;
+                                @endphp
+                                @if ($lim && $lim['blocked'] && $rowStage !== OrderStage::Closed)
+                                    <div class="mt-1" data-receipt-limit="blocked"><flux:badge size="sm" color="red" icon="lock-closed">Recibos bloqueados</flux:badge></div>
+                                    <div class="mt-0.5 text-xs text-red-700 dark:text-red-400">Llegó al {{ $lim['limit'] }} %: cerrar la OF en SAP</div>
+                                    @can('orders.unlock_receipts')
+                                        <flux:button size="xs" class="mt-1" icon="lock-open" wire:click="askUnlock({{ $order->id }})">Habilitar recibos</flux:button>
+                                    @endcan
+                                @elseif ($lim && $lim['unlocked'] && $rowStage !== OrderStage::Closed)
+                                    <div class="mt-1 text-xs text-zinc-500" data-receipt-limit="unlocked">Recibos habilitados después del {{ $lim['limit'] }} %</div>
+                                @endif
                             </flux:table.cell>
                         </flux:table.row>
                     @endforeach
@@ -232,4 +309,21 @@ new #[Title('Tablero de OF')] class extends Component {
             </flux:table>
         @endif
     </div>
+
+    @can('orders.unlock_receipts')
+        <flux:modal name="unlock-receipts" class="w-full max-w-md">
+            <form wire:submit="unlock" class="flex flex-col gap-4">
+                @php
+                    $unlockOrder = $unlockingId ? ProductionOrder::query()->find($unlockingId, ['id', 'ref']) : null;
+                @endphp
+                <flux:heading size="lg">Habilitar recibos{{ $unlockOrder ? ' · OF '.$unlockOrder->ref : '' }}</flux:heading>
+                <flux:text>La OF llegó al límite de recibos y debería cerrarse en SAP. Si producción continúa con esta OF, al habilitarla vuelve a aceptar recibos hasta que se cierre en SAP. Queda registrado quién la habilitó y por qué.</flux:text>
+                <flux:input wire:model="unlockReason" label="Motivo" maxlength="300" required />
+                <div class="flex justify-end gap-2">
+                    <flux:modal.close><flux:button variant="filled">Cancelar</flux:button></flux:modal.close>
+                    <flux:button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="unlock">Habilitar recibos</flux:button>
+                </div>
+            </form>
+        </flux:modal>
+    @endcan
 </section>

@@ -9,6 +9,7 @@ use App\Domain\Integration\Enums\SapDocumentStatus;
 use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Domain\Receipts\Enums\ReceiptStatus;
 use App\Domain\Receipts\Exceptions\ReceiptRuleViolation;
+use App\Domain\Receipts\ReceiptLimit;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
 use App\Enums\Permission;
@@ -44,6 +45,7 @@ class RequestProductionReceipts
     public function __construct(
         private readonly ConversionFactors $factors,
         private readonly TraceLogger $trace,
+        private readonly ReceiptLimit $limit,
     ) {}
 
     /**
@@ -72,11 +74,18 @@ class RequestProductionReceipts
                 throw ReceiptRuleViolation::mixedOrders();
             }
 
-            $order = ProductionOrder::query()->findOrFail($pallets->first()?->production_order_id);
+            // Locked so two requests for the same order check the receipt limit one after the other.
+            $order = ProductionOrder::query()->lockForUpdate()->findOrFail($pallets->first()?->production_order_id);
 
             // Local copy of SAP; whether SAP closes orders after partial receipts is DP-06.
             if (! $order->is_open) {
                 throw ReceiptRuleViolation::orderClosed($order->ref);
+            }
+
+            // At the limit (90 % of the planned quantity by default) the order has to be closed in SAP.
+            $limit = $this->limit->status($order);
+            if ($limit['blocked']) {
+                throw ReceiptRuleViolation::orderAtLimit($order->ref, $limit['limit']);
             }
 
             $factors = [];
@@ -94,7 +103,18 @@ class RequestProductionReceipts
 
             $groups = $onePerPallet ? $pallets->map(fn (Pallet $p) => collect([$p]))->all() : [$pallets];
 
-            return array_map(fn ($group) => $this->create($user, $order, array_values($group->all()), $factors, $ctx), array_values($groups));
+            $created = array_map(fn ($group) => $this->create($user, $order, array_values($group->all()), $factors, $ctx), array_values($groups));
+
+            // This request took the order to its limit: from now on it has to be closed in SAP.
+            $after = $this->limit->status($order);
+            if ($after['blocked']) {
+                $this->trace->record($ctx, TraceEventType::ProductionOrderReceiptLimitReached, $order,
+                    reason: "La OF {$order->ref} llegó al {$after['percent']} % de lo planificado (límite {$after['limit']} %). Hay que cerrarla en SAP.",
+                    context: ['limit_percent' => $after['limit'], 'committed_micro' => $after['committed_micro'], 'planned_micro' => $after['planned_micro']],
+                );
+            }
+
+            return $created;
         });
 
         foreach ($receipts as $receipt) {

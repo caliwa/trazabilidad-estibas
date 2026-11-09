@@ -35,6 +35,7 @@ class AuditLog extends Model
         'user.deactivated' => 'Usuario desactivado',
         'user.reactivated' => 'Usuario reactivado',
         'user.password_set' => 'Contraseña asignada por el administrador',
+        'setting.updated' => 'Parámetro cambiado',
         'pallet_close_reason.created' => 'Motivo de cierre creado',
         'pallet_close_reason.updated' => 'Motivo de cierre actualizado',
         'pallet_close_reason.deactivated' => 'Motivo de cierre desactivado',

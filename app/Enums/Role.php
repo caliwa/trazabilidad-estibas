@@ -61,6 +61,7 @@ enum Role: string
             self::ProductionSupervisor => [
                 Permission::DashboardKpis,
                 Permission::CloseReasonsManage,
+                Permission::OrdersUnlockReceipts,
                 Permission::BoxLabelsPrint,
                 Permission::BoxLabelsChangeLot,
                 Permission::DiscrepanciesResolve,
