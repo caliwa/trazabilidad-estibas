@@ -39,7 +39,7 @@ class BoxDuplicates extends Command
         }
 
         $this->warn(count($rows).' caja(s) con más de una lectura contada:');
-        $this->table(['Caja', 'Lecturas', 'Detalle (evento, dispositivo, estiba, recibida)'], array_map(fn (object $r) => [$r->box, $r->reads, $r->detail], $rows));
+        $this->table(['Caja', 'Lecturas', 'Detalle (evento, dispositivo, estiba, recibida)'], array_map(fn ($r) => [(string) data_get($r, 'box'), (int) data_get($r, 'reads'), (string) data_get($r, 'detail')], $rows));
 
         return self::FAILURE;
     }
