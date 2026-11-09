@@ -49,8 +49,9 @@ class RoleUsersSeederTest extends TestCase
         $this->app->detectEnvironment(fn () => 'production');
         config(['traceability.role_users_password' => null]);
 
-        // Without the console: db:seed would ask to confirm in production.
-        $this->app->make(RoleUsersSeeder::class)->__invoke();
+        $this->artisan('db:seed', ['--class' => RoleUsersSeeder::class, '--force' => true])
+            ->expectsOutputToContain('define ROLE_USERS_PASSWORD')
+            ->assertSuccessful();
 
         $this->assertSame(0, User::query()->count());
     }
