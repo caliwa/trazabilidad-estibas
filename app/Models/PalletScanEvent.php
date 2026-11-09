@@ -109,5 +109,4 @@ class PalletScanEvent extends Model
     {
         $query->where('processing_status', ScanEventStatus::Accepted)->whereDoesntHave('void');
     }
-    }
 }
