@@ -69,7 +69,8 @@ final class PalletLabelZpl
             '^FWR', // Rotación a 90° para orientación vertical
             // 1. Cabecera vertical: Código de la estiba centrado
             '^FO'.($cfg['pallet_code_x'] ?? 730).','.($cfg['pallet_code_y'] ?? 30).'^FB'.($cfg['pallet_code_w'] ?? 580).',1,0,C^A0R,'.($cfg['pallet_code_font_h'] ?? 54).','.($cfg['pallet_code_font_w'] ?? 52).'^FD'.$palletCode.'^FS',
-            // 2. Código QR centrado horizontalmente
+            // 2. Restablecer estado global ^BY y generar Código QR centrado horizontalmente
+            '^BY2,3,10',
             '^FO'.($cfg['qr_x'] ?? 475).','.($cfg['qr_y'] ?? 200).'^BQR,2,'.($cfg['qr_mag'] ?? 7).'^FH_^FDMA,'.self::hexField($qrPayload).'^FS',
             // 3. Línea divisoria superior
             '^FO'.($cfg['div1_x'] ?? 450).',35^GB2,570,2^FS',

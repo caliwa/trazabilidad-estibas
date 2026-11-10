@@ -431,7 +431,6 @@ class ManagePrintJob
         DB::transaction(function () use ($job, $ctx): void {
             $alreadyRecorded = BoxLabelPrint::query()
                 ->where('box_label_batch_id', $job->box_label_batch_id)
-                ->where('printed_at', '>=', $job->started_at ?? now()->subHour())
                 ->exists();
 
             if ($alreadyRecorded) {

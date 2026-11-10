@@ -68,14 +68,16 @@ final class LabelFormatConfig
             'pt_y' => 18,
             'pt_w' => 740,
             // Descripción del producto
-            'desc_font_h' => 38,
-            'desc_font_w' => 40,
-            'desc_font_h_long' => 30,
-            'desc_font_w_long' => 32,
+            'desc_font_h' => 36,
+            'desc_font_w' => 38,
+            'desc_font_h_long' => 28,
+            'desc_font_w_long' => 28,
+            'desc_font_h_extra_long' => 24,
+            'desc_font_w_extra_long' => 24,
             'desc_x' => 30,
             'desc_y' => 76,
             'desc_w' => 740,
-            'desc_long_threshold' => 50,
+            'desc_long_threshold' => 45,
             // Bloque Lote / Vence / Caja Unidades
             'details_font_size' => 40,
             'details_x' => 35,
@@ -84,26 +86,27 @@ final class LabelFormatConfig
             'caja_units_y' => 306,
             // Código QR
             'qr_mag' => 5,
-            'qr_x' => 550,
-            'qr_y' => 140,
+            'qr_x' => 555,
+            'qr_y' => 185,
             // Logo Tecnoal
             'logo_show' => true,
             'logo_x' => 535,
             'logo_y' => 430,
-            // Código Caja (debajo de Tecnoal)
+            // Código Caja (centrado debajo de Tecnoal)
             'box_code_font_h' => 28,
             'box_code_font_w' => 22,
-            'box_code_x' => 530,
+            'box_code_x' => 500,
             'box_code_y' => 560,
+            'box_code_w' => 260,
             // Código de barras EAN-14 (ITF-14 / ^B2)
             'barcode_height' => 90,
             'barcode_by_w' => 3,
-            'barcode_x' => 40,
+            'barcode_x' => 60,
             'barcode_y' => 440,
             'barcode_text_font' => 28,
             'barcode_text_x' => 40,
             'barcode_text_y' => 560,
-            'barcode_text_w' => 460,
+            'barcode_text_w' => 390,
         ];
     }
 

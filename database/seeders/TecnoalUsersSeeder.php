@@ -64,18 +64,19 @@ class TecnoalUsersSeeder extends Seeder
                     ->first();
 
                 if ($user !== null) {
-                    $user->name = $userData['name'];
-                    $user->email = $userData['email'];
-                    $user->password = $hashedPassword;
-                    $user->email_verified_at = $user->email_verified_at ?? now();
-                    $user->deactivated_at = null;
-                    $user->save();
+                    $user->forceFill([
+                        'name' => $userData['name'],
+                        'email' => $userData['email'],
+                        'password' => $hashedPassword,
+                        'email_verified_at' => $user->email_verified_at ?? now(),
+                        'deactivated_at' => null,
+                    ])->save();
 
                     if (! $user->hasRole($userData['role'])) {
                         $user->assignRole($userData['role']);
                     }
 
-                    $this->command?->info("✓ Usuario {$userData['name']} ({$userData['email']}) actualizado con contraseña " . self::PASSWORD . '.');
+                    $this->command->info("✓ Usuario {$userData['name']} ({$userData['email']}) actualizado con contraseña ".self::PASSWORD.'.');
                 } else {
                     $user = new User([
                         'name' => $userData['name'],
@@ -89,7 +90,7 @@ class TecnoalUsersSeeder extends Seeder
 
                     $user->assignRole($userData['role']);
 
-                    $this->command?->info("✓ Usuario {$userData['name']} ({$userData['email']}) creado con rol {$userData['role']} y contraseña " . self::PASSWORD . '.');
+                    $this->command->info("✓ Usuario {$userData['name']} ({$userData['email']}) creado con rol {$userData['role']} y contraseña ".self::PASSWORD.'.');
                 }
             }
         });

@@ -57,12 +57,24 @@ final class BoxLabelZpl
         // Vencimiento en formato MM/AAAA (ej. 10/2028) fiel al formato del .lbl
         $expirationFormatted = $payload->expirationDate->format('m/Y');
 
-        // Ajuste dinamico de descripcion para evitar solapamiento en titulos largos
-        $longThreshold = (int) ($cfg['desc_long_threshold'] ?? 50);
-        $isLongDesc = mb_strlen($payload->itemDescription) > $longThreshold;
-        $descFontH = $isLongDesc ? ($cfg['desc_font_h_long'] ?? 30) : ($cfg['desc_font_h'] ?? 38);
-        $descFontW = $isLongDesc ? ($cfg['desc_font_w_long'] ?? 32) : ($cfg['desc_font_w'] ?? 40);
-        $descLines = $isLongDesc ? 3 : 2;
+        // Ajuste dinámico de descripción de producto para evitar que ZPL ^FB sobreescriba líneas en títulos largos o muy largos
+        $descText = $f($payload->itemDescription);
+        $descLen = mb_strlen($descText);
+        $longThreshold = (int) ($cfg['desc_long_threshold'] ?? 45);
+
+        if ($descLen > 85) {
+            $descFontH = (int) ($cfg['desc_font_h_extra_long'] ?? 24);
+            $descFontW = (int) ($cfg['desc_font_w_extra_long'] ?? 24);
+            $descLines = 4;
+        } elseif ($descLen > $longThreshold) {
+            $descFontH = (int) ($cfg['desc_font_h_long'] ?? 28);
+            $descFontW = (int) ($cfg['desc_font_w_long'] ?? 28);
+            $descLines = 3;
+        } else {
+            $descFontH = (int) ($cfg['desc_font_h'] ?? 36);
+            $descFontW = (int) ($cfg['desc_font_w'] ?? 38);
+            $descLines = 3;
+        }
 
         $width = (int) ($cfg['width_dots'] ?? self::WIDTH_DOTS);
         $height = (int) ($cfg['height_dots'] ?? self::HEIGHT_DOTS);
@@ -78,13 +90,15 @@ final class BoxLabelZpl
             '^PR'.$speed.','.$speed.','.$speed,
             // Encabezado Centrado: Código PT y Descripción
             '^FO'.($cfg['pt_x'] ?? 30).','.($cfg['pt_y'] ?? 18).'^FB'.($cfg['pt_w'] ?? 740).',1,0,C^A0N,'.($cfg['pt_font_h'] ?? 54).','.($cfg['pt_font_w'] ?? 56).'^FD'.$f($payload->itemCode).'^FS',
-            '^FO'.($cfg['desc_x'] ?? 30).','.($cfg['desc_y'] ?? 76).'^FB'.($cfg['desc_w'] ?? 740).','.$descLines.',2,C^A0N,'.$descFontH.','.$descFontW.'^FD'.$f($payload->itemDescription).'^FS',
+            '^FO'.($cfg['desc_x'] ?? 30).','.($cfg['desc_y'] ?? 76).'^FB'.($cfg['desc_w'] ?? 740).','.$descLines.',2,C^A0N,'.$descFontH.','.$descFontW.'^FD'.$descText.'^FS',
             // Bloque izquierdo: Lote, Vencimiento, Unidades por caja
             '^FO'.($cfg['details_x'] ?? 35).','.($cfg['lot_y'] ?? 190).'^A0N,'.($cfg['details_font_size'] ?? 40).','.($cfg['details_font_size'] ?? 40).'^FDLOTE: '.$f($payload->lotCode).'^FS',
             '^FO'.($cfg['details_x'] ?? 35).','.($cfg['vence_y'] ?? 248).'^A0N,'.($cfg['details_font_size'] ?? 40).','.($cfg['details_font_size'] ?? 40).'^FDVENCE: '.$expirationFormatted.'^FS',
             '^FO'.($cfg['details_x'] ?? 35).','.($cfg['caja_units_y'] ?? 306).'^A0N,'.($cfg['details_font_size'] ?? 40).','.($cfg['details_font_size'] ?? 40).'^FDCAJA : '.$f($payload->unitsPerBox).' UNIDADES^FS',
+            // Restablecer estado global ^BY a altura por defecto antes del QR para evitar desplazamiento vertical en hardware Zebra
+            '^BY2,3,10',
             // Código QR a la derecha en el bloque medio
-            '^FO'.($cfg['qr_x'] ?? 550).','.($cfg['qr_y'] ?? 140).'^BQN,2,'.($cfg['qr_mag'] ?? 5).'^FH_^FDMA,'.self::hexField($qrContent).'^FS',
+            '^FO'.($cfg['qr_x'] ?? 555).','.($cfg['qr_y'] ?? 185).'^BQN,2,'.($cfg['qr_mag'] ?? 5).'^FH_^FDMA,'.self::hexField($qrContent).'^FS',
         ];
 
         // Logo Tecnoal
@@ -92,17 +106,17 @@ final class BoxLabelZpl
             $lines[] = '^FO'.($cfg['logo_x'] ?? 535).','.($cfg['logo_y'] ?? 430).self::LOGO_TECNOAL.'^FS';
         }
 
-        // Código de caja legible DEBAJO de Tecnoal
+        // Código de caja legible DEBAJO de Tecnoal (centrado bajo el logo y alineado con el texto del EAN-14)
         if ($payload->boxCode !== null) {
-            $lines[] = '^FO'.($cfg['box_code_x'] ?? 530).','.($cfg['box_code_y'] ?? 560).'^A0N,'.($cfg['box_code_font_h'] ?? 28).','.($cfg['box_code_font_w'] ?? 22).'^FDCaja '.$f($payload->boxCode).'^FS';
+            $lines[] = '^FO'.($cfg['box_code_x'] ?? 500).','.($cfg['box_code_y'] ?? 560).'^FB'.($cfg['box_code_w'] ?? 260).',1,0,C^A0N,'.($cfg['box_code_font_h'] ?? 28).','.($cfg['box_code_font_w'] ?? 22).'^FDCaja '.$f($payload->boxCode).'^FS';
         }
 
-        // Código de barras EAN-14 a la izquierda abajo (ITF-14 / ^B2)
+        // Código de barras EAN-14 a la izquierda abajo (ITF-14 / ^B2 sin altura en ^BY para no contaminar otros campos)
         if (Itf14::isValid($payload->barcode)) {
             $barcodeH = (int) ($cfg['barcode_height'] ?? 90);
             $barcodeW = (int) ($cfg['barcode_by_w'] ?? 3);
-            $lines[] = '^FO'.($cfg['barcode_x'] ?? 40).','.($cfg['barcode_y'] ?? 440).'^BY'.$barcodeW.',2.5,'.$barcodeH.'^B2N,'.$barcodeH.',N,N,N^FD'.$payload->barcode.'^FS';
-            $lines[] = '^FO'.($cfg['barcode_text_x'] ?? 40).','.($cfg['barcode_text_y'] ?? 560).'^FB'.($cfg['barcode_text_w'] ?? 460).',1,0,C^A0N,'.($cfg['barcode_text_font'] ?? 28).','.($cfg['barcode_text_font'] ?? 28).'^FD(01)'.$payload->barcode.'^FS';
+            $lines[] = '^FO'.($cfg['barcode_x'] ?? 60).','.($cfg['barcode_y'] ?? 440).'^BY'.$barcodeW.',2.5^B2N,'.$barcodeH.',N,N,N^FD'.$payload->barcode.'^FS';
+            $lines[] = '^FO'.($cfg['barcode_text_x'] ?? 40).','.($cfg['barcode_text_y'] ?? 560).'^FB'.($cfg['barcode_text_w'] ?? 390).',1,0,C^A0N,'.($cfg['barcode_text_font'] ?? 28).','.($cfg['barcode_text_font'] ?? 28).'^FD(01)'.$payload->barcode.'^FS';
         }
 
         $lines[] = '^PQ1,0,1,Y';

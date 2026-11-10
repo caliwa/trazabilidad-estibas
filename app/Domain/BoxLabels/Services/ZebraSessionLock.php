@@ -44,10 +44,10 @@ class ZebraSessionLock
             $lockedJobId = $currentLock['job_id'] ?? null;
             $isStillActivelyPrinting = false;
 
-            if ($lockedJobId && ! $sameJob) {
+            if (is_numeric($lockedJobId) && ! $sameJob) {
                 try {
-                    $lockedJob = BoxLabelPrintJob::query()->find($lockedJobId);
-                    if ($lockedJob && $lockedJob->status !== 'printing') {
+                    $lockedJob = BoxLabelPrintJob::query()->find((int) $lockedJobId);
+                    if ($lockedJob instanceof BoxLabelPrintJob && $lockedJob->status !== 'printing') {
                         $isStillActivelyPrinting = false;
                     } elseif (($now - ($currentLock['last_active_at'] ?? 0)) > 10) {
                         $isStillActivelyPrinting = false;
@@ -139,10 +139,10 @@ class ZebraSessionLock
         }
 
         $lockedJobId = $lock['job_id'] ?? null;
-        if ($lockedJobId) {
+        if (is_numeric($lockedJobId)) {
             try {
-                $lockedJob = BoxLabelPrintJob::query()->find($lockedJobId);
-                if ($lockedJob && $lockedJob->status !== 'printing') {
+                $lockedJob = BoxLabelPrintJob::query()->find((int) $lockedJobId);
+                if ($lockedJob instanceof BoxLabelPrintJob && $lockedJob->status !== 'printing') {
                     Cache::forget($key);
 
                     return null;

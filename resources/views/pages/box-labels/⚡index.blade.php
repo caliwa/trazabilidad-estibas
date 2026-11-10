@@ -132,6 +132,11 @@ new #[Title('Etiquetas de caja')] class extends Component {
             return;
         }
 
+        if (BoxLabelPrint::query()->where('box_label_batch_id', $targetBatch->id)->exists()) {
+            Flux::toast(variant: 'warning', text: 'Estas etiquetas ya se imprimieron y no se vuelven a imprimir.');
+            return;
+        }
+
         // Validación de bloqueo de sesión exclusivo para la impresora Zebra
         $lock = app(ZebraSessionLock::class)->getActiveLockForOther($this->printerIp, $this->printerPort, $this->activeJobId, session()->getId());
         if ($lock !== null) {
@@ -708,8 +713,8 @@ new #[Title('Etiquetas de caja')] class extends Component {
                     @php($data = BoxLabelPayload::decode($shownPayload))
                     @php($ean = $this->batch?->barcode ?? (string) Itf14::forBox($order->item->barcode, Itf14::indicator()))
 
-                    {{-- Visor térmico reactivo fiel al resultado de la Zebra (igual que zebra.test) --}}
-                    <div x-data="{
+                    {{-- Visor térmico reactivo fiel al resultado de la Zebra --}}
+                    <div wire:key="box-preview-{{ md5((string) $sampleZpl) }}" x-data="{
                         zpl: @js($sampleZpl),
                         imgUrl: null,
                         loading: false,
