@@ -17,6 +17,13 @@ use Illuminate\Support\Facades\Gate;
  * Sends a batch of box labels to the Zebra and, when the printer took it,
  * records the print: from then on the lot of that batch is on paper and
  * cannot be changed (GenerateBoxLabels).
+ *
+ * A batch is printed once. Printing it again would put a second label with
+ * the same QR token on another box, which could never be counted: labels
+ * for boxes still without one are made with "Generar etiquetas", which
+ * continues the lot's sequence with new tokens. The batch row is locked so
+ * two clicks at once cannot both print, and the database refuses a second
+ * print record as well (box_label_prints_once).
  */
 class PrintBoxLabels
 {
@@ -32,31 +39,38 @@ class PrintBoxLabels
     {
         Gate::forUser($user)->authorize(Permission::BoxLabelsPrint->value);
 
-        $batch = BoxLabelBatch::query()->findOrFail($batchId);
-        $result = $this->zebra->printToSocket($ip, $port, $batch->zpl);
+        return DB::transaction(function () use ($user, $batchId, $ip, $port, $ctx): array {
+            $batch = BoxLabelBatch::query()->lockForUpdate()->findOrFail($batchId);
 
-        if (($result['success'] ?? false) === true) {
-            DB::transaction(function () use ($user, $batch, $ip, $port, $ctx): void {
-                $print = new BoxLabelPrint;
-                $print->forceFill([
-                    'box_label_batch_id' => $batch->id,
-                    'production_order_id' => $batch->production_order_id,
-                    'lot_code' => $batch->lot_code,
-                    'labels' => $batch->labels,
-                    'printer' => mb_substr(trim($ip).':'.$port, 0, 100),
-                    'printed_by' => $user->id,
-                    'printed_at' => now(),
-                ])->save();
+            if (BoxLabelPrint::query()->where('box_label_batch_id', $batch->id)->exists()) {
+                return ['success' => false, 'message' => 'Estas etiquetas ya se imprimieron y no se vuelven a imprimir: saldrían cajas con el mismo QR, que no se pueden contar. Para las cajas que faltan, usa «Generar etiquetas»: el consecutivo sigue con QR nuevos.'];
+            }
 
-                $this->trace->record($ctx, TraceEventType::BoxLabelsPrinted, $batch->productionOrder()->firstOrFail(), context: [
-                    'box_label_batch_id' => $batch->id,
-                    'labels' => $batch->labels,
-                    'lot_code' => $batch->lot_code,
-                    'printer' => $print->printer,
-                ]);
-            });
-        }
+            $result = $this->zebra->printToSocket($ip, $port, $batch->zpl);
 
-        return $result;
+            if (($result['success'] ?? false) !== true) {
+                return $result;
+            }
+
+            $print = new BoxLabelPrint;
+            $print->forceFill([
+                'box_label_batch_id' => $batch->id,
+                'production_order_id' => $batch->production_order_id,
+                'lot_code' => $batch->lot_code,
+                'labels' => $batch->labels,
+                'printer' => mb_substr(trim($ip).':'.$port, 0, 100),
+                'printed_by' => $user->id,
+                'printed_at' => now(),
+            ])->save();
+
+            $this->trace->record($ctx, TraceEventType::BoxLabelsPrinted, $batch->productionOrder()->firstOrFail(), context: [
+                'box_label_batch_id' => $batch->id,
+                'labels' => $batch->labels,
+                'lot_code' => $batch->lot_code,
+                'printer' => $print->printer,
+            ]);
+
+            return $result;
+        });
     }
 }

@@ -493,12 +493,13 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
                     @if ($this->batch)
                         <div class="flex flex-wrap items-center gap-2 pt-1">
-                            <flux:button variant="primary" icon="printer" wire:click="printBatchDirect" wire:loading.attr="disabled" wire:target="printBatchDirect">
-                                Imprimir en Zebra ({{ $this->batch->labels }} etiquetas)
-                            </flux:button>
-                            <flux:button variant="subtle" icon="arrow-down-tray" :href="route('box-labels.zpl', $this->batch)">
-                                Descargar ZPL ({{ $this->batch->labels }} etiquetas)
-                            </flux:button>
+                            @if (BoxLabelPrint::query()->where('box_label_batch_id', $this->batch->id)->exists())
+                                <flux:badge color="green" icon="check-circle" data-batch-printed>Impresa en la Zebra. Estas etiquetas no se vuelven a imprimir.</flux:badge>
+                            @else
+                                <flux:button variant="primary" icon="printer" wire:click="printBatchDirect" wire:loading.attr="disabled" wire:target="printBatchDirect">
+                                    Imprimir en Zebra ({{ $this->batch->labels }} etiquetas)
+                                </flux:button>
+                            @endif
                         </div>
                     @endif
                 @else
@@ -510,7 +511,8 @@ new #[Title('Etiquetas de caja')] class extends Component {
         @if ($order->boxLabelBatches->isNotEmpty())
             @php($prints = BoxLabelPrint::query()->where('production_order_id', $order->id)->selectRaw('box_label_batch_id, count(*) as n')->groupBy('box_label_batch_id')->pluck('n', 'box_label_batch_id')->map(fn ($n) => (int) $n)->all())
             <div>
-                <flux:heading size="lg" level="2" class="mb-3">Etiquetas generadas para esta orden</flux:heading>
+                <flux:heading size="lg" level="2" class="mb-1">Etiquetas generadas para esta orden</flux:heading>
+                <flux:text class="mb-3 text-sm">Cada tanda se imprime una sola vez. ¿Faltan cajas por etiquetar? Usa <strong>Generar etiquetas</strong>: el consecutivo sigue y cada caja recibe un QR nuevo.</flux:text>
                 <flux:table>
                     <flux:table.columns>
                         <flux:table.column>Generadas</flux:table.column>
@@ -531,10 +533,12 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                 <flux:table.cell>{{ $b->generator->name }}</flux:table.cell>
                                 <flux:table.cell align="end" class="tabular-nums">{{ ($prints[$b->id] ?? 0) === 0 ? 'No' : $prints[$b->id].' '.(($prints[$b->id] ?? 0) === 1 ? 'vez' : 'veces') }}</flux:table.cell>
                                 <flux:table.cell align="end">
-                                    <div class="flex items-center justify-end gap-1">
+                                    {{-- A batch goes to paper once: printing it again would repeat QR tokens already on other boxes. --}}
+                                    @if (($prints[$b->id] ?? 0) === 0)
                                         <flux:button size="sm" variant="ghost" icon="printer" wire:click="printBatchDirect({{ $b->id }})" title="Imprimir directo en Zebra">Imprimir</flux:button>
-                                        <flux:button size="sm" variant="ghost" icon="arrow-down-tray" :href="route('box-labels.zpl', $b)">ZPL</flux:button>
-                                    </div>
+                                    @else
+                                        <span class="text-xs text-zinc-500">No se reimprime</span>
+                                    @endif
                                 </flux:table.cell>
                             </flux:table.row>
                         @endforeach

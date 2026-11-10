@@ -183,7 +183,7 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 | Sin límite de etiquetas por OF: pasar la cantidad sugerida queda registrado; en paralelo los códigos de caja no se repiten ni dejan huecos | `BoxLabelsTest::test_an_order_can_get_more_labels_than_its_planned_quantity_suggests`, `BoxLabelConcurrencyTest::test_parallel_batches_continue_the_lot_without_gaps_or_repeats` |
 | Solo el supervisor cambia el lote, mientras el lote por defecto no tenga impresiones en la Zebra | `BoxLabelLotTest::test_only_a_supervisor_changes_the_lot_and_only_to_a_valid_one`, `BoxLabelLotTest::test_once_the_default_lot_is_printed_on_the_zebra_it_can_no_longer_be_changed` |
 | Lo impreso queda como evidencia inmutable | `BoxLabelsTest::test_a_generated_batch_is_evidence_and_never_changes` |
-| Permisos en el servidor | `BoxLabelsTest::test_only_people_with_box_labels_print_consult_and_generate`, `BoxLabelsTest::test_the_page_and_the_download_need_the_permission` |
+| Permisos en el servidor | `BoxLabelsTest::test_only_people_with_box_labels_print_consult_and_generate`, `BoxLabelsTest::test_the_page_needs_the_permission` |
 | Un lote tiene un solo vencimiento entre tandas | `BoxLabelsTest::test_a_lot_keeps_one_expiration_date_across_batches` |
 
 ### Lotes en el recibo de producción (requisito agregado después de la Fase 7)
@@ -230,6 +230,7 @@ Los textos de CA-01 a CA-18 los propuse en la Fase 0 porque el prompt no los tra
 |---|---|
 | Cada caja leída llena la estiba de su OF y lote y la cierra en el estándar (de prueba si no hay real) | `ManualBoxScanTest::test_each_box_read_fills_the_pallet_of_its_order_and_lot_with_the_test_standard`, `ManualBoxScanTest::test_a_real_pallet_standard_is_used_when_there_is_one` |
 | El QR de la caja lleva solo su código opaco; la caja se busca por él y su OF debe estar liberada | `ManualBoxScanTest::test_the_box_qr_carries_only_the_token`, `ManualBoxScanTest::test_only_a_box_qr_printed_here_for_a_released_order_is_counted` |
+| Una tanda de etiquetas de caja se imprime una sola vez (sin reimpresión ni descarga de ZPL) | `BoxLabelLotTest::test_a_printed_batch_is_never_printed_again` |
 | Un token de caja, una sola lectura, por cualquier tipo de lectura (base de datos) | `BoxReadOnceTest::test_every_read_is_tied_to_its_box_and_the_database_refuses_a_second_one_from_any_device`, `BoxReadOnceTest::test_a_box_counted_by_a_sensor_cannot_be_read_again_by_hand_and_the_other_way_round`, `BoxReadOnceTest::test_the_api_and_the_station_share_the_one_read_of_each_box` |
 | Cada caja se cuenta una sola vez, también en paralelo | `ManualBoxScanTest::test_a_box_is_counted_only_once_by_its_code`, `ManualBoxScanConcurrencyTest::test_parallel_reads_of_the_same_box_count_it_once`, `BoxLabelsTest::test_every_box_label_has_its_own_code_continuing_the_lot` |
 | Lectores con otra distribución de teclado | `ManualBoxScanTest::test_what_a_hand_reader_types_is_read_even_with_another_keyboard_layout` |

@@ -10,7 +10,7 @@ Es un módulo nuevo y aparte: no cambia la estación de producción, las estibas
 
 | Ruta | Para | Permiso |
 |---|---|---|
-| `/box-labels` (menú Producción → Etiquetas de caja) | Consultar la OF, ver el encabezado, generar etiquetas, ver la vista previa, descargar el ZPL | `box_labels.print`: operario de producción y administrador de trazabilidad |
+| `/box-labels` (menú Producción → Etiquetas de caja) | Consultar la OF, ver el encabezado, generar etiquetas, ver la vista previa, imprimir en la Zebra | `box_labels.print`: operario de producción y administrador de trazabilidad |
 
 ## 3. Cómo funciona
 
@@ -25,10 +25,10 @@ Es un módulo nuevo y aparte: no cambia la estación de producción, las estibas
 3. **Generar etiquetas** (`GenerateBoxLabels`). El operario indica la cantidad de etiquetas, la fecha de producción (no puede ser futura) y la de vencimiento. La de vencimiento se propone sola con la vida útil del producto, si está cargada.
 4. **Lote:** número de OF + día juliano de la fecha de producción, con 3 dígitos. Por ejemplo, la OF 33128 producida el 20/10/2026 (día 293) queda con lote `33128293`.
    - **Cambio de lote (supervisor).** Un usuario con el rol Supervisor de producción (permiso `box_labels.change_lot`) puede escribir otro lote al generar. Se puede mientras ese lote por defecto no tenga etiquetas impresas en la Zebra; después queda fijo. El lote admite letras, números, `.`, `_`, `/` y `-`, hasta 40 caracteres, y nunca puede ser de otra OF. La bitácora guarda el lote usado y el que tocaba por defecto.
-   - **Qué es una impresión.** Solo la impresión directa en la Zebra que la impresora aceptó. Cada una queda en `box_label_prints` (quién, cuándo, impresora, tanda y lote; no admite cambios ni borrados) y en la bitácora. Descargar el ZPL no cuenta como impresión.
+   - **Qué es una impresión.** Solo la impresión directa en la Zebra que la impresora aceptó. Cada una queda en `box_label_prints` (quién, cuándo, impresora, tanda y lote; no admite cambios ni borrados) y en la bitácora. Ya no hay descarga del ZPL: las etiquetas solo salen a papel por la Zebra.
 5. **Sin límite por OF.** Se pueden generar todas las etiquetas que hagan falta, también más de las que llena la cantidad planificada (errores de impresión, cajas averiadas con etiqueta pegada). La pantalla muestra las sugeridas (cajas que llena la cantidad planificada, contando la última aunque quede incompleta; por ejemplo 800 unidades a 24 por caja dan 34) y avisa cuánto se pasa antes de generar. La bitácora guarda las sugeridas y las que ya había. La fila de la OF se bloquea mientras se genera una tanda, así los códigos de caja del lote nunca se repiten ni dejan huecos.
 6. **Un vencimiento por lote.** Si ya hay etiquetas de ese lote, una tanda nueva tiene que traer la misma fecha de vencimiento. Ese vencimiento es el que va en el recibo de producción a SAP y en la etiqueta de la estiba.
-7. **Qué se guarda.** Cada tanda queda en `box_label_batches` con el texto exacto del QR y el ZPL exacto. La tabla no admite cambios ni borrados (trigger). Generar y descargar quedan en la bitácora.
+7. **Qué se guarda.** Cada tanda queda en `box_label_batches` con el texto exacto del QR y el ZPL exacto. La tabla no admite cambios ni borrados (trigger). Generar e imprimir quedan en la bitácora.
 
 ## 4. Contenido del QR
 
@@ -79,15 +79,17 @@ ZPL II para una Zebra de 203 dpi: 800 × 640 puntos, es decir 100 × 80 mm.
 - **Caracteres:** con `^CI28` salen bien la Ñ y las tildes.
 - **Saltos de línea del QR:** van en hexadecimal (`^FH`).
 - **Texto desde SAP:** cualquier `^` o `~` se quita, para que una descripción no pueda meter comandos en la impresora.
-- **Envío a la Zebra:** el archivo `.zpl` se descarga desde la pantalla y se manda con la utilidad de Zebra (Zebra Setup Utilities, "enviar archivo") o con el driver en modo de texto sin procesar.
+- **Envío a la Zebra:** directo desde la pantalla, con el botón **Imprimir en Zebra** (impresora en red, puerto 9100). La descarga del archivo `.zpl` se quitó.
+- **Cada tanda se imprime una sola vez.** Volver a imprimir una tanda saca etiquetas con los mismos QR, que ya están en otras cajas: esas cajas nunca se podrían contar (un token, una lectura). Después de imprimir, la pantalla muestra "Impresa en la Zebra. Estas etiquetas no se vuelven a imprimir" y en el historial "No se reimprime". La aplicación lo rechaza (la fila de la tanda se bloquea mientras se imprime, así dos clics a la vez no imprimen dos veces) y la base de datos también (`box_label_prints_once`).
+- **¿Faltan cajas por etiquetar?** Se usa **Generar etiquetas** con la cantidad que falta: el consecutivo del lote sigue (por ejemplo `LOTE-0075` en adelante) y cada caja recibe un QR nuevo. Si una etiqueta se daña antes de pegarla, también se genera una nueva.
 - **Vista previa:** la pantalla muestra la misma distribución, con el mismo QR y el mismo ITF-14. Lo que se imprime es el ZPL.
 
 ## 6. Pruebas
 
 | Prueba | Qué demuestra |
 |---|---|
-| `BoxLabelLotTest` (6) | Lote del supervisor en las cajas y el ZPL; solo el supervisor y solo un lote válido; el lote se fija al imprimir en la Zebra (la descarga no cuenta, una impresión fallida tampoco); un lote no es de dos OF; impresiones inmutables; pantalla con el campo de lote y el aviso de más etiquetas |
-| `BoxLabelsTest` (19) | Cada etiqueta con su código de caja; búsqueda en la base sin llamar a SAP; OF que no está en la aplicación, planificada, cerrada o cancelada; actualización del tablero que conserva la vida útil; cambio de producto con estibas; regla del lote; el QR con las líneas de la etiqueta y el EAN-14 aparte; ZPL con QR e ITF-14; dígito de control y patrón ITF-14 contra el ejemplo de GS1; EAN-13 o dígito de control erróneo rechazados; texto de SAP que intenta meter comandos; vencimiento; un solo vencimiento por lote; sin límite por OF; datos que faltan; tanda inmutable; permisos; pantalla completa con la descarga |
+| `BoxLabelLotTest` (6) | Lote del supervisor en las cajas y el ZPL; solo el supervisor y solo un lote válido; el lote se fija al imprimir en la Zebra (una impresión fallida no cuenta); una tanda impresa no se vuelve a imprimir; un lote no es de dos OF; impresiones inmutables; pantalla con el campo de lote y el aviso de más etiquetas |
+| `BoxLabelsTest` (19) | Cada etiqueta con su código de caja; búsqueda en la base sin llamar a SAP; OF que no está en la aplicación, planificada, cerrada o cancelada; actualización del tablero que conserva la vida útil; cambio de producto con estibas; regla del lote; el QR con las líneas de la etiqueta y el EAN-14 aparte; ZPL con QR e ITF-14; dígito de control y patrón ITF-14 contra el ejemplo de GS1; EAN-13 o dígito de control erróneo rechazados; texto de SAP que intenta meter comandos; vencimiento; un solo vencimiento por lote; sin límite por OF; datos que faltan; tanda inmutable; permisos; pantalla completa sin descarga de ZPL |
 | `BoxLabelConcurrencyTest` | 12 tandas en paralelo sobre la misma OF nunca pasan de 34. Sin el bloqueo de la fila, la prueba falló 4 de 5 veces |
 
 Además, desde una captura de la vista previa en el navegador, zxing-cpp leyó el QR (las seis líneas exactas) y el ITF-14 (`12000013500233`). El ZPL no se pudo dibujar con un renderizador externo porque el servicio está bloqueado en esta sesión; las medidas se revisaron a mano.
