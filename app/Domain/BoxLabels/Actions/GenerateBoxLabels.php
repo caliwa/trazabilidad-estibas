@@ -152,12 +152,12 @@ class GenerateBoxLabels
             }
 
             if ($restartSequence) {
-                $hasExisting = BoxLabel::query()->where('production_order_id', $order->id)->where('lot_code', $lotCode)->exists();
-                if ($hasExisting) {
-                    $currentRun++;
-                }
+                $maxLotRun = (int) BoxLabel::query()->where('lot_code', $lotCode)->max('run_number');
+                $hasExisting = $maxLotRun > 0
+                    || BoxLabel::query()->where('production_order_id', $order->id)->where('lot_code', $lotCode)->exists();
+                $currentRun = $hasExisting ? max($currentRun + 1, $maxLotRun + 1) : 1;
                 $first = 1;
-                $isReset = true;
+                $isReset = $hasExisting;
             } else {
                 $maxSeq = (int) BoxLabel::query()
                     ->where('production_order_id', $order->id)
@@ -173,7 +173,32 @@ class GenerateBoxLabels
             }
 
             $lastSeq = $first + $labels - 1;
-            $boxes = array_map(fn (int $n) => ['code' => BoxLot::boxCode($lotCode, $n), 'token' => BoxQr::newToken()], range($first, $lastSeq));
+            $boxes = [];
+            $seenTokens = [];
+            for ($n = $first; $n <= $lastSeq; $n++) {
+                do {
+                    $token = BoxQr::newToken();
+                } while (isset($seenTokens[$token]));
+                $seenTokens[$token] = true;
+                $boxes[] = ['code' => BoxLot::boxCode($lotCode, $n), 'token' => $token];
+            }
+
+            // Garantizar 100% unicidad de qr_token contra etiquetas ya existentes en la base de datos
+            foreach (array_chunk(array_keys($seenTokens), 500) as $tokenChunk) {
+                $collisions = BoxLabel::query()->whereIn('qr_token', $tokenChunk)->pluck('qr_token')->all();
+                if ($collisions !== []) {
+                    $collisionSet = array_flip($collisions);
+                    foreach ($boxes as $idx => $boxEntry) {
+                        if (isset($collisionSet[$boxEntry['token']])) {
+                            do {
+                                $candidate = BoxQr::newToken();
+                            } while (isset($seenTokens[$candidate]) || BoxLabel::query()->where('qr_token', $candidate)->exists());
+                            $seenTokens[$candidate] = true;
+                            $boxes[$idx]['token'] = $candidate;
+                        }
+                    }
+                }
+            }
 
             $batch = new BoxLabelBatch;
             $batch->forceFill([
