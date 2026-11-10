@@ -101,7 +101,7 @@ new #[Title('Lecturas rechazadas')] class extends Component {
                     <flux:table.row :key="$event->id">
                         <flux:table.cell class="whitespace-nowrap text-xs tabular-nums">{{ $event->received_at->timezone(config('app.timezone'))->format('d/m/Y H:i:s') }}</flux:table.cell>
                         <flux:table.cell>{{ $event->device->code }}</flux:table.cell>
-                        <flux:table.cell class="font-mono text-xs">{{ $event->external_event_id }}</flux:table.cell>
+                        <flux:table.cell class="font-mono text-xs">{{ $event->boxCodeForDisplay() }}</flux:table.cell>
                         <flux:table.cell>{{ $event->production_order_ref }} · {{ $event->item_code }} · {{ $event->lot_code }}</flux:table.cell>
                         <flux:table.cell>{{ ScanRejection::tryFrom((string) $event->rejection_reason)?->label() ?? $event->rejection_reason }}</flux:table.cell>
                         <flux:table.cell align="end">

@@ -224,7 +224,7 @@ new #[Title('Producción')] class extends Component {
         $codes = $readers->pluck('code', 'id');
         $since = now()->subHour();
 
-        $countedReads = PalletScanEvent::query()->with('pallet:id,pallet_code,boxes_count,standard_boxes_snapshot')
+        $countedReads = PalletScanEvent::query()->with(['pallet:id,pallet_code,boxes_count,standard_boxes_snapshot', 'boxLabel:id,code'])
             ->where('processing_status', ScanEventStatus::Accepted)->whereNotNull('read_by_device_id')
             ->latest('received_at')->latest('id')->limit(10)->get();
         $counted = $countedReads->first();
@@ -237,7 +237,7 @@ new #[Title('Producción')] class extends Component {
         if ($counted !== null && ($error === null || $counted->received_at->greaterThanOrEqualTo($error->occurred_at))) {
             $last = [
                 'ok' => true, 'at' => $counted->received_at, 'reader' => (string) ($codes[$counted->read_by_device_id] ?? ''),
-                'box' => $counted->box_code_display, 'pallet' => $counted->pallet?->pallet_code,
+                'box' => $counted->boxCodeForDisplay(), 'pallet' => $counted->pallet?->pallet_code,
                 'boxes' => $counted->pallet?->boxes_count, 'standard' => $counted->pallet?->standard_boxes_snapshot,
                 'order' => $counted->production_order_ref, 'lot' => $counted->lot_code, 'reason' => null, 'read' => null,
             ];
@@ -251,7 +251,7 @@ new #[Title('Producción')] class extends Component {
 
         // Every read of the line, newest first, so none goes by unseen on a fast line.
         $recent = collect()
-            ->concat($countedReads->map(fn (PalletScanEvent $e) => ['ok' => true, 'at' => $e->received_at, 'reader' => (string) ($codes[$e->read_by_device_id] ?? ''), 'text' => $e->box_code_display.' → '.($e->pallet?->pallet_code ?? '')]))
+            ->concat($countedReads->map(fn (PalletScanEvent $e) => ['ok' => true, 'at' => $e->received_at, 'reader' => (string) ($codes[$e->read_by_device_id] ?? ''), 'text' => $e->boxCodeForDisplay().' → '.($e->pallet?->pallet_code ?? '')]))
             ->concat($errors->map(fn (TraceEvent $e) => ['ok' => false, 'at' => $e->occurred_at, 'reader' => (string) ($codes[$e->subject_id] ?? ''), 'text' => (string) $e->reason]))
             ->sortByDesc(fn (array $r) => $r['at']->getTimestamp() + $r['at']->micro / 1e6)
             ->take(10)->values()->all();
@@ -382,7 +382,7 @@ new #[Title('Producción')] class extends Component {
         $this->voidError = null;
         $this->voidFoundQr = $this->voidQr;
         $this->voidBox = [
-            'box' => $event->external_event_id,
+            'box' => $event->boxCodeForDisplay(),
             'pallet' => $pallet->pallet_code,
             'order' => $pallet->production_order_ref,
             'lot' => $pallet->lot_code,

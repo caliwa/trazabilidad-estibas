@@ -17,6 +17,8 @@ La lista de motivos se mantiene en **Administración → Motivos**, pestaña "An
 
 ## Reglas
 
+- La caja se identifica solo por el token de su QR (leído o escrito a mano). El código de caja impreso no sirve para anular.
+
 - Solo se anulan cajas de estibas que no se han paletizado: en estibado o cerradas sin paletizar.
 - Una caja anulada no se vuelve a contar. Si se lee otra vez, se rechaza como "caja anulada", tanto en la lectura manual como en el lector fijo de la línea, y tampoco sirve para confirmar la etiqueta de una estiba.
 - Qué le pasa a la estiba:

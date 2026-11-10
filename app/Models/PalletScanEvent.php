@@ -31,6 +31,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property string|null $rejection_reason
  * @property string $payload_hash
  * @property bool $is_late
+ * @property int|null $box_label_id Box this read belongs to, set by the database from the QR token (one read per box)
  * @property int|null $read_by_device_id Fixed reader that read the box, when counted from boxes:reader
  */
 class PalletScanEvent extends Model
@@ -71,24 +72,34 @@ class PalletScanEvent extends Model
     }
 
     /**
-    /**
-     * Resuelve el código legible de la caja (ej. 35061309-0001) cuando external_event_id es el token de 32 hex
-     * o incluye un sufijo de copia (-c2, etc.).
+     * @return BelongsTo<BoxLabel, $this>
      */
-    public function getBoxCodeDisplayAttribute(): string
+    public function boxLabel(): BelongsTo
     {
-        $raw = $this->external_event_id;
-        $token = preg_replace('/-c\d+$/', '', $raw) ?? $raw;
-        $copy = preg_match('/-c(\d+)$/', $raw, $m) ? " (Copia {$m[1]})" : '';
+        return $this->belongsTo(BoxLabel::class);
+    }
 
-        if (strlen($token) === 32 && ctype_xdigit($token)) {
-            $code = BoxLabel::query()->where('qr_token', $token)->value('code');
-            if ($code) {
-                return $code.$copy;
-            }
+    /** What people read on the label (Caja 33128293-0007); the read itself is identified by the QR token. */
+    public function boxCodeForDisplay(): string
+    {
+        if ($this->boxLabel !== null) {
+            return $this->boxLabel->code;
+        }
+
+        $raw = $this->external_event_id;
+        if (strlen($raw) === 32 && ctype_xdigit($raw)) {
+            return BoxLabel::query()->where('qr_token', $raw)->value('code') ?? $raw;
         }
 
         return $raw;
+    }
+
+    /**
+     * Resuelve el código legible de la caja para accesors Blade heredados.
+     */
+    public function getBoxCodeDisplayAttribute(): string
+    {
+        return $this->boxCodeForDisplay();
     }
 
     /**

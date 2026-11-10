@@ -4,14 +4,16 @@
 
 Un lector fijo en la línea lee el QR de cada caja (`TRZB:` y el código opaco) y manda el texto por TCP o por serial. El proceso `boxes:reader` se queda conectado al lector y cada lectura pasa por **las mismas reglas que la lectura manual** (`docs/lectura-manual.md`): la caja tiene que ser una etiqueta generada aquí, su OF tiene que seguir liberada, suma a la estiba abierta de esa OF y lote, y la estiba se cierra sola al llegar al estándar.
 
-- **Una caja cuenta una sola vez**, la lea el lector fijo, la lea alguien a mano, o las dos cosas en cualquier orden. Las dos lecturas se guardan bajo el mismo registro de cajas, y la base acepta cada código de caja una vez.
+- **Una caja cuenta una sola vez**, la lea el lector fijo, alguien a mano, la PDA o un dispositivo por la API, en cualquier orden. La base de datos liga cada lectura al token de su caja y acepta una sola lectura por token (ver `docs/lectura-manual.md`).
 - **Lecturas repetidas.** Si el lector lee dos veces la misma etiqueta mientras pasa la caja, la segunda se ignora sin alarma.
 - **Cajas no contadas.** Una lectura fallida (por ejemplo `NoRead`), una etiqueta que no es de esta aplicación o una OF que ya no está liberada no suman caja. Quedan en la bitácora del lector (`scan.rejected`, sujeto el dispositivo), en el log, y levantan la alerta "Cajas no contadas por el lector" en `/operations`. Esa caja hay que leerla a mano.
 - **Líneas rápidas.** Cada caja se procesa en unos 15 ms (100 cajas en 1,5 s en la prueba). Un error pasajero de base de datos (bloqueo, conexión caída) se reintenta; cualquier otro error deja esa caja como no contada, con el motivo, y el lector sigue con las demás sin detenerse.
 - **Quién la leyó.** Cada lectura guarda el lector que la hizo (`pallet_scan_events.read_by_device_id`).
 - **Alerta en la estación de producción.** El panel "Lectura automática de la línea" muestra la última lectura del lector en grande: **verde "Caja contada"** con el código de caja y cómo va la estiba, o **rojo "Caja no contada"** con el motivo, lo que leyó y "Lee esa caja a mano". Parpadea los primeros 15 segundos de cada lectura nueva. Debajo van las contadas y no contadas de la última hora, las últimas cajas no contadas y el estado de cada lector (conectado, DESCONECTADO o sin conectar aún). Muestra también las últimas 10 lecturas del lector, una por una. Se refresca cada 2 segundos y solo aparece si hay lectores fijos activos. La lectura manual usa el mismo estilo verde y rojo.
 
-No depende de `TRACE_SCAN_INGESTION_ENABLED`, que es del endpoint de sensores que mandan OF, PT y lote (`POST /api/v1/scan-events`).
+No depende de `TRACE_SCAN_INGESTION_ENABLED`, que es del endpoint de dispositivos (`POST /api/v1/scan-events`).
+
+**Dispositivos por la API.** Desde la regla de un token, una lectura, el `event_id` que manda un dispositivo tiene que ser el QR de la caja o su token. El código de caja impreso no se acepta. La caja pasa por las mismas reglas de esta sección y la OF, el producto y el lote enviados deben ser los de la caja. Un `event_id` que no nombra una caja impresa se rechaza (422, `NO_ES_CAJA`) y no suma: sin la caja no hay forma de garantizar que se cuente una sola vez. Si la caja ya estaba leída responde 200 `duplicate`.
 
 ## 2. Configurar el lector
 

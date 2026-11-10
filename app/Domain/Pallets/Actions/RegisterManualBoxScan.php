@@ -17,7 +17,6 @@ use App\Domain\Shared\TraceEventType;
 use App\Enums\Permission;
 use App\Integrations\Sap\Enums\ProductionOrderStatus;
 use App\Models\BoxLabel;
-use App\Models\BoxLabelPrint;
 use App\Models\Device;
 use App\Models\Item;
 use App\Models\PalletScanEvent;
@@ -42,9 +41,11 @@ use Illuminate\Support\Str;
  * pallet of that order + product + lot, which closes when it reaches the
  * standard.
  *
- * The box code is the read's event id: the database accepts it once, so
- * reading the same box again, a retried request or a reader firing twice
- * never counts twice.
+ * The QR token is the read's event id and the only thing that identifies
+ * the box (the printed box code is for people). The database ties every
+ * read to the box of its token and accepts one read per box, so reading
+ * the same box again, a retried request, a reader firing twice or another
+ * device never counts twice.
  *
  * A fixed reader on the line (fromReader) goes through the same rules and
  * records its reads under the same device, so a box read by the line and
@@ -80,12 +81,46 @@ class RegisterManualBoxScan
         return $this->count($scanned, $ctx);
     }
 
+    /**
+     * A box read sent by a device through the API (POST /api/v1/scan-events),
+     * whose event id is the box's QR or token: same rules, same single
+     * read per box. The order, product and lot always come from the box.
+     * The event id must be the box's QR text or its token.
+     */
+    public function fromDevice(Device $device, string $scanned, TraceContext $ctx): ManualBoxScan
+    {
+        if (! $device->active || $device->code === self::DEVICE_CODE) {
+            throw new \InvalidArgumentException("El dispositivo {$device->code} no puede registrar lecturas de cajas.");
+        }
+
+        $box = self::boxNamedBy($scanned) ?? throw PalletRuleViolation::notABoxLabel();
+
+        return $this->countBox($box, $ctx);
+    }
+
+    /**
+     * The printed box a device's event id names: the QR text or the token alone. Never the box code.
+     */
+    public static function boxNamedBy(string $eventId): ?BoxLabel
+    {
+        // Only the QR token identifies a box; the printed box code is for people.
+        $token = BoxQr::tokenFrom($eventId) ?? BoxQr::typedToken($eventId);
+
+        return $token === null ? null : BoxLabel::query()->with('batch')->where('qr_token', $token)->first();
+    }
+
     private function count(string $scanned, TraceContext $ctx): ManualBoxScan
     {
         // The QR only names the box; everything else comes from the label printed for it.
         $token = BoxQr::tokenFrom($scanned)
             ?? throw (PalletQr::tokenFrom($scanned) !== null ? PalletRuleViolation::palletQrInBoxField() : PalletRuleViolation::notABoxLabel());
         $box = BoxLabel::query()->with('batch')->where('qr_token', $token)->first() ?? throw PalletRuleViolation::unknownBoxQr();
+
+        return $this->countBox($box, $ctx);
+    }
+
+    private function countBox(BoxLabel $box, TraceContext $ctx): ManualBoxScan
+    {
         $batch = $box->batch;
         $boxCode = $box->code;
         $lot = $box->lot_code;
@@ -101,65 +136,29 @@ class RegisterManualBoxScan
             throw PalletRuleViolation::boxItemMismatch($order->ref, $item->code, $batch->item_code);
         }
 
-        // Already read: se valida por el TOKEN único de la etiqueta.
-        // Si el lote físico fue impreso más de una vez (ejemplo: 2 copias físicas de la etiqueta colocadas
-        // en 2 cajas reales de producto terminado), se permite registrar cada copia física individualmente
-        // ($token, $token-c2, etc.) hasta el número de copias impresas.
-        // Un filtro antirrebote (debounce < 4s) previene que la misma caja sea leída múltiples veces
-        // en ráfaga por el sensor fijo o manual.
-        $previousScans = PalletScanEvent::query()->with('pallet:id,pallet_code')
-            ->where('device_id', $this->device()->id)
-            ->where(function ($q) use ($token) {
-                $q->where('external_event_id', $token)
-                    ->orWhere('external_event_id', 'LIKE', $token.'-c%');
-            })
-            ->orderBy('id', 'asc')
-            ->get();
-
+        // Already read, by any device and in any way: the read is found by the box of its QR token,
+        // which the database ties to one read only.
+        // said plainly, without sending it to be counted (that would log a reused-id alarm).
+        $previous = PalletScanEvent::query()->with('pallet:id,pallet_code')->where('box_label_id', $box->id)->first();
         // A voided box stays out for good (VoidBox).
-        if ($previousScans->contains(fn (PalletScanEvent $scan) => $scan->void()->exists())) {
+        if ($previous !== null && $previous->void()->exists()) {
             throw PalletRuleViolation::boxAlreadyVoided($boxCode);
         }
-
-        $acceptedScans = $previousScans->where('processing_status', ScanEventStatus::Accepted);
-        $scannedCount = $acceptedScans->count();
-
-        $totalPrintedCopies = max(1, BoxLabelPrint::query()
-            ->where('box_label_batch_id', $box->box_label_batch_id)
-            ->count());
-
-        // 1. Antirrebote (debounce): si la lectura anterior ocurrió hace menos de 4 segundos,
-        // es el mismo bulto/caja física pasando frente al sensor óptico
-        $latestScan = $previousScans->last();
-        if ($latestScan !== null) {
-            $secondsSinceLast = $latestScan->created_at?->diffInSeconds(now());
-            if ($secondsSinceLast !== null && $secondsSinceLast < 4) {
-                $lastPallet = $latestScan->pallet;
-                throw $lastPallet !== null
-                    ? PalletRuleViolation::boxAlreadyRead($boxCode, $lastPallet->pallet_code)
-                    : PalletRuleViolation::boxHasRejectedRead($boxCode);
-            }
-        }
-
-        // 2. Control de copias impresas vs leídas:
-        if ($scannedCount < $totalPrintedCopies) {
-            $effectiveEventId = $scannedCount === 0 ? $token : "{$token}-c".($scannedCount + 1);
-        } else {
-            $lastPallet = $acceptedScans->last()?->pallet;
-            throw $lastPallet !== null
-                ? PalletRuleViolation::boxAlreadyRead($boxCode, $lastPallet->pallet_code)
+        if ($previous !== null) {
+            throw $previous->processing_status === ScanEventStatus::Accepted && $previous->pallet !== null
+                ? PalletRuleViolation::boxAlreadyRead($boxCode, $previous->pallet->pallet_code)
                 : PalletRuleViolation::boxHasRejectedRead($boxCode);
         }
 
         $testStandard = $this->ensureStandard($item, $ctx);
 
         // Checked before counting so a refused box leaves no rejected read under its code.
-        $rejection = $this->masters->resolve(new ScanEventData($effectiveEventId, $order->ref, $item->code, $lot, CarbonImmutable::now()), now());
+        $rejection = $this->masters->resolve(new ScanEventData((string) $box->qr_token, $order->ref, $item->code, $lot, CarbonImmutable::now()), now());
         if ($rejection instanceof ScanRejection) {
             throw PalletRuleViolation::boxRejected(mb_strtolower($rejection->label()));
         }
 
-        $result = $this->process->handleManual($this->device(), new ScanEventData($effectiveEventId, $order->ref, $item->code, $lot, CarbonImmutable::now()), $ctx);
+        $result = $this->process->handleManual($this->device(), new ScanEventData((string) $box->qr_token, $order->ref, $item->code, $lot, CarbonImmutable::now()), $ctx);
 
         return match ($result->outcome) {
             ScanOutcome::Accepted => new ManualBoxScan($order->ref, $item->code, $item->description, $lot, CarbonImmutable::parse($batch->expiration_date->toDateString()), $boxCode, $result, $testStandard),

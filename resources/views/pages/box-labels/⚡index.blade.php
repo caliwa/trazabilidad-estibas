@@ -796,12 +796,13 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
                     @if ($this->batch)
                         <div class="flex flex-wrap items-center gap-2 pt-1">
-                            <flux:button variant="primary" icon="printer" wire:click="printBatchDirect" wire:loading.attr="disabled" wire:target="printBatchDirect">
-                                Imprimir en Zebra ({{ $this->batch->labels }} etiquetas)
-                            </flux:button>
-                            <flux:button variant="subtle" icon="arrow-down-tray" :href="route('box-labels.zpl', $this->batch)">
-                                Descargar ZPL ({{ $this->batch->labels }} etiquetas)
-                            </flux:button>
+                            @if (BoxLabelPrint::query()->where('box_label_batch_id', $this->batch->id)->exists())
+                                <flux:badge color="green" icon="check-circle" data-batch-printed>Impresa en la Zebra. Estas etiquetas no se vuelven a imprimir.</flux:badge>
+                            @else
+                                <flux:button variant="primary" icon="printer" wire:click="printBatchDirect" wire:loading.attr="disabled" wire:target="printBatchDirect">
+                                    Imprimir en Zebra ({{ $this->batch->labels }} etiquetas)
+                                </flux:button>
+                            @endif
                         </div>
                     @endif
                 @else
@@ -825,7 +826,8 @@ new #[Title('Etiquetas de caja')] class extends Component {
                         <flux:button size="xs" variant="ghost" wire:click="forceUnlockPrinter" class="text-amber-700 hover:text-amber-900 dark:text-amber-300">Liberar bloqueo</flux:button>
                     </div>
                 @endif
-                <flux:heading size="lg" level="2" class="mb-3">Etiquetas generadas para esta orden</flux:heading>
+                <flux:heading size="lg" level="2" class="mb-1">Etiquetas generadas para esta orden</flux:heading>
+                <flux:text class="mb-3 text-sm">Cada tanda se imprime una sola vez. ¿Faltan cajas por etiquetar? Usa <strong>Generar etiquetas</strong>: el consecutivo sigue y cada caja recibe un QR nuevo.</flux:text>
                 <flux:table>
                     <flux:table.columns>
                         <flux:table.column>Generadas</flux:table.column>
@@ -874,22 +876,26 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                     @endif
                                 </flux:table.cell>
                                 <flux:table.cell align="end">
-                                    <div class="flex items-center justify-end gap-1">
-                                        @if ($job && in_array($job->status, ['paused_error', 'cancelled'], true) && $job->pending_labels > 0)
-                                            @if ($printerLock && ($printerLock['job_id'] ?? null) !== $job->id)
+                                    {{-- A batch goes to paper once: printing it again would repeat QR tokens already on other boxes. --}}
+                                    @if (($prints[$b->id] ?? 0) > 0)
+                                        <span class="text-xs text-zinc-500">No se reimprime</span>
+                                    @else
+                                        <div class="flex items-center justify-end gap-1">
+                                            @if ($job && in_array($job->status, ['paused_error', 'cancelled'], true) && $job->pending_labels > 0)
+                                                @if ($printerLock && ($printerLock['job_id'] ?? null) !== $job->id)
+                                                    <flux:button size="sm" variant="ghost" disabled icon="lock-closed" title="Impresora ocupada por {{ $printerLock['user_name'] }}">En uso</flux:button>
+                                                @else
+                                                    <flux:button size="sm" variant="danger" icon="play" wire:click="resumePrintJob({{ $job->id }})" title="Reanudar desde caja #{{ $job->next_sequence }}">Reanudar #{{ $job->next_sequence }}</flux:button>
+                                                @endif
+                                            @elseif ($job && $job->status === 'printing')
+                                                <flux:button size="sm" variant="subtle" icon="arrow-path" wire:click="openJobMonitor({{ $job->id }})" title="Ver progreso de impresión">Monitorear</flux:button>
+                                            @elseif ($printerLock)
                                                 <flux:button size="sm" variant="ghost" disabled icon="lock-closed" title="Impresora ocupada por {{ $printerLock['user_name'] }}">En uso</flux:button>
                                             @else
-                                                <flux:button size="sm" variant="danger" icon="play" wire:click="resumePrintJob({{ $job->id }})" title="Reanudar desde caja #{{ $job->next_sequence }}">Reanudar #{{ $job->next_sequence }}</flux:button>
+                                                <flux:button size="sm" variant="ghost" icon="printer" wire:click="printBatchDirect({{ $b->id }})" title="Imprimir directo en Zebra">Imprimir</flux:button>
                                             @endif
-                                        @elseif ($job && $job->status === 'printing')
-                                            <flux:button size="sm" variant="subtle" icon="arrow-path" wire:click="openJobMonitor({{ $job->id }})" title="Ver progreso de impresión">Monitorear</flux:button>
-                                        @elseif ($printerLock)
-                                            <flux:button size="sm" variant="ghost" disabled icon="lock-closed" title="Impresora ocupada por {{ $printerLock['user_name'] }}">En uso</flux:button>
-                                        @else
-                                            <flux:button size="sm" variant="ghost" icon="printer" wire:click="printBatchDirect({{ $b->id }})" title="Imprimir directo en Zebra">Imprimir</flux:button>
-                                        @endif
-                                        <flux:button size="sm" variant="ghost" icon="arrow-down-tray" :href="route('box-labels.zpl', $b)">ZPL</flux:button>
-                                    </div>
+                                        </div>
+                                    @endif
                                 </flux:table.cell>
                             </flux:table.row>
                         @endforeach

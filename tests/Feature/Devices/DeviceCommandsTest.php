@@ -45,7 +45,8 @@ class DeviceCommandsTest extends TestCase
         $this->assertStringNotContainsString($token, (string) json_encode(Device::query()->get()->toArray()));
         $this->assertSame('device.registered', TraceEvent::sole()->event);
 
-        $this->withToken($token)->postJson(route('api.scan-events.store'), $this->payload())->assertCreated();
+        // Authenticated: it gets past the token and reaches the box rules (this payload names no printed box).
+        $this->withToken($token)->postJson(route('api.scan-events.store'), $this->payload())->assertUnprocessable()->assertJson(['rejection' => 'NO_ES_CAJA']);
     }
 
     public function test_rotating_the_token_invalidates_the_old_one(): void
@@ -59,7 +60,7 @@ class DeviceCommandsTest extends TestCase
 
         $this->assertNotSame($old, $new);
         $this->withToken($old)->postJson(route('api.scan-events.store'), $this->payload())->assertUnauthorized();
-        $this->withToken($new)->postJson(route('api.scan-events.store'), $this->payload())->assertCreated();
+        $this->withToken($new)->postJson(route('api.scan-events.store'), $this->payload())->assertUnprocessable()->assertJson(['rejection' => 'NO_ES_CAJA']);
     }
 
     public function test_a_deactivated_device_is_refused_and_duplicates_codes_are_reported(): void

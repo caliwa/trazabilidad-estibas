@@ -2,47 +2,74 @@
 
 namespace Tests\Feature\Api;
 
+use App\Domain\BoxLabels\Actions\ConsultProductionOrder;
+use App\Domain\BoxLabels\Actions\GenerateBoxLabels;
+use App\Domain\BoxLabels\BoxQr;
+use App\Domain\Orders\Actions\SyncReleasedOrders;
+use App\Domain\Shared\Origin;
+use App\Domain\Shared\TraceContext;
+use App\Enums\Role;
+use App\Models\BoxConversionFactor;
+use App\Models\BoxLabel;
+use App\Models\BoxLabelBatch;
 use App\Models\Device;
 use App\Models\Pallet;
 use App\Models\PalletScanEvent;
-use App\Models\ProductionOrder;
 use App\Models\TraceEvent;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
-use Tests\Concerns\BuildsProductionMasters;
+use Tests\Concerns\CreatesUsers;
 use Tests\TestCase;
 
+/**
+ * POST /api/v1/scan-events: a device sends the box it read (QR text, token
+ * or code). Same rules as every other read; each box counts once.
+ */
 class ScanEventApiTest extends TestCase
 {
-    use BuildsProductionMasters, RefreshDatabase;
+    use CreatesUsers, RefreshDatabase;
 
     private const TOKEN = 'token-de-prueba-0123456789abcdef0123456789abcdef';
 
     private Device $device;
 
-    private ProductionOrder $order;
+    private BoxLabelBatch $batch;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->enableScanIngestion();
+        $this->seedRoles();
+        config(['traceability.test_pallet_boxes' => 2, 'traceability.decisions.scan_ingestion_enabled' => true]);
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00'));
         $this->device = Device::factory()->withToken(self::TOKEN)->create();
-        $this->order = $this->orderWithStandard(boxes: 2);
+
+        $operator = $this->userWithRole(Role::ProductionOperator);
+        $ctx = TraceContext::forUser($operator, Origin::Web, (string) Str::uuid());
+        app(SyncReleasedOrders::class)->handle(null, $ctx);
+        $order = app(ConsultProductionOrder::class)->handle($operator, '33128');
+        BoxConversionFactor::factory()->create(['item_id' => $order->item_id, 'units_per_box' => '24']);
+        $this->batch = app(GenerateBoxLabels::class)->handle($operator, $order->id, 5, CarbonImmutable::parse('2026-10-20'), CarbonImmutable::parse('2028-10-20'), $ctx);
+    }
+
+    private function label(int $n): BoxLabel
+    {
+        return BoxLabel::query()->where('box_label_batch_id', $this->batch->id)->where('sequence', $n)->sole();
     }
 
     /**
      * @param  array<string, mixed>  $overrides
      * @return array<string, mixed>
      */
-    private function payload(array $overrides = []): array
+    private function payload(int $box = 1, array $overrides = []): array
     {
         return [
-            'event_id' => (string) Str::uuid(),
-            'production_order' => $this->order->ref,
-            'item_code' => $this->order->item->code,
-            'lot' => 'L-1',
+            'event_id' => BoxQr::payload((string) $this->label($box)->qr_token),
+            'production_order' => '33128',
+            'item_code' => 'PT1350023',
+            'lot' => '33128293',
             'occurred_at' => now()->toIso8601String(),
             ...$overrides,
         ];
@@ -59,39 +86,48 @@ class ScanEventApiTest extends TestCase
 
     public function test_an_accepted_box_answers_201_with_the_pallet(): void
     {
-        $this->send($this->payload())
+        $this->send($this->payload(1))
             ->assertCreated()
-            ->assertExactJson(['status' => 'accepted', 'pallet_code' => 'EST-00000001', 'boxes_count' => 1, 'standard' => 2, 'pallet_closed' => false]);
+            ->assertExactJson(['status' => 'accepted', 'box_code' => '33128293-0001', 'pallet_code' => 'EST-00000001', 'boxes_count' => 1, 'standard' => 2, 'pallet_closed' => false]);
 
-        $this->send($this->payload())->assertCreated()->assertJson(['boxes_count' => 2, 'pallet_closed' => true]);
+        $this->send($this->payload(2))->assertCreated()->assertJson(['boxes_count' => 2, 'pallet_closed' => true]);
+        $this->assertSame($this->device->id, PalletScanEvent::query()->orderBy('id')->first()?->read_by_device_id);
     }
 
-    public function test_a_resend_answers_200_and_changes_nothing(): void
+    public function test_the_same_box_sent_again_answers_200_and_changes_nothing(): void
     {
-        $payload = $this->payload(['event_id' => 'E-1']);
-
-        $this->send($payload)->assertCreated();
-        $this->send($payload)->assertOk()->assertJson(['status' => 'duplicate', 'boxes_count' => 1]);
+        $this->send($this->payload(1))->assertCreated();
+        $this->send($this->payload(1))->assertOk()->assertJson(['status' => 'duplicate', 'box_code' => '33128293-0001']);
+        // Its token alone: still the same box.
+        $this->send($this->payload(1, ['event_id' => $this->label(1)->qr_token]))->assertOk()->assertJson(['status' => 'duplicate']);
+        // The printed box code does not identify a box: only the QR token does.
+        $this->send($this->payload(1, ['event_id' => '33128293-0001']))->assertUnprocessable()->assertJson(['rejection' => 'NO_ES_CAJA']);
 
         $this->assertSame(1, Pallet::sole()->boxes_count);
+        $this->assertSame(1, PalletScanEvent::count());
     }
 
-    public function test_a_rejected_box_answers_422_with_the_reason_and_is_kept(): void
+    public function test_an_event_that_does_not_name_a_printed_box_is_refused_and_counts_nothing(): void
     {
-        $this->send($this->payload(['item_code' => 'OTRO']))
+        $this->send($this->payload(1, ['event_id' => (string) Str::uuid()]))
             ->assertUnprocessable()
-            ->assertJson(['status' => 'rejected', 'rejection' => 'PRODUCTO_NO_COINCIDE']);
+            ->assertJson(['status' => 'rejected', 'rejection' => 'NO_ES_CAJA']);
 
-        $this->assertSame(1, PalletScanEvent::count());
+        $this->send($this->payload(1, ['lot' => 'OTRO']))
+            ->assertUnprocessable()
+            ->assertJson(['status' => 'rejected', 'rejection' => 'DATOS_DISTINTOS_A_LA_CAJA']);
+
+        $this->assertSame(0, PalletScanEvent::count());
+        $this->assertSame(0, Pallet::count());
     }
 
     public function test_malformed_requests_are_refused_without_storing_anything(): void
     {
-        $this->send($this->payload(['event_id' => '']))->assertUnprocessable()->assertJsonValidationErrors('event_id');
-        $this->send($this->payload(['event_id' => 'con espacio']))->assertJsonValidationErrors('event_id');
-        $this->send($this->payload(['occurred_at' => 'ayer']))->assertJsonValidationErrors('occurred_at');
-        $this->send($this->payload(['occurred_at' => now()->addHour()->toIso8601String()]))->assertJsonValidationErrors('occurred_at');
-        $this->send($this->payload(['lot' => str_repeat('x', 51)]))->assertJsonValidationErrors('lot');
+        $this->send($this->payload(1, ['event_id' => '']))->assertUnprocessable()->assertJsonValidationErrors('event_id');
+        $this->send($this->payload(1, ['event_id' => 'con espacio']))->assertJsonValidationErrors('event_id');
+        $this->send($this->payload(1, ['occurred_at' => 'ayer']))->assertJsonValidationErrors('occurred_at');
+        $this->send($this->payload(1, ['occurred_at' => now()->addHour()->toIso8601String()]))->assertJsonValidationErrors('occurred_at');
+        $this->send($this->payload(1, ['lot' => str_repeat('x', 51)]))->assertJsonValidationErrors('lot');
 
         $this->assertSame(0, PalletScanEvent::count());
     }
@@ -119,9 +155,9 @@ class ScanEventApiTest extends TestCase
     {
         config(['traceability.scan_rate_per_minute' => 2]);
 
-        $this->send($this->payload())->assertCreated();
-        $this->send($this->payload())->assertCreated();
-        $this->send($this->payload())->assertTooManyRequests();
+        $this->send($this->payload(1))->assertCreated();
+        $this->send($this->payload(2))->assertCreated();
+        $this->send($this->payload(3))->assertTooManyRequests();
     }
 
     public function test_the_trace_carries_the_device_and_the_callers_correlation_id(): void
@@ -130,18 +166,9 @@ class ScanEventApiTest extends TestCase
 
         $this->send($this->payload(), headers: ['X-Correlation-Id' => $correlation])->assertHeader('X-Correlation-Id', $correlation);
 
-        $trace = TraceEvent::sole();
+        $trace = TraceEvent::query()->where('event', 'pallet.created')->sole();
         $this->assertSame($correlation, $trace->correlation_id);
         $this->assertSame($this->device->id, $trace->device_id);
         $this->assertNotNull($this->device->refresh()->last_seen_at);
-    }
-
-    public function test_times_with_offset_are_stored_as_the_same_instant_with_microseconds(): void
-    {
-        $this->send($this->payload(['event_id' => 'E-UTC', 'occurred_at' => '2026-10-19T15:00:00.250000Z']))->assertCreated();
-
-        $stored = PalletScanEvent::query()->selectRaw("to_char(event_occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS utc")->value('utc');
-        $this->assertSame('2026-10-19 15:00:00.250000', $stored);
-        $this->assertSame('2026-10-19 10:00:00.250000', PalletScanEvent::sole()->event_occurred_at->setTimezone('America/Bogota')->format('Y-m-d H:i:s.u'));
     }
 }

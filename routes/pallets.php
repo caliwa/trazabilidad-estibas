@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\BoxLabelController;
 use App\Http\Controllers\PalletLabelController;
 use App\Http\Controllers\ZebraPreviewController;
 use Illuminate\Support\Facades\Route;
@@ -14,10 +13,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('box-labels/preview', [ZebraPreviewController::class, 'preview'])
         ->middleware('can:box_labels.print')
         ->name('box-labels.preview');
-    Route::get('box-labels/batches/{batch}/zpl', [BoxLabelController::class, 'zpl'])
-        ->middleware('can:box_labels.print')
-        ->whereNumber('batch')
-        ->name('box-labels.zpl');
 
     Route::livewire('quality', 'pages::quality.index')->middleware('can:quality.manage')->name('quality.index');
     Route::livewire('cedi/count', 'pages::cedi.count')->middleware('can:audits.count')->name('cedi.count');
