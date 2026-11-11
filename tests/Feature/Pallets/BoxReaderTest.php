@@ -268,8 +268,10 @@ class BoxReaderTest extends TestCase
 
         $this->travel(5)->seconds();
         $this->readerSession()->feed("NoRead\n");
+        // NO_READ: the reader fired but read nothing, said as such.
         $station()->assertSeeHtml('data-line-result="error"')
-            ->assertSee('Caja no contada')
+            ->assertSee('El lector no logró leer')
+            ->assertSeeHtml('data-line-no-read')
             ->assertSee('Lee esa caja a mano')
             ->assertSee('NoRead')
             ->assertSee('Últimas cajas no contadas por el lector')
@@ -311,5 +313,27 @@ class FlakyBoxScan extends RegisterManualBoxScan
         }
 
         return parent::fromReader($reader, $scanned, $ctx);
+    }
+
+    public function test_a_no_read_from_the_reader_or_by_hand_says_the_reader_fired_but_read_nothing(): void
+    {
+        foreach (['NO_READ', 'NoRead', 'NOREAD', 'no read'] as $text) {
+            $this->travel(1)->seconds();
+            $reads = $this->readerSession()->feed($text."\n");
+            $this->assertSame(BoxReadOutcome::Rejected, $reads[0]->outcome);
+            $this->assertStringContainsString('El lector se activó pero no logró leer la etiqueta', $reads[0]->message);
+        }
+        $this->assertTrue((bool) (TraceEvent::query()->where('event', TraceEventType::ScanRejected->value)->latest('id')->first()?->context['no_read'] ?? false));
+        $this->assertSame(0, $this->counted());
+
+        // The same in the manual field (a PDA that sends its no-read text).
+        Livewire::actingAs($this->operator)->test('pages::production.station')
+            ->call('scanBox', 'NO_READ', 'scan-1')
+            ->assertSet('boxNoRead', true)
+            ->assertSee('El lector no logró leer')
+            ->assertSee('El lector se activó pero no logró leer la etiqueta (NO_READ)')
+            ->call('scanBox', 'TRZB:'.str_repeat('0', 32), 'scan-2')
+            ->assertSet('boxNoRead', false)
+            ->assertSee('Caja no contada');
     }
 }

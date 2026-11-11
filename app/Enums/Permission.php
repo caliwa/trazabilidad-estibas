@@ -15,6 +15,8 @@ enum Permission: string
     /** Void a box already counted (damaged, misread), before its pallet is palletized. */
     case BoxesVoid = 'boxes.void';
     case PalletsPalletize = 'pallets.palletize';
+    /** "Patinaje" page: pallets in stacking (to watch) and closed ones to palletize, label and send to receipt. */
+    case PalletsSkate = 'pallets.skate';
     /** Print the label and confirm it was applied. */
     case PalletsLabel = 'pallets.label';
     case PalletsReprint = 'pallets.reprint';

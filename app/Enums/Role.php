@@ -14,6 +14,7 @@ enum Role: string
     case ProductionSupervisor = 'production_supervisor';
     case Quality = 'quality';
     case ProductionOperator = 'production_operator';
+    case ProductionSkater = 'production_skater';
     case LogisticsOperator = 'logistics_operator';
     case Viewer = 'viewer';
 
@@ -25,6 +26,7 @@ enum Role: string
             self::ProductionSupervisor => 'Supervisor de producción',
             self::Quality => 'Calidad',
             self::ProductionOperator => 'Operario de producción',
+            self::ProductionSkater => 'Patinador de producción',
             self::LogisticsOperator => 'Operario logístico',
             self::Viewer => 'Consulta',
         };
@@ -81,6 +83,18 @@ enum Role: string
                 Permission::PalletsLabel,
                 Permission::PalletsReprint,
                 Permission::BoxLabelsPrint,
+            ],
+            // Takes closed pallets from the line: palletizes, labels them and requests the production receipt.
+            // Watches the pallets in stacking but does not read boxes or close pallets.
+            self::ProductionSkater => [
+                Permission::PalletsSkate,
+                Permission::PalletsView,
+                Permission::PalletsPalletize,
+                Permission::PalletsLabel,
+                Permission::PalletsReprint,
+                Permission::ReceiptsRequest,
+                Permission::ReceiptsReconcile,
+                Permission::TraceView,
             ],
             // No pallets.view: the board shows box counts, which would break the blind count.
             self::LogisticsOperator => [
