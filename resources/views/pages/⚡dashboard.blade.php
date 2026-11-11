@@ -5,6 +5,7 @@ use App\Domain\Operations\OperationalChecks;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Queries\DashboardQuery;
+use App\Queries\LogisticsBoardQuery;
 use App\Queries\OperatorBoardQuery;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
@@ -28,6 +29,27 @@ new #[Title('Inicio')] class extends Component {
     public function showsKpis(): bool
     {
         return (bool) Auth::user()?->can(Permission::DashboardKpis->value);
+    }
+
+    /**
+     * Logistics (operator and coordinator): transfers and blind counts, in pallets only.
+     */
+    public function showsLogisticsBoard(): bool
+    {
+        $user = Auth::user();
+
+        return $user !== null && $user->can(Permission::AuditsCount->value) && ! $user->can(Permission::DashboardKpis->value);
+    }
+
+    /**
+     * @return array{transfers: array<string, int>, counts: array{waiting: int, waiting_oldest: \Carbon\CarbonImmutable|null, counting: int, approved_today: int, open_discrepancies: int}, days: list<array{day: \Carbon\CarbonImmutable, pallets: int}>, recent: list<array{doc: int|null, purpose: string, pallets: int, status: \App\Domain\Integration\Enums\SapDocumentStatus, at: \Carbon\CarbonImmutable}>}
+     */
+    #[Computed]
+    public function logistics(): array
+    {
+        $query = app(LogisticsBoardQuery::class);
+
+        return ['transfers' => $query->transfers(), 'counts' => $query->counts(), 'days' => $query->lastDays(), 'recent' => $query->recent()];
     }
 
     /**
@@ -500,6 +522,108 @@ new #[Title('Inicio')] class extends Component {
                     @can('pallets.operate')
                         <div class="mt-4"><flux:button icon="cog-6-tooth" :href="route('production.station')" wire:navigate>Ir a la Estación de producción</flux:button></div>
                     @endcan
+                </div>
+            </div>
+        </div>
+    @endif
+
+
+    @if ($this->showsLogisticsBoard())
+        @php
+            $lg = $this->logistics;
+            $tr = $lg['transfers'];
+            $ct = $lg['counts'];
+            $maxDay = max(1, ...array_map(fn ($d) => $d['pallets'], $lg['days']));
+            $tile = fn (bool $alert, string $tone) => $alert ? match ($tone) { 'red' => 'border-red-600 bg-red-50 dark:bg-red-950', 'amber' => 'border-amber-400 bg-amber-50 dark:border-amber-600 dark:bg-amber-950', default => 'border-blue-400 bg-blue-50 dark:border-blue-600 dark:bg-blue-950' } : 'border-zinc-200 dark:border-zinc-700';
+        @endphp
+        {{-- Logistics: transfers and blind counts, in pallets and documents only (no boxes: the count is blind). --}}
+        <div class="flex flex-col gap-6" wire:poll.30s.visible data-logistics-board>
+            <div>
+                <flux:heading size="lg" level="2" class="mb-3">Traslados a CEDI (04 → 05)</flux:heading>
+                <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <div class="rounded-xl border-4 border-emerald-600 bg-emerald-50 p-5 dark:bg-emerald-950" data-tile="transfers-done">
+                        <div class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200"><flux:icon.check-circle variant="mini" /> Trasladadas hoy</div>
+                        <div class="mt-1 text-5xl font-bold tabular-nums text-emerald-900 dark:text-emerald-100">{{ $fmt($tr['confirmed_pallets']) }}</div>
+                        <div class="text-sm text-emerald-800 dark:text-emerald-200">estibas · {{ $fmt($tr['confirmed_docs']) }} {{ $tr['confirmed_docs'] === 1 ? 'documento' : 'documentos' }} en SAP</div>
+                    </div>
+                    <div class="rounded-xl border-4 p-5 {{ $tile($tr['ready_pallets'] + $tr['pending_pallets'] > 0, 'blue') }}" data-tile="transfers-pending">
+                        <div class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300"><flux:icon.clock variant="mini" /> Por trasladar</div>
+                        <div class="mt-1 text-5xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ $fmt($tr['ready_pallets'] + $tr['pending_pallets']) }}</div>
+                        <div class="text-sm text-zinc-600 dark:text-zinc-300">{{ $fmt($tr['ready_pallets']) }} listas · {{ $fmt($tr['pending_pallets']) }} enviándose a SAP</div>
+                    </div>
+                    <div class="rounded-xl border-4 p-5 {{ $tile($tr['reconcile_docs'] > 0, 'amber') }}" data-tile="transfers-reconcile">
+                        <div class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300"><flux:icon.arrow-path variant="mini" /> Por conciliar con SAP</div>
+                        <div class="mt-1 text-5xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ $fmt($tr['reconcile_docs']) }}</div>
+                        <div class="text-sm text-zinc-600 dark:text-zinc-300">documentos sin respuesta clara de SAP</div>
+                    </div>
+                    <div class="rounded-xl border-4 p-5 {{ $tile($tr['failed_pallets'] > 0, 'red') }}" data-tile="transfers-failed">
+                        <div class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300"><flux:icon.x-circle variant="mini" /> Traslado fallido</div>
+                        <div class="mt-1 text-5xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ $fmt($tr['failed_pallets']) }}</div>
+                        <div class="text-sm text-zinc-600 dark:text-zinc-300">estibas por reintentar</div>
+                    </div>
+                </div>
+                <div class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">No conforme (04 → 11C): {{ $fmt($tr['non_conforming_today']) }} hoy · {{ $fmt($tr['non_conforming_pending']) }} pendientes en SAP</div>
+            </div>
+
+            <div>
+                <flux:heading size="lg" level="2" class="mb-3">Conteo ciego</flux:heading>
+                <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <div class="rounded-xl border-4 p-5 {{ $tile($ct['waiting'] > 0, 'amber') }}" data-tile="count-waiting">
+                        <div class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300"><flux:icon.inbox-stack variant="mini" /> Esperando conteo</div>
+                        <div class="mt-1 text-5xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ $fmt($ct['waiting']) }}</div>
+                        <div class="text-sm text-zinc-600 dark:text-zinc-300">estibas recibidas en 04 @if ($ct['waiting_oldest']) · la más antigua hace {{ $age($ct['waiting_oldest']) }}@endif</div>
+                    </div>
+                    <div class="rounded-xl border-4 border-zinc-200 p-5 dark:border-zinc-700" data-tile="count-counting">
+                        <div class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300"><flux:icon.qr-code variant="mini" /> En conteo</div>
+                        <div class="mt-1 text-5xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ $fmt($ct['counting']) }}</div>
+                        <div class="text-sm text-zinc-600 dark:text-zinc-300">estibas</div>
+                    </div>
+                    <div class="rounded-xl border-4 border-emerald-600 bg-emerald-50 p-5 dark:bg-emerald-950" data-tile="count-approved">
+                        <div class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200"><flux:icon.check-badge variant="mini" /> Aprobadas hoy</div>
+                        <div class="mt-1 text-5xl font-bold tabular-nums text-emerald-900 dark:text-emerald-100">{{ $fmt($ct['approved_today']) }}</div>
+                        <div class="text-sm text-emerald-800 dark:text-emerald-200">conteos que coincidieron</div>
+                    </div>
+                    <div class="rounded-xl border-4 p-5 {{ $tile($ct['open_discrepancies'] > 0, 'red') }}" data-tile="count-discrepancies">
+                        <div class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300"><flux:icon.exclamation-triangle variant="mini" /> Discrepancias abiertas</div>
+                        <div class="mt-1 text-5xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ $fmt($ct['open_discrepancies']) }}</div>
+                        <div class="text-sm text-zinc-600 dark:text-zinc-300">esperando al supervisor</div>
+                    </div>
+                </div>
+                @can('audits.count')
+                    <div class="mt-3"><flux:button icon="qr-code" :href="route('cedi.count')" wire:navigate>Ir al conteo ciego</flux:button></div>
+                @endcan
+            </div>
+
+            <div class="grid gap-6 lg:grid-cols-2">
+                <div>
+                    <flux:heading size="lg" level="2" class="mb-3">Estibas trasladadas a CEDI, últimos 7 días</flux:heading>
+                    <div class="flex h-48 items-end gap-2 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700" role="img" aria-label="Estibas trasladadas por día" data-logistics-days>
+                        @foreach ($lg['days'] as $d)
+                            <div class="flex flex-1 flex-col items-center gap-1" title="{{ $d['day']->format('d/m') }}: {{ $d['pallets'] }} estibas">
+                                <span class="text-xs font-medium tabular-nums text-zinc-700 dark:text-zinc-200">{{ $d['pallets'] }}</span>
+                                <div class="w-full rounded-t bg-blue-500" style="height: {{ max(2, (int) round($d['pallets'] * 120 / $maxDay)) }}px"></div>
+                                <span class="text-xs text-zinc-500">{{ $d['day']->locale('es')->isoFormat('dd D') }}</span>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+                <div>
+                    <flux:heading size="lg" level="2" class="mb-3">Últimos traslados</flux:heading>
+                    @if ($lg['recent'] === [])
+                        <div class="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">Todavía no hay traslados.</div>
+                    @else
+                        <ul class="flex flex-col divide-y divide-zinc-200 rounded-xl border border-zinc-200 dark:divide-zinc-700 dark:border-zinc-700">
+                            @foreach ($lg['recent'] as $t)
+                                <li class="flex flex-wrap items-center justify-between gap-2 px-4 py-2" data-transfer>
+                                    <div>
+                                        <div class="font-medium text-zinc-900 dark:text-white">{{ $t['purpose'] }} · {{ $t['pallets'] }} {{ $t['pallets'] === 1 ? 'estiba' : 'estibas' }}</div>
+                                        <div class="text-xs text-zinc-500">{{ $t['doc'] ? 'Documento SAP '.$t['doc'] : 'Sin número en SAP aún' }} · {{ $t['at']->timezone($tz)->format('d/m H:i') }}</div>
+                                    </div>
+                                    <flux:badge size="sm" :color="match ($t['status']) { \App\Domain\Integration\Enums\SapDocumentStatus::Confirmed => 'green', \App\Domain\Integration\Enums\SapDocumentStatus::Failed => 'red', \App\Domain\Integration\Enums\SapDocumentStatus::PendingReconciliation => 'amber', default => 'zinc' }">{{ $t['status']->label() }}</flux:badge>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
                 </div>
             </div>
         </div>

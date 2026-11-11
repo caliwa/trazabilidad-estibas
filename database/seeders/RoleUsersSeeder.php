@@ -31,6 +31,7 @@ class RoleUsersSeeder extends Seeder
         'production_operator' => ['operario@example.com', 'Operario de producción'],
         'production_skater' => ['patinador@example.com', 'Patinador de producción'],
         'logistics_operator' => ['logistica@example.com', 'Operario logístico'],
+        'logistics_coordinator' => ['coordinador.logistica@example.com', 'Coordinador logístico'],
         'viewer' => ['consulta@example.com', 'Consulta'],
     ];
 
