@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::livewire('production', 'pages::production.station')->middleware('can:pallets.operate')->name('production.station');
+    Route::livewire('patinaje', 'pages::production.skating')->middleware('can:pallets.skate')->name('production.skating');
 
     Route::livewire('orders', 'pages::orders.index')->middleware('can:orders.view')->name('orders.index');
 

@@ -38,7 +38,7 @@ class RoleUsersSeederTest extends TestCase
         $this->seed(RoleUsersSeeder::class);
         $this->seed(RoleUsersSeeder::class);
 
-        $this->assertSame(7, User::query()->count());
+        $this->assertSame(count(Role::cases()), User::query()->count());
         $this->assertTrue(Hash::check('otra-clave', $existing->refresh()->password));
         $this->assertSame([], $existing->getRoleNames()->all());
         $this->assertTrue(Hash::check('Clave-De-Prueba-2026', User::query()->where('email', 'consulta@example.com')->value('password')));

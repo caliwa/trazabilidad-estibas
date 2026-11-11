@@ -5,6 +5,7 @@ use App\Domain\Operations\OperationalChecks;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Queries\DashboardQuery;
+use App\Queries\OperatorBoardQuery;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -27,6 +28,32 @@ new #[Title('Inicio')] class extends Component {
     public function showsKpis(): bool
     {
         return (bool) Auth::user()?->can(Permission::DashboardKpis->value);
+    }
+
+    /**
+     * The production operator's view of the line: reads and pallets at a glance.
+     */
+    public function showsLineBoard(): bool
+    {
+        $user = Auth::user();
+
+        return $user !== null && $user->can(Permission::PalletsOperate->value) && ! $user->can(Permission::DashboardKpis->value);
+    }
+
+    /**
+     * @return array{today: array{counted: int, not_counted: int, no_read: int, last_hour: int}, reads: list<array{ok: bool, at: \Carbon\CarbonImmutable, box: string, detail: string, no_read: bool}>, stacking: \Illuminate\Support\Collection<int, \App\Models\Pallet>, waiting: array{to_palletize: int, to_label: int}}
+     */
+    #[Computed]
+    public function line(): array
+    {
+        $query = app(OperatorBoardQuery::class);
+
+        return [
+            'today' => $query->today(),
+            'reads' => $query->lastReads(),
+            'stacking' => $query->stacking(),
+            'waiting' => $query->waiting(),
+        ];
     }
 
     /**
@@ -382,4 +409,100 @@ new #[Title('Inicio')] class extends Component {
             </div>
         </div>
     @endif
+
+    @if ($this->showsLineBoard())
+        @php
+            $line = $this->line;
+            $t = $line['today'];
+        @endphp
+        {{-- The operator's line at a glance: green = counted, red = not counted. Refreshes every 5 s. --}}
+        <div class="flex flex-col gap-6" wire:poll.5s.visible data-operator-board>
+            <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div class="rounded-xl border-4 border-emerald-600 bg-emerald-50 p-5 dark:bg-emerald-950" data-tile="counted">
+                    <div class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200"><flux:icon.check-circle variant="mini" /> Cajas contadas hoy</div>
+                    <div class="mt-1 text-5xl font-bold tabular-nums text-emerald-900 dark:text-emerald-100">{{ $fmt($t['counted']) }}</div>
+                    <div class="text-sm text-emerald-800 dark:text-emerald-200">{{ $fmt($t['last_hour']) }} en la última hora</div>
+                </div>
+                <div @class(['rounded-xl border-4 p-5', 'border-red-600 bg-red-50 dark:bg-red-950' => $t['not_counted'] > 0, 'border-zinc-200 dark:border-zinc-700' => $t['not_counted'] === 0]) data-tile="not-counted">
+                    <div @class(['flex items-center gap-2 text-sm font-semibold uppercase tracking-wide', 'text-red-800 dark:text-red-200' => $t['not_counted'] > 0, 'text-zinc-600 dark:text-zinc-300' => $t['not_counted'] === 0])><flux:icon.x-circle variant="mini" /> No contadas hoy</div>
+                    <div @class(['mt-1 text-5xl font-bold tabular-nums', 'text-red-900 dark:text-red-100' => $t['not_counted'] > 0, 'text-zinc-900 dark:text-white' => $t['not_counted'] === 0])>{{ $fmt($t['not_counted']) }}</div>
+                    <div class="text-sm text-zinc-600 dark:text-zinc-300">Lector de la línea · {{ $fmt($t['no_read']) }} sin lectura (NO_READ)</div>
+                </div>
+                <div class="rounded-xl border-4 border-zinc-200 p-5 dark:border-zinc-700" data-tile="stacking">
+                    <div class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300"><flux:icon.squares-2x2 variant="mini" /> Estibas en estibado</div>
+                    <div class="mt-1 text-5xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ $line['stacking']->count() }}</div>
+                    <div class="text-sm text-zinc-500 dark:text-zinc-400">Llenándose en la línea</div>
+                </div>
+                <div @class(['rounded-xl border-4 p-5', 'border-amber-400 bg-amber-50 dark:border-amber-600 dark:bg-amber-950' => $line['waiting']['to_palletize'] + $line['waiting']['to_label'] > 0, 'border-zinc-200 dark:border-zinc-700' => $line['waiting']['to_palletize'] + $line['waiting']['to_label'] === 0]) data-tile="waiting">
+                    <div class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300"><flux:icon.cube variant="mini" /> Cerradas por despachar</div>
+                    <div class="mt-1 text-5xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ $line['waiting']['to_palletize'] + $line['waiting']['to_label'] }}</div>
+                    <div class="text-sm text-zinc-500 dark:text-zinc-400">{{ $line['waiting']['to_palletize'] }} por paletizar · {{ $line['waiting']['to_label'] }} por etiquetar</div>
+                </div>
+            </div>
+
+            <div class="grid gap-6 lg:grid-cols-5">
+                <div class="lg:col-span-2">
+                    <flux:heading size="lg" level="2" class="mb-3">Últimas lecturas</flux:heading>
+                    @if ($line['reads'] === [])
+                        <div class="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">Todavía no hay lecturas.</div>
+                    @else
+                        <ul class="flex flex-col gap-2">
+                            @foreach ($line['reads'] as $read)
+                                <li wire:key="op-read-{{ $loop->index }}-{{ $read['at']->getTimestamp() }}" @class(['flex items-center gap-3 rounded-lg border-2 px-3 py-2', 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950' => $read['ok'], 'border-red-500 bg-red-50 dark:bg-red-950' => ! $read['ok']]) data-read="{{ $read['ok'] ? 'ok' : 'error' }}">
+                                    @if ($read['ok'])
+                                        <flux:icon.check-circle class="size-8 shrink-0 text-emerald-600" />
+                                    @else
+                                        <flux:icon.x-circle class="size-8 shrink-0 text-red-600" />
+                                    @endif
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex flex-wrap items-baseline justify-between gap-x-2">
+                                            <span @class(['font-semibold', 'text-emerald-900 dark:text-emerald-100' => $read['ok'], 'text-red-900 dark:text-red-100' => ! $read['ok']])>
+                                                {{ $read['ok'] ? 'Contada' : ($read['no_read'] ? 'El lector no logró leer' : 'No contada') }}@if ($read['box'] !== '') · <span class="font-mono">{{ $read['box'] }}</span>@endif
+                                            </span>
+                                            <span class="font-mono text-xs tabular-nums text-zinc-500">{{ $read['at']->timezone($tz)->format('H:i:s') }}</span>
+                                        </div>
+                                        <div class="truncate text-sm text-zinc-600 dark:text-zinc-300">{{ $read['ok'] ? '→ '.$read['detail'] : $read['detail'] }}</div>
+                                    </div>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+
+                <div class="lg:col-span-3">
+                    <flux:heading size="lg" level="2" class="mb-3">Avance de las estibas</flux:heading>
+                    @if ($line['stacking']->isEmpty())
+                        <div class="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">No hay estibas abiertas.</div>
+                    @else
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            @foreach ($line['stacking'] as $pallet)
+                                @php
+                                    $percent = $pallet->completionPercent();
+                                    $missing = max(0, $pallet->standard_boxes_snapshot - $pallet->boxes_count);
+                                @endphp
+                                <article wire:key="op-pallet-{{ $pallet->id }}" class="flex flex-col gap-2 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700" data-pallet="{{ $pallet->pallet_code }}">
+                                    <div class="flex items-baseline justify-between gap-2">
+                                        <span class="font-mono text-lg font-semibold text-zinc-900 dark:text-white">{{ $pallet->pallet_code }}</span>
+                                        <span class="text-2xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ $pallet->boxes_count }}<span class="text-base font-normal text-zinc-500"> / {{ $pallet->standard_boxes_snapshot }}</span></span>
+                                    </div>
+                                    <div class="text-sm text-zinc-500 dark:text-zinc-400">{{ $pallet->item_code }} · Orden {{ $pallet->production_order_ref }} · Lote {{ $pallet->lot_code }}</div>
+                                    <div class="h-4 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ $percent }}">
+                                        <div class="h-full bg-emerald-600" style="width: {{ min(100, $percent) }}%"></div>
+                                    </div>
+                                    <div class="flex justify-between text-sm">
+                                        <span class="tabular-nums text-zinc-600 dark:text-zinc-300">{{ number_format($percent, 1, ',', '.') }} %</span>
+                                        <span class="font-medium text-zinc-700 dark:text-zinc-200">{{ $missing === 1 ? 'Falta 1 caja' : "Faltan {$missing} cajas" }}</span>
+                                    </div>
+                                </article>
+                            @endforeach
+                        </div>
+                    @endif
+                    @can('pallets.operate')
+                        <div class="mt-4"><flux:button icon="cog-6-tooth" :href="route('production.station')" wire:navigate>Ir a la Estación de producción</flux:button></div>
+                    @endcan
+                </div>
+            </div>
+        </div>
+    @endif
+
 </section>

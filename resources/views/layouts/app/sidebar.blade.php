@@ -18,7 +18,7 @@
                     <livewire:notifications.bell />
                 </flux:sidebar.group>
 
-                @canany(['pallets.operate', 'pallets.view', 'box_labels.print', 'orders.view'])
+                @canany(['pallets.operate', 'pallets.view', 'box_labels.print', 'orders.view', 'pallets.skate'])
                     <flux:sidebar.group heading="Producción" class="grid">
                         @can('orders.view')
                             <flux:sidebar.item icon="chart-bar" :href="route('orders.index')" :current="request()->routeIs('orders.*')" wire:navigate>Tablero de OF</flux:sidebar.item>
@@ -31,6 +31,9 @@
                         @endcan
                         @can('pallets.operate')
                             <flux:sidebar.item icon="cog-6-tooth" :href="route('production.station')" :current="request()->routeIs('production.station')" wire:navigate>Estación de producción</flux:sidebar.item>
+                        @endcan
+                        @can('pallets.skate')
+                            <flux:sidebar.item icon="truck" :href="route('production.skating')" :current="request()->routeIs('production.skating')" wire:navigate>Patinaje</flux:sidebar.item>
                         @endcan
                         @can('pallets.view')
                             <flux:sidebar.item icon="exclamation-triangle" :href="route('pallets.rejected')" :current="request()->routeIs('pallets.rejected')" wire:navigate>Lecturas rechazadas</flux:sidebar.item>
