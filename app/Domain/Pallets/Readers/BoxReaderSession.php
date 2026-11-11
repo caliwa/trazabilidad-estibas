@@ -5,6 +5,7 @@ namespace App\Domain\Pallets\Readers;
 use App\Domain\Pallets\Actions\RegisterManualBoxScan;
 use App\Domain\Pallets\Exceptions\BoxAlreadyRead;
 use App\Domain\Pallets\Exceptions\PalletRuleViolation;
+use App\Domain\Pallets\Exceptions\ReaderNoRead;
 use App\Domain\Shared\Origin;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
@@ -192,6 +193,8 @@ class BoxReaderSession
                 ]);
 
                 return new BoxRead(BoxReadOutcome::AlreadyRead, $e->getMessage());
+            } catch (ReaderNoRead $e) {
+                return $this->notCounted($ctx, $text, $e->getMessage(), noRead: true);
             } catch (PalletRuleViolation $e) {
                 return $this->notCounted($ctx, $text, $e->getMessage());
             } catch (\Throwable $e) {
@@ -210,12 +213,12 @@ class BoxReaderSession
         }
     }
 
-    private function notCounted(TraceContext $ctx, string $text, string $reason): BoxRead
+    private function notCounted(TraceContext $ctx, string $text, string $reason, bool $noRead = false): BoxRead
     {
         $shown = Str::limit($text, 60);
 
         try {
-            $this->trace->record($ctx, TraceEventType::ScanRejected, $this->reader, result: TraceResult::Rejected, reason: $reason, context: ['read' => $shown]);
+            $this->trace->record($ctx, TraceEventType::ScanRejected, $this->reader, result: TraceResult::Rejected, reason: $reason, context: ['read' => $shown, ...($noRead ? ['no_read' => true] : [])]);
         } catch (\Throwable $e) {
             report($e);
         }

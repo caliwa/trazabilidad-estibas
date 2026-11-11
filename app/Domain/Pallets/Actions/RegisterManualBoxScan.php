@@ -10,6 +10,7 @@ use App\Domain\Pallets\Data\ScanOutcome;
 use App\Domain\Pallets\Enums\ScanEventStatus;
 use App\Domain\Pallets\Enums\ScanRejection;
 use App\Domain\Pallets\Exceptions\PalletRuleViolation;
+use App\Domain\Pallets\Exceptions\ReaderNoRead;
 use App\Domain\Pallets\PalletQr;
 use App\Domain\Pallets\ScanMasterResolver;
 use App\Domain\Shared\TraceContext;
@@ -93,6 +94,10 @@ class RegisterManualBoxScan
             throw new \InvalidArgumentException("El dispositivo {$device->code} no puede registrar lecturas de cajas.");
         }
 
+        if (ReaderNoRead::matches($scanned)) {
+            throw ReaderNoRead::make($scanned);
+        }
+
         $box = self::boxNamedBy($scanned) ?? throw PalletRuleViolation::notABoxLabel();
 
         return $this->countBox($box, $ctx);
@@ -111,6 +116,11 @@ class RegisterManualBoxScan
 
     private function count(string $scanned, TraceContext $ctx): ManualBoxScan
     {
+        // The reader fired but read nothing: said as such, not as a wrong label.
+        if (ReaderNoRead::matches($scanned)) {
+            throw ReaderNoRead::make($scanned);
+        }
+
         // The QR only names the box; everything else comes from the label printed for it.
         $token = BoxQr::tokenFrom($scanned)
             ?? throw (PalletQr::tokenFrom($scanned) !== null ? PalletRuleViolation::palletQrInBoxField() : PalletRuleViolation::notABoxLabel());

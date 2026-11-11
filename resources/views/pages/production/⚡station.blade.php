@@ -11,6 +11,7 @@ use App\Domain\Pallets\Enums\PhysicalStatus;
 use App\Domain\Pallets\Enums\ScanEventStatus;
 use App\Domain\Pallets\Enums\ScanRejection;
 use App\Domain\Pallets\Exceptions\PalletRuleViolation;
+use App\Domain\Pallets\Exceptions\ReaderNoRead;
 use App\Domain\Pallets\PalletLabelZpl;
 use App\Domain\BoxLabels\LabelFormatConfig;
 use App\Domain\Shared\Origin;
@@ -137,6 +138,10 @@ new #[Title('Producción')] class extends Component {
     #[Locked]
     public ?string $boxError = null;
 
+    /** The last manual read was the reader's "no read" (it fired but read nothing). */
+    #[Locked]
+    public bool $boxNoRead = false;
+
 
     public bool $showDatalogicDebug = true;
 
@@ -212,7 +217,7 @@ new #[Title('Producción')] class extends Component {
      * read, counted or not, the boxes not counted in the last hour and each
      * reader's connection. Null when there is no fixed reader.
      *
-     * @return array{last: ?array{ok: bool, at: \Carbon\CarbonInterface, reader: string, box: ?string, pallet: ?string, boxes: ?int, standard: ?int, order: ?string, lot: ?string, reason: ?string, read: ?string}, recent: list<array{ok: bool, at: \Carbon\CarbonInterface, reader: string, text: string}>, not_counted: int, counted: int, errors: list<array{at: \Carbon\CarbonInterface, reader: string, reason: string, read: ?string}>, readers: list<array{code: string, name: string, connected: ?bool}>}|null
+     * @return array{last: ?array{ok: bool, at: \Carbon\CarbonInterface, reader: string, box: ?string, pallet: ?string, boxes: ?int, standard: ?int, order: ?string, lot: ?string, reason: ?string, read: ?string, no_read: bool}, recent: list<array{ok: bool, at: \Carbon\CarbonInterface, reader: string, text: string}>, not_counted: int, counted: int, errors: list<array{at: \Carbon\CarbonInterface, reader: string, reason: string, read: ?string}>, readers: list<array{code: string, name: string, connected: ?bool}>}|null
      */
     #[Computed]
     public function lineReads(): ?array
@@ -239,13 +244,14 @@ new #[Title('Producción')] class extends Component {
                 'ok' => true, 'at' => $counted->received_at, 'reader' => (string) ($codes[$counted->read_by_device_id] ?? ''),
                 'box' => $counted->boxCodeForDisplay(), 'pallet' => $counted->pallet?->pallet_code,
                 'boxes' => $counted->pallet?->boxes_count, 'standard' => $counted->pallet?->standard_boxes_snapshot,
-                'order' => $counted->production_order_ref, 'lot' => $counted->lot_code, 'reason' => null, 'read' => null,
+                'order' => $counted->production_order_ref, 'lot' => $counted->lot_code, 'reason' => null, 'read' => null, 'no_read' => false,
             ];
         } elseif ($error !== null) {
             $last = [
                 'ok' => false, 'at' => $error->occurred_at, 'reader' => (string) ($codes[$error->subject_id] ?? ''),
                 'box' => null, 'pallet' => null, 'boxes' => null, 'standard' => null, 'order' => null, 'lot' => null,
                 'reason' => (string) $error->reason, 'read' => isset($error->context['read']) ? (string) $error->context['read'] : null,
+                'no_read' => (bool) ($error->context['no_read'] ?? false),
             ];
         }
 
@@ -289,12 +295,14 @@ new #[Title('Producción')] class extends Component {
     public function scanBox(string $scanned, ?string $scanId = null): void
     {
         $this->boxError = null;
+        $this->boxNoRead = false;
 
         try {
             // The box code inside the QR is the read's id; the page's own id is not needed here.
             $scan = app(RegisterManualBoxScan::class)->handle(Auth::user(), $scanned, $this->context());
         } catch (PalletRuleViolation $e) {
             $this->boxError = $e->getMessage();
+            $this->boxNoRead = $e instanceof ReaderNoRead;
             $this->lastBox = null;
 
             return;
@@ -614,7 +622,7 @@ new #[Title('Producción')] class extends Component {
                     <div role="alert" data-read-result="error" class="flex h-full items-center gap-4 rounded-xl border-4 border-red-600 bg-red-600 p-5 text-white shadow-lg">
                         <flux:icon.x-circle class="size-16 shrink-0" />
                         <div class="flex flex-col gap-1">
-                            <div class="text-2xl font-bold uppercase tracking-wide">Caja no contada</div>
+                            <div class="text-2xl font-bold uppercase tracking-wide">{{ $boxNoRead ? 'El lector no logró leer' : 'Caja no contada' }}</div>
                             <div class="text-base">{{ $boxError }}</div>
                         </div>
                     </div>
@@ -688,7 +696,7 @@ new #[Title('Producción')] class extends Component {
                 <div role="alert" data-line-result="error" wire:key="line-error-{{ $last['at']->getTimestamp() }}" @class(['flex items-center gap-5 rounded-xl border-4 border-red-700 bg-red-600 p-5 text-white shadow-lg', 'animate-pulse' => $fresh])>
                     <flux:icon.x-circle class="size-16 shrink-0" />
                     <div class="flex min-w-0 flex-col gap-1">
-                        <div class="text-2xl font-bold uppercase tracking-wide">Caja no contada</div>
+                        <div class="text-2xl font-bold uppercase tracking-wide" @if ($last['no_read']) data-line-no-read @endif>{{ $last['no_read'] ? 'El lector no logró leer' : 'Caja no contada' }}</div>
                         <div class="text-base">{{ $last['reason'] }}</div>
                         <div class="text-sm opacity-90">{{ $last['reader'] }} · {{ $last['at']->timezone(config('app.timezone'))->format('H:i:s') }}@if ($last['read']) · Leyó: <span class="font-mono">{{ $last['read'] }}</span>@endif</div>
                         <div class="text-sm font-semibold">Lee esa caja a mano.</div>
