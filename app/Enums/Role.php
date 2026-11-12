@@ -16,6 +16,7 @@ enum Role: string
     case ProductionOperator = 'production_operator';
     case ProductionSkater = 'production_skater';
     case LogisticsOperator = 'logistics_operator';
+    case LogisticsCoordinator = 'logistics_coordinator';
     case Viewer = 'viewer';
 
     public function label(): string
@@ -28,6 +29,7 @@ enum Role: string
             self::ProductionOperator => 'Operario de producción',
             self::ProductionSkater => 'Patinador de producción',
             self::LogisticsOperator => 'Operario logístico',
+            self::LogisticsCoordinator => 'Coordinador logístico',
             self::Viewer => 'Consulta',
         };
     }
@@ -100,6 +102,13 @@ enum Role: string
             // No pallets.view: the board shows box counts, which would break the blind count.
             self::LogisticsOperator => [
                 Permission::AuditsCount,
+            ],
+            // Counts like the logistics operator and, unlike them, follows the OF board and the pallets
+            // (which show box counts: a trusted role, and the count records who did it).
+            self::LogisticsCoordinator => [
+                Permission::AuditsCount,
+                Permission::OrdersView,
+                Permission::PalletsView,
             ],
             self::Viewer => [
                 Permission::PalletsView,
