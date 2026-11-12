@@ -997,11 +997,13 @@ new #[Title('Etiquetas de caja')] class extends Component {
                         @endif
                     </div>
                     <div class="flex items-center gap-2">
+                        {{-- Oculto temporalmente: existe flujo oficial, pero se conserva por si se requiere reactivar edición manual en previsualización
                         @if ($sampleZpl !== null && $canEditCurrentLabel)
                             <flux:button size="xs" :variant="$editingLabel ? 'primary' : 'filled'" icon="pencil-square" wire:click="toggleLabelEditor">
                                 {{ $editingLabel ? 'Ocultar editor' : 'Modificar etiqueta' }}
                             </flux:button>
                         @endif
+                        --}}
                         @if ($sampleZpl !== null)
                             <span class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                                 <span class="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>
@@ -1236,7 +1238,9 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                             @elseif ($printerLock)
                                                 <flux:button size="sm" variant="ghost" disabled icon="lock-closed" title="Impresora ocupada por {{ $printerLock['user_name'] }}">En uso</flux:button>
                                             @else
+                                                {{-- Oculto temporalmente junto con "Modificar etiqueta"
                                                 <flux:button size="sm" variant="ghost" icon="pencil-square" wire:click="selectBatchForPreview({{ $b->id }})" title="Previsualizar y modificar texto antes de imprimir">Editar</flux:button>
+                                                --}}
                                                 <flux:button size="sm" variant="ghost" icon="printer" wire:click="printBatchDirect({{ $b->id }})" title="Imprimir directo en Zebra">Imprimir</flux:button>
                                             @endif
                                         </div>
