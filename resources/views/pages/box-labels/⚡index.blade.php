@@ -429,6 +429,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
             lotCode: (string) $this->lot(),
             barcode: (string) Itf14::forBox($this->order->item->barcode, Itf14::indicator()),
             expirationDate: $expiration,
+            unitsLabel: BoxLabelPayload::salesUnits($this->order->item->sales_qty_per_pack_unit, $this->order->item->sales_unit, $this->order->item->sales_packaging_unit, (new Quantity((string) $this->factor->units_per_box))->display()),
         );
     }
 
@@ -468,7 +469,16 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
     private function defaultUnitsLine(string $unitsPerBox): string
     {
-        return 'CAJA : '.$unitsPerBox.' UNIDADES';
+        $salesUnits = $this->order?->item === null
+            ? null
+            : BoxLabelPayload::salesUnits(
+                $this->order->item->sales_qty_per_pack_unit,
+                $this->order->item->sales_unit,
+                $this->order->item->sales_packaging_unit,
+                $unitsPerBox,
+            );
+
+        return $salesUnits ?? 'CAJA : '.$unitsPerBox.' UNIDADES';
     }
 
     private function syncEditorFieldsFromCurrentState(): void
@@ -488,7 +498,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
         if ($preview !== null) {
             $this->customItemCode = $preview->itemCode;
             $this->customItemDescription = $preview->itemDescription;
-            $this->customUnitsText = $this->defaultUnitsLine($preview->unitsPerBox);
+            $this->customUnitsText = $preview->unitsText();
             $this->customExtraText = '';
         }
     }
@@ -513,11 +523,12 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
     private function applyEditorOverridesToPayload(BoxLabelPayload $payload): BoxLabelPayload
     {
-        $defaultUnitsLine = $this->defaultUnitsLine($payload->unitsPerBox);
+        $defaultUnitsLine = $payload->unitsText();
         $itemCode = trim($this->customItemCode) !== '' ? trim($this->customItemCode) : $payload->itemCode;
         $itemDescription = trim($this->customItemDescription) !== '' ? trim($this->customItemDescription) : $payload->itemDescription;
         $unitsTrim = trim($this->customUnitsText);
         $extraTrim = trim($this->customExtraText);
+        $unitsLabel = ($unitsTrim !== '' && $unitsTrim !== $defaultUnitsLine) ? $unitsTrim : $payload->unitsLabel;
 
         return new BoxLabelPayload(
             orderRef: $payload->orderRef,
@@ -529,8 +540,8 @@ new #[Title('Etiquetas de caja')] class extends Component {
             barcode: $payload->barcode,
             expirationDate: $payload->expirationDate,
             boxCode: $payload->boxCode,
+            unitsLabel: $unitsLabel,
             extraText: $extraTrim !== '' ? $extraTrim : null,
-            unitsText: ($unitsTrim !== '' && $unitsTrim !== $defaultUnitsLine) ? $unitsTrim : null,
         );
     }
 
@@ -563,6 +574,10 @@ new #[Title('Etiquetas de caja')] class extends Component {
             return;
         }
 
+        $effectiveUnitsLabel = ($unitsTrim !== '' && $unitsTrim !== $defaultUnitsLine)
+            ? $unitsTrim
+            : ($defaultUnitsLine !== 'CAJA : '.$unitsDisplay.' UNIDADES' ? $defaultUnitsLine : null);
+
         $payload = new BoxLabelPayload(
             orderRef: $batch->production_order_ref,
             itemCode: $itemCode,
@@ -572,8 +587,8 @@ new #[Title('Etiquetas de caja')] class extends Component {
             lotCode: $batch->lot_code,
             barcode: $batch->barcode,
             expirationDate: $batch->expiration_date,
+            unitsLabel: $effectiveUnitsLabel,
             extraText: $extraTrim !== '' ? $extraTrim : null,
-            unitsText: ($unitsTrim !== '' && $unitsTrim !== $defaultUnitsLine) ? $unitsTrim : null,
         );
 
         $zpl = BoxLabelZpl::renderBoxes($payload, $batch->production_date, $boxes);
@@ -783,7 +798,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
     $displayItemCode = $preview?->itemCode ?? ($this->batch?->item_code ?? '');
     $displayDesc = $preview?->itemDescription ?? ($this->batch?->item_description ?? '');
     $displayUnitsLine = $preview !== null
-        ? $this->defaultUnitsLine($preview->unitsPerBox)
+        ? $preview->unitsText()
         : ($this->batch !== null ? $this->defaultUnitsLine((new Quantity((string) $this->batch->units_per_box))->display()) : '');
     $displayExtraText = '';
 
@@ -793,6 +808,10 @@ new #[Title('Etiquetas de caja')] class extends Component {
         if ($this->editingLabel && $canEditCurrentLabel) {
             $batchUnitsDisplay = (new Quantity((string) $this->batch->units_per_box))->display();
             $defaultUnitsLine = $this->defaultUnitsLine($batchUnitsDisplay);
+            $unitsTrim = trim($this->customUnitsText);
+            $effectiveUnitsLabel = ($unitsTrim !== '' && $unitsTrim !== $defaultUnitsLine)
+                ? $unitsTrim
+                : ($defaultUnitsLine !== 'CAJA : '.$batchUnitsDisplay.' UNIDADES' ? $defaultUnitsLine : null);
             $livePayload = new BoxLabelPayload(
                 orderRef: $this->batch->production_order_ref,
                 itemCode: trim($this->customItemCode) !== '' ? trim($this->customItemCode) : $this->batch->item_code,
@@ -803,18 +822,18 @@ new #[Title('Etiquetas de caja')] class extends Component {
                 barcode: $this->batch->barcode,
                 expirationDate: $this->batch->expiration_date,
                 boxCode: $boxes->first()?->code ?? BoxLot::boxCode($this->batch->lot_code, $this->batch->first_sequence),
+                unitsLabel: $effectiveUnitsLabel,
                 extraText: trim($this->customExtraText) !== '' ? trim($this->customExtraText) : null,
-                unitsText: (trim($this->customUnitsText) !== '' && trim($this->customUnitsText) !== $defaultUnitsLine) ? trim($this->customUnitsText) : null,
             );
             $sampleZpl = BoxLabelZpl::render($livePayload, $this->batch->production_date, $shownQr);
             $displayItemCode = $livePayload->itemCode;
             $displayDesc = $livePayload->itemDescription;
-            $displayUnitsLine = $livePayload->unitsText ?? $defaultUnitsLine;
+            $displayUnitsLine = $livePayload->unitsText();
             $displayExtraText = $livePayload->extraText ?? '';
             $hasCustomOverride = $livePayload->itemCode !== $this->batch->item_code
                 || $livePayload->itemDescription !== $this->batch->item_description
                 || $livePayload->extraText !== null
-                || $livePayload->unitsText !== null;
+                || ($unitsTrim !== '' && $unitsTrim !== $defaultUnitsLine);
         } else {
             $resolvedBatchZpl = BoxLabelZplOverride::resolveZpl($this->batch);
             if ($resolvedBatchZpl !== '') {
@@ -834,12 +853,12 @@ new #[Title('Etiquetas de caja')] class extends Component {
         $sampleZpl = BoxLabelZpl::render($effectivePreview->withBox((string) ($nextBox ?? '0001')), today(), $shownQr);
         $displayItemCode = $effectivePreview->itemCode;
         $displayDesc = $effectivePreview->itemDescription;
-        $displayUnitsLine = $effectivePreview->unitsText ?? $this->defaultUnitsLine($effectivePreview->unitsPerBox);
+        $displayUnitsLine = $effectivePreview->unitsText();
         $displayExtraText = $effectivePreview->extraText ?? '';
         $hasCustomOverride = $effectivePreview->itemCode !== $preview->itemCode
             || $effectivePreview->itemDescription !== $preview->itemDescription
             || $effectivePreview->extraText !== null
-            || $effectivePreview->unitsText !== null;
+            || $effectivePreview->unitsText() !== $preview->unitsText();
     }
 @endphp
 
@@ -1089,7 +1108,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                     <div class="space-y-1 text-sm font-black tracking-tight">
                                         <div>LOTE: <span class="font-mono">{{ $data['lot'] ?? ($preview?->lotCode ?? ($this->batch?->lot_code ?? '')) }}</span></div>
                                         <div>VENCE: <span class="font-mono">{{ $this->batch?->expiration_date->format('m/Y') ?? ($preview?->expirationDate->format('m/Y') ?? '') }}</span></div>
-                                        <div>{{ $displayUnitsLine }}</div>
+                                        <div data-label-units>{{ $displayUnitsLine }}</div>
                                         @if ($displayExtraText !== '')
                                             <div class="text-xs font-bold leading-tight pt-0.5">{{ $displayExtraText }}</div>
                                         @endif

@@ -204,13 +204,13 @@ class ServiceLayerReceiptFlowTest extends TestCase
             self::URL.'/ProductionOrders?*' => Http::response(['value' => [[
                 'AbsoluteEntry' => 41659, 'DocumentNumber' => 33128, 'ProductionOrderStatus' => 'boposReleased', 'ItemNo' => 'PT1350023', 'PlannedQuantity' => 800, 'Warehouse' => '04',
             ]]]),
-            self::URL."/Items('PT1350023')*" => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'InventoryUOM' => 'UNIDAD', 'SalesQtyPerPackUnit' => 24.0, 'SalesPackagingUnit' => 'CAJA']),
+            self::URL."/Items('PT1350023')*" => Http::response(['ItemCode' => 'PT1350023', 'ItemName' => 'GELATINA OLIMPICA SIN SABOR 30 GR', 'InventoryUOM' => 'UNIDAD', 'SalesQtyPerPackUnit' => 24.0, 'SalesPackagingUnit' => 'CAJA', 'SalesUnit' => 'UND']),
         ]);
 
         $this->assertSame(0, Artisan::call('sap:sync-orders'), Artisan::output());
 
         $item = Item::query()->where('code', 'PT1350023')->sole();
-        $this->assertSame(['24.000000', 'CAJA'], [$item->sales_qty_per_pack_unit, $item->sales_packaging_unit]);
+        $this->assertSame(['24.000000', 'CAJA', 'UND'], [$item->sales_qty_per_pack_unit, $item->sales_packaging_unit, $item->sales_unit]);
         $this->assertSame(41659, ProductionOrder::query()->where('ref', '33128')->value('sap_doc_entry'));
     }
 

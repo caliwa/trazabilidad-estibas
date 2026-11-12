@@ -16,6 +16,7 @@ use App\Models\ProductionOrder;
 use App\Models\User;
 use App\Services\TraceLogger;
 use App\Support\Quantities;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Local copy of a production order and its product as SAP reports them.
@@ -39,7 +40,7 @@ final class ProductionOrderCache
     {
         $item = Item::query()->where('code', $sapOrder->itemCode)->lockForUpdate()->first() ?? new Item;
         // Shelf life is a local setting; SAP data never overwrites it.
-        $item->forceFill([
+        $attributes = [
             'code' => $sapOrder->itemCode,
             'description' => mb_substr($sapOrder->itemDescription, 0, 200),
             'inventory_uom' => $sapOrder->itemInventoryUom ?? $item->inventory_uom,
@@ -49,7 +50,13 @@ final class ProductionOrderCache
             'boxes_per_pallet' => $sapOrder->itemBoxesPerPallet,
             'active' => true,
             'synced_at' => now(),
-        ])->save();
+        ];
+
+        if (Schema::hasColumn('items', 'sales_unit')) {
+            $attributes['sales_unit'] = $sapOrder->itemSalesUnit === null ? null : mb_substr($sapOrder->itemSalesUnit, 0, 30);
+        }
+
+        $item->forceFill($attributes)->save();
 
         $this->syncUnitsPerBox($item, $sapOrder, $ctx);
         $this->syncPalletStandard($item, $sapOrder->itemBoxesPerPallet, $ctx);

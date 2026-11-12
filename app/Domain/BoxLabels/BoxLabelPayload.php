@@ -2,6 +2,7 @@
 
 namespace App\Domain\BoxLabels;
 
+use App\Integrations\Sap\Dto\Quantity;
 use Carbon\CarbonImmutable;
 
 /**
@@ -31,9 +32,41 @@ final class BoxLabelPayload
         public readonly string $barcode,
         public readonly CarbonImmutable $expirationDate,
         public readonly ?string $boxCode = null,
+        // Units printed on the label: "24 UND (CAJA)" from the item's sales data (salesUnits()) or preview override.
+        public readonly ?string $unitsLabel = null,
         public readonly ?string $extraText = null,
-        public readonly ?string $unitsText = null,
     ) {}
+
+    /**
+     * {{ sales_qty_per_pack_unit }} {{ sales_unit }} ({{ sales_packaging_unit }}) of the item, for
+     * example "24 UND (CAJA)". Without the quantity from SAP it uses the box's units per box; parts
+     * SAP does not have are left out. Null when SAP has neither the unit nor the packaging.
+     */
+    public static function salesUnits(?string $qtyPerPackUnit, ?string $salesUnit, ?string $packagingUnit, ?string $fallbackQty = null): ?string
+    {
+        $unit = trim((string) $salesUnit);
+        $pack = trim((string) $packagingUnit);
+
+        // Without the unit and the packaging a bare number says nothing: the label keeps its old line.
+        if ($unit === '' && $pack === '') {
+            return null;
+        }
+
+        $qty = $qtyPerPackUnit !== null && is_numeric($qtyPerPackUnit) && (float) $qtyPerPackUnit > 0 ? (new Quantity($qtyPerPackUnit))->display() : $fallbackQty;
+        $text = trim(($qty ?? '').' '.$unit);
+
+        if ($pack !== '') {
+            $text = trim($text.' ('.$pack.')');
+        }
+
+        return $text === '' ? null : $text;
+    }
+
+    /** The units line of the label: the sales units, or the units per box as before when there are none. */
+    public function unitsText(): string
+    {
+        return $this->unitsLabel ?? 'CAJA : '.$this->unitsPerBox.' UNIDADES';
+    }
 
     /**
      * The same label with this box's code.
@@ -50,8 +83,8 @@ final class BoxLabelPayload
             $this->barcode,
             $this->expirationDate,
             $boxCode,
+            $this->unitsLabel,
             $this->extraText,
-            $this->unitsText,
         );
     }
 

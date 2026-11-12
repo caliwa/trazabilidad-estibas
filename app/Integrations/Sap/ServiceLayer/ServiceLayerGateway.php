@@ -56,7 +56,7 @@ class ServiceLayerGateway implements SapGateway
     /** User field on Items with the real boxes per pallet of each product. */
     public const ITEM_BOXES_PER_PALLET = 'U_TEC_CajMstXPall';
 
-    private const ITEM_FIELDS = 'ItemCode,ItemName,BarCode,InventoryUOM,SalesQtyPerPackUnit,SalesPackagingUnit,'.self::ITEM_BOXES_PER_PALLET;
+    private const ITEM_FIELDS = 'ItemCode,ItemName,BarCode,InventoryUOM,SalesQtyPerPackUnit,SalesPackagingUnit,SalesUnit,'.self::ITEM_BOXES_PER_PALLET;
 
     /**
      * @param  array{correlation_field: string, costing_code: ?string, costing_code2: ?string, costing_code3: ?string}  $receipt
@@ -554,6 +554,7 @@ class ServiceLayerGateway implements SapGateway
             itemSalesQtyPerPackUnit: isset($item['SalesQtyPerPackUnit']) && is_numeric($item['SalesQtyPerPackUnit']) ? $this->decimal((float) $item['SalesQtyPerPackUnit']) : null,
             itemSalesPackagingUnit: isset($item['SalesPackagingUnit']) && is_string($item['SalesPackagingUnit']) && $item['SalesPackagingUnit'] !== '' ? $item['SalesPackagingUnit'] : null,
             itemBoxesPerPallet: $this->wholeBoxes($item[self::ITEM_BOXES_PER_PALLET] ?? null),
+            itemSalesUnit: isset($item['SalesUnit']) && is_string($item['SalesUnit']) && trim($item['SalesUnit']) !== '' ? trim($item['SalesUnit']) : null,
         );
     }
 

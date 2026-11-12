@@ -37,5 +37,7 @@ final readonly class SapProductionOrder
         public ?string $itemSalesPackagingUnit = null,
         // Real boxes per pallet of the product (Items.U_TEC_CajMstXPall); null when SAP has none.
         public ?int $itemBoxesPerPallet = null,
+        // Sales unit of measure of the product (Items.SalesUnit).
+        public ?string $itemSalesUnit = null,
     ) {}
 }

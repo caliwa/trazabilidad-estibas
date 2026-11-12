@@ -160,6 +160,7 @@ class GenerateBoxLabels
                 lotCode: $lotCode,
                 barcode: $boxCode,
                 expirationDate: $expirationDate,
+                unitsLabel: BoxLabelPayload::salesUnits($item->sales_qty_per_pack_unit, $item->sales_unit, $item->sales_packaging_unit, (new Quantity((string) $factor->units_per_box))->display()),
             );
 
             // Control de corrida y consecutivo de cajas (trazabilidad de faltantes y reinicio)
@@ -218,10 +219,11 @@ class GenerateBoxLabels
             }
 
             $unitsDisplay = (new Quantity((string) $factor->units_per_box))->display();
-            $defaultUnitsLine = 'CAJA : '.$unitsDisplay.' UNIDADES';
+            $defaultUnitsLine = $payload->unitsText();
             $effectiveItemCode = ($customItemCode !== null && $customItemCode !== '') ? $customItemCode : $item->code;
             $effectiveItemDescription = ($customItemDescription !== null && $customItemDescription !== '') ? $customItemDescription : $item->description;
-            $effectiveUnitsText = ($customUnitsText !== null && $customUnitsText !== '' && $customUnitsText !== $defaultUnitsLine) ? $customUnitsText : null;
+            $hasCustomUnits = $customUnitsText !== null && $customUnitsText !== '' && $customUnitsText !== $defaultUnitsLine;
+            $effectiveUnitsLabel = $hasCustomUnits ? $customUnitsText : $payload->unitsLabel;
             $effectiveExtraText = ($extraText !== null && $extraText !== '') ? $extraText : null;
 
             $zplPayload = new BoxLabelPayload(
@@ -233,8 +235,8 @@ class GenerateBoxLabels
                 lotCode: $lotCode,
                 barcode: $boxCode,
                 expirationDate: $expirationDate,
+                unitsLabel: $effectiveUnitsLabel,
                 extraText: $effectiveExtraText,
-                unitsText: $effectiveUnitsText,
             );
             $renderedZpl = BoxLabelZpl::renderBoxes($zplPayload, $productionDate, $boxes);
 
@@ -265,12 +267,12 @@ class GenerateBoxLabels
                 'generated_at' => now(),
             ])->save();
 
-            if ($effectiveItemCode !== $item->code || $effectiveItemDescription !== $item->description || $effectiveExtraText !== null || $effectiveUnitsText !== null) {
+            if ($effectiveItemCode !== $item->code || $effectiveItemDescription !== $item->description || $effectiveExtraText !== null || $hasCustomUnits) {
                 BoxLabelZplOverride::save(
                     $batch->id,
                     $effectiveItemCode,
                     $effectiveItemDescription,
-                    $effectiveUnitsText ?? $defaultUnitsLine,
+                    $hasCustomUnits ? (string) $effectiveUnitsLabel : $defaultUnitsLine,
                     $effectiveExtraText ?? '',
                     $renderedZpl,
                 );

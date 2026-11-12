@@ -33,8 +33,8 @@ class BoxLabelZplOverrideTest extends TestCase
             barcode: '17700304357304',
             expirationDate: CarbonImmutable::parse('2028-11-11'),
             boxCode: '35176315-0001',
+            unitsLabel: 'CAJA : 24 DISPLAYS',
             extraText: 'EXPORTACION ^ SIN ~ DISPLAY',
-            unitsText: 'CAJA : 24 DISPLAYS',
         );
 
         $zpl = BoxLabelZpl::render($payload, CarbonImmutable::parse('2026-11-11'), BoxQr::payload(str_repeat('a', 32)));

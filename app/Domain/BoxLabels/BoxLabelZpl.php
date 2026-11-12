@@ -89,8 +89,7 @@ final class BoxLabelZpl
             $ptFontW = min($ptFontW, 42);
         }
 
-        $unitsLine = trim((string) ($payload->unitsText ?? ''));
-        $cajaLine = $unitsLine !== '' ? $f($unitsLine) : 'CAJA : '.$f($payload->unitsPerBox).' UNIDADES';
+        $cajaLine = $f($payload->unitsText());
 
         $lines = [
             '^XA',

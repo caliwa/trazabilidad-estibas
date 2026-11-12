@@ -40,6 +40,7 @@ TRZB:6f1c2b9e0d4a47c58e3b2a1f9c7d6e5b
 
 - Cada etiqueta tiene su propio código opaco (32 caracteres al azar), guardado en `box_labels.qr_token`. Al leerlo, la aplicación busca la caja y de ahí saca la OF, el PT, el lote y el vencimiento.
 - Etiqueta de 100 × 80 mm: PT y descripción arriba, lote, vence (MM/AAAA) y unidades por caja a la izquierda, el QR grande a la derecha con el código de caja legible debajo (por ejemplo `Caja 33128294-0007`), el ITF-14 con `(01)` y los dígitos abajo a la izquierda y el logo abajo a la derecha. Ese texto no va dentro del QR.
+- **Unidades de la caja:** la etiqueta (vista previa y ZPL) muestra `{{ sales_qty_per_pack_unit }} {{ sales_unit }} ({{ sales_packaging_unit }})` del maestro de productos, que vienen de SAP (`Items.SalesQtyPerPackUnit`, `Items.SalesUnit` y `Items.SalesPackagingUnit`). Por ejemplo `24 UND (CAJA)`. Si SAP no trae alguno de esos datos, se omite; si no trae ni la unidad ni el empaque, sale la línea de antes (`CAJA : 24 UNIDADES`). Los productos toman `SalesUnit` la próxima vez que se actualiza su OF desde SAP.
 - El código de caja legible es lote + consecutivo de 4 dígitos, que sigue entre tandas del mismo lote. Con él una caja se cuenta una sola vez (ver `docs/lectura-manual.md`).
 - Un QR corto se imprime con módulos más grandes y se lee más fácil.
 - El EAN-14 va en su propio código de barras.
