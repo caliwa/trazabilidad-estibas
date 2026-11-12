@@ -31,6 +31,8 @@ final class BoxLabelPayload
         public readonly string $barcode,
         public readonly CarbonImmutable $expirationDate,
         public readonly ?string $boxCode = null,
+        public readonly ?string $extraText = null,
+        public readonly ?string $unitsText = null,
     ) {}
 
     /**
@@ -38,7 +40,19 @@ final class BoxLabelPayload
      */
     public function withBox(string $boxCode): self
     {
-        return new self($this->orderRef, $this->itemCode, $this->itemDescription, $this->unitsPerBox, $this->uomName, $this->lotCode, $this->barcode, $this->expirationDate, $boxCode);
+        return new self(
+            $this->orderRef,
+            $this->itemCode,
+            $this->itemDescription,
+            $this->unitsPerBox,
+            $this->uomName,
+            $this->lotCode,
+            $this->barcode,
+            $this->expirationDate,
+            $boxCode,
+            $this->extraText,
+            $this->unitsText,
+        );
     }
 
     public function content(): string

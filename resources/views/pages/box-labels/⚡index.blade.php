@@ -7,6 +7,7 @@ use App\Domain\BoxLabels\Actions\PrintBoxLabels;
 use App\Domain\BoxLabels\BoxLabelPayload;
 use App\Domain\BoxLabels\BoxLabelQr;
 use App\Domain\BoxLabels\BoxLabelZpl;
+use App\Domain\BoxLabels\BoxLabelZplOverride;
 use App\Domain\BoxLabels\BoxLot;
 use App\Domain\BoxLabels\BoxQr;
 use App\Domain\BoxLabels\Itf14;
@@ -80,6 +81,16 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
     public ?array $printerStatus = null;
 
+    public bool $editingLabel = false;
+
+    public string $customItemCode = '';
+
+    public string $customItemDescription = '';
+
+    public string $customUnitsText = '';
+
+    public string $customExtraText = '';
+
     public function mount(): void
     {
         $this->productionDate = today()->toDateString();
@@ -127,13 +138,23 @@ new #[Title('Etiquetas de caja')] class extends Component {
             ? BoxLabelBatch::query()->find($batchId)
             : $this->batch;
 
-        if ($targetBatch === null || empty($targetBatch->zpl)) {
+        if ($targetBatch === null) {
             Flux::toast(variant: 'danger', text: 'No hay etiquetas ZPL disponibles para imprimir.');
             return;
         }
 
         if (BoxLabelPrint::query()->where('box_label_batch_id', $targetBatch->id)->exists()) {
             Flux::toast(variant: 'warning', text: 'Estas etiquetas ya se imprimieron y no se vuelven a imprimir.');
+            return;
+        }
+
+        if ($this->batch !== null && $targetBatch->id === $this->batch->id && $this->editingLabel && $this->batchCanEdit($targetBatch)) {
+            $this->persistLabelCustomization($targetBatch);
+            $this->editingLabel = false;
+        }
+
+        if (empty(BoxLabelZplOverride::resolveZpl($targetBatch))) {
+            Flux::toast(variant: 'danger', text: 'No hay etiquetas ZPL disponibles para imprimir.');
             return;
         }
 
@@ -414,7 +435,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
     public function consult(ConsultProductionOrder $consult): void
     {
         $this->validate(['docNum' => ['required', 'string', 'max:20']], attributes: ['docNum' => 'número de OF']);
-        $this->reset('orderId', 'batchId', 'labels', 'lotCode');
+        $this->reset('orderId', 'batchId', 'labels', 'lotCode', 'editingLabel', 'customItemCode', 'customItemDescription', 'customUnitsText', 'customExtraText');
         unset($this->order, $this->factor, $this->batch);
 
         try {
@@ -427,6 +448,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
         $this->orderId = $order->id;
         $this->suggestExpiration();
+        $this->syncEditorFieldsFromCurrentState();
     }
 
     public function updatedProductionDate(): void
@@ -442,6 +464,201 @@ new #[Title('Etiquetas de caja')] class extends Component {
         if ($production !== null && $days !== null) {
             $this->expirationDate = $production->addDays($days)->toDateString();
         }
+    }
+
+    private function defaultUnitsLine(string $unitsPerBox): string
+    {
+        return 'CAJA : '.$unitsPerBox.' UNIDADES';
+    }
+
+    private function syncEditorFieldsFromCurrentState(): void
+    {
+        if ($this->batch !== null) {
+            $override = BoxLabelZplOverride::get($this->batch->id);
+            $unitsDisplay = (new Quantity((string) $this->batch->units_per_box))->display();
+            $this->customItemCode = ($override['item_code'] ?? '') !== '' ? $override['item_code'] : $this->batch->item_code;
+            $this->customItemDescription = ($override['item_description'] ?? '') !== '' ? $override['item_description'] : $this->batch->item_description;
+            $this->customUnitsText = ($override['units_text'] ?? '') !== '' ? $override['units_text'] : $this->defaultUnitsLine($unitsDisplay);
+            $this->customExtraText = $override['extra_text'] ?? '';
+
+            return;
+        }
+
+        $preview = $this->preview();
+        if ($preview !== null) {
+            $this->customItemCode = $preview->itemCode;
+            $this->customItemDescription = $preview->itemDescription;
+            $this->customUnitsText = $this->defaultUnitsLine($preview->unitsPerBox);
+            $this->customExtraText = '';
+        }
+    }
+
+    private function batchCanEdit(?BoxLabelBatch $batch): bool
+    {
+        if ($batch === null) {
+            return false;
+        }
+
+        if (BoxLabelPrint::query()->where('box_label_batch_id', $batch->id)->exists()) {
+            return false;
+        }
+
+        $job = $batch->latestPrintJob;
+        if ($job && in_array($job->status, ['printing', 'completed'], true)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function applyEditorOverridesToPayload(BoxLabelPayload $payload): BoxLabelPayload
+    {
+        $defaultUnitsLine = $this->defaultUnitsLine($payload->unitsPerBox);
+        $itemCode = trim($this->customItemCode) !== '' ? trim($this->customItemCode) : $payload->itemCode;
+        $itemDescription = trim($this->customItemDescription) !== '' ? trim($this->customItemDescription) : $payload->itemDescription;
+        $unitsTrim = trim($this->customUnitsText);
+        $extraTrim = trim($this->customExtraText);
+
+        return new BoxLabelPayload(
+            orderRef: $payload->orderRef,
+            itemCode: $itemCode,
+            itemDescription: $itemDescription,
+            unitsPerBox: $payload->unitsPerBox,
+            uomName: $payload->uomName,
+            lotCode: $payload->lotCode,
+            barcode: $payload->barcode,
+            expirationDate: $payload->expirationDate,
+            boxCode: $payload->boxCode,
+            extraText: $extraTrim !== '' ? $extraTrim : null,
+            unitsText: ($unitsTrim !== '' && $unitsTrim !== $defaultUnitsLine) ? $unitsTrim : null,
+        );
+    }
+
+    private function persistLabelCustomization(BoxLabelBatch $batch): void
+    {
+        $unitsDisplay = (new Quantity((string) $batch->units_per_box))->display();
+        $defaultUnitsLine = $this->defaultUnitsLine($unitsDisplay);
+        $itemCode = trim($this->customItemCode) !== '' ? trim($this->customItemCode) : $batch->item_code;
+        $itemDesc = trim($this->customItemDescription) !== '' ? trim($this->customItemDescription) : $batch->item_description;
+        $unitsTrim = trim($this->customUnitsText);
+        $extraTrim = trim($this->customExtraText);
+
+        if ($itemCode === $batch->item_code
+            && $itemDesc === $batch->item_description
+            && ($unitsTrim === '' || $unitsTrim === $defaultUnitsLine)
+            && $extraTrim === '') {
+            BoxLabelZplOverride::clear($batch->id);
+
+            return;
+        }
+
+        $boxes = BoxLabel::query()
+            ->where('box_label_batch_id', $batch->id)
+            ->orderBy('sequence')
+            ->get(['code', 'qr_token'])
+            ->map(fn (BoxLabel $b): array => ['code' => $b->code, 'token' => $b->qr_token])
+            ->all();
+
+        if ($boxes === []) {
+            return;
+        }
+
+        $payload = new BoxLabelPayload(
+            orderRef: $batch->production_order_ref,
+            itemCode: $itemCode,
+            itemDescription: $itemDesc,
+            unitsPerBox: $unitsDisplay,
+            uomName: $batch->uom_name,
+            lotCode: $batch->lot_code,
+            barcode: $batch->barcode,
+            expirationDate: $batch->expiration_date,
+            extraText: $extraTrim !== '' ? $extraTrim : null,
+            unitsText: ($unitsTrim !== '' && $unitsTrim !== $defaultUnitsLine) ? $unitsTrim : null,
+        );
+
+        $zpl = BoxLabelZpl::renderBoxes($payload, $batch->production_date, $boxes);
+
+        BoxLabelZplOverride::save(
+            $batch->id,
+            $itemCode,
+            $itemDesc,
+            $unitsTrim !== '' ? $unitsTrim : $defaultUnitsLine,
+            $extraTrim,
+            $zpl,
+        );
+    }
+
+    public function toggleLabelEditor(): void
+    {
+        if ($this->batch !== null && ! $this->batchCanEdit($this->batch)) {
+            Flux::toast(variant: 'warning', text: 'Esta tanda ya fue impresa o está en impresión y no puede modificarse.');
+
+            return;
+        }
+
+        if (! $this->editingLabel) {
+            if ($this->batch !== null || trim($this->customItemCode) === '' || trim($this->customItemDescription) === '') {
+                $this->syncEditorFieldsFromCurrentState();
+            }
+        }
+
+        $this->editingLabel = ! $this->editingLabel;
+    }
+
+    public function selectBatchForPreview(int $batchId): void
+    {
+        $batch = BoxLabelBatch::query()->where('production_order_id', $this->orderId)->find($batchId);
+        if ($batch === null) {
+            return;
+        }
+
+        $this->batchId = $batch->id;
+        unset($this->batch);
+        $this->editingLabel = false;
+        $this->syncEditorFieldsFromCurrentState();
+    }
+
+    public function applyLabelCustomization(): void
+    {
+        $this->validate([
+            'customItemCode' => ['nullable', 'string', 'max:40'],
+            'customItemDescription' => ['nullable', 'string', 'max:200'],
+            'customUnitsText' => ['nullable', 'string', 'max:60'],
+            'customExtraText' => ['nullable', 'string', 'max:140'],
+        ], attributes: [
+            'customItemCode' => 'código PT en etiqueta',
+            'customItemDescription' => 'título / descripción en etiqueta',
+            'customUnitsText' => 'texto de caja / unidades',
+            'customExtraText' => 'texto adicional',
+        ]);
+
+        if ($this->batch !== null) {
+            if (! $this->batchCanEdit($this->batch)) {
+                Flux::toast(variant: 'danger', text: 'Esta tanda ya se imprimió y no puede modificarse.');
+
+                return;
+            }
+
+            $this->persistLabelCustomization($this->batch);
+            $this->editingLabel = false;
+            Flux::toast(variant: 'success', text: "Etiqueta actualizada en la tanda ({$this->batch->labels} etiquetas). Lista para imprimir.");
+
+            return;
+        }
+
+        $this->editingLabel = false;
+        Flux::toast(variant: 'success', text: 'Ajuste aplicado a la vista previa. Se incluirá al generar las etiquetas.');
+    }
+
+    public function resetLabelCustomization(): void
+    {
+        if ($this->batch !== null && $this->batchCanEdit($this->batch)) {
+            BoxLabelZplOverride::clear($this->batch->id);
+        }
+
+        $this->reset('customItemCode', 'customItemDescription', 'customUnitsText', 'customExtraText');
+        $this->syncEditorFieldsFromCurrentState();
+        Flux::toast(variant: 'info', text: 'Texto original de la etiqueta restaurado.');
     }
 
     public function currentLastSequence(): int
@@ -488,7 +705,20 @@ new #[Title('Etiquetas de caja')] class extends Component {
             'productionDate' => ['required', 'date_format:Y-m-d'],
             'expirationDate' => ['required', 'date_format:Y-m-d'],
             'lotCode' => ['nullable', 'string', 'max:40'],
-        ], attributes: ['labels' => 'cantidad de etiquetas', 'productionDate' => 'fecha de producción', 'expirationDate' => 'fecha de vencimiento', 'lotCode' => 'lote']);
+            'customItemCode' => ['nullable', 'string', 'max:40'],
+            'customItemDescription' => ['nullable', 'string', 'max:200'],
+            'customUnitsText' => ['nullable', 'string', 'max:60'],
+            'customExtraText' => ['nullable', 'string', 'max:140'],
+        ], attributes: [
+            'labels' => 'cantidad de etiquetas',
+            'productionDate' => 'fecha de producción',
+            'expirationDate' => 'fecha de vencimiento',
+            'lotCode' => 'lote',
+            'customItemCode' => 'código PT en etiqueta',
+            'customItemDescription' => 'título / descripción en etiqueta',
+            'customUnitsText' => 'texto de caja / unidades',
+            'customExtraText' => 'texto adicional',
+        ]);
 
         try {
             $batch = app(GenerateBoxLabels::class)->handle(
@@ -500,6 +730,10 @@ new #[Title('Etiquetas de caja')] class extends Component {
                 $this->context(),
                 trim($this->lotCode) === '' ? null : $this->lotCode,
                 restartSequence: $restartSequence,
+                customItemCode: trim($this->customItemCode) === '' ? null : $this->customItemCode,
+                customItemDescription: trim($this->customItemDescription) === '' ? null : $this->customItemDescription,
+                extraText: trim($this->customExtraText) === '' ? null : $this->customExtraText,
+                customUnitsText: trim($this->customUnitsText) === '' ? null : $this->customUnitsText,
             );
         } catch (BoxLabelRuleViolation $e) {
             Flux::toast(variant: 'danger', text: $e->getMessage());
@@ -509,7 +743,9 @@ new #[Title('Etiquetas de caja')] class extends Component {
 
         $this->batchId = $batch->id;
         $this->lotCode = '';
+        $this->editingLabel = false;
         unset($this->order, $this->batch);
+        $this->syncEditorFieldsFromCurrentState();
 
         $rangeInfo = "Cajas #{$batch->first_sequence} a #{$batch->last_sequence}";
         if ($batch->is_reset) {
@@ -541,13 +777,69 @@ new #[Title('Etiquetas de caja')] class extends Component {
     // Before generating there is no token yet: the preview QR shows the format with a sample.
     $shownQr = BoxQr::payload($boxes->first()?->qr_token ?? str_repeat('0', 32));
 
+    $canEditCurrentLabel = $this->batch === null ? ($preview !== null) : $this->batchCanEdit($this->batch);
+    $batchOverride = $this->batch === null ? null : BoxLabelZplOverride::get($this->batch->id);
+    $hasCustomOverride = false;
+    $displayItemCode = $preview?->itemCode ?? ($this->batch?->item_code ?? '');
+    $displayDesc = $preview?->itemDescription ?? ($this->batch?->item_description ?? '');
+    $displayUnitsLine = $preview !== null
+        ? $this->defaultUnitsLine($preview->unitsPerBox)
+        : ($this->batch !== null ? $this->defaultUnitsLine((new Quantity((string) $this->batch->units_per_box))->display()) : '');
+    $displayExtraText = '';
+
     // Código ZPL exacto de la primera etiqueta para la simulación térmica física
     $sampleZpl = null;
-    if ($this->batch !== null && !empty($this->batch->zpl)) {
-        $firstZplEnd = strpos($this->batch->zpl, '^XZ');
-        $sampleZpl = $firstZplEnd !== false ? substr($this->batch->zpl, 0, $firstZplEnd + 3) : $this->batch->zpl;
+    if ($this->batch !== null) {
+        if ($this->editingLabel && $canEditCurrentLabel) {
+            $batchUnitsDisplay = (new Quantity((string) $this->batch->units_per_box))->display();
+            $defaultUnitsLine = $this->defaultUnitsLine($batchUnitsDisplay);
+            $livePayload = new BoxLabelPayload(
+                orderRef: $this->batch->production_order_ref,
+                itemCode: trim($this->customItemCode) !== '' ? trim($this->customItemCode) : $this->batch->item_code,
+                itemDescription: trim($this->customItemDescription) !== '' ? trim($this->customItemDescription) : $this->batch->item_description,
+                unitsPerBox: $batchUnitsDisplay,
+                uomName: $this->batch->uom_name,
+                lotCode: $this->batch->lot_code,
+                barcode: $this->batch->barcode,
+                expirationDate: $this->batch->expiration_date,
+                boxCode: $boxes->first()?->code ?? BoxLot::boxCode($this->batch->lot_code, $this->batch->first_sequence),
+                extraText: trim($this->customExtraText) !== '' ? trim($this->customExtraText) : null,
+                unitsText: (trim($this->customUnitsText) !== '' && trim($this->customUnitsText) !== $defaultUnitsLine) ? trim($this->customUnitsText) : null,
+            );
+            $sampleZpl = BoxLabelZpl::render($livePayload, $this->batch->production_date, $shownQr);
+            $displayItemCode = $livePayload->itemCode;
+            $displayDesc = $livePayload->itemDescription;
+            $displayUnitsLine = $livePayload->unitsText ?? $defaultUnitsLine;
+            $displayExtraText = $livePayload->extraText ?? '';
+            $hasCustomOverride = $livePayload->itemCode !== $this->batch->item_code
+                || $livePayload->itemDescription !== $this->batch->item_description
+                || $livePayload->extraText !== null
+                || $livePayload->unitsText !== null;
+        } else {
+            $resolvedBatchZpl = BoxLabelZplOverride::resolveZpl($this->batch);
+            if ($resolvedBatchZpl !== '') {
+                $firstZplEnd = strpos($resolvedBatchZpl, '^XZ');
+                $sampleZpl = $firstZplEnd !== false ? substr($resolvedBatchZpl, 0, $firstZplEnd + 3) : $resolvedBatchZpl;
+            }
+            if ($batchOverride !== null) {
+                $displayItemCode = $batchOverride['item_code'] !== '' ? $batchOverride['item_code'] : $this->batch->item_code;
+                $displayDesc = $batchOverride['item_description'] !== '' ? $batchOverride['item_description'] : $this->batch->item_description;
+                $displayUnitsLine = $batchOverride['units_text'] !== '' ? $batchOverride['units_text'] : $displayUnitsLine;
+                $displayExtraText = $batchOverride['extra_text'];
+                $hasCustomOverride = true;
+            }
+        }
     } elseif ($preview !== null) {
-        $sampleZpl = BoxLabelZpl::render($preview->withBox((string) ($nextBox ?? '0001')), today(), $shownQr);
+        $effectivePreview = $this->applyEditorOverridesToPayload($preview);
+        $sampleZpl = BoxLabelZpl::render($effectivePreview->withBox((string) ($nextBox ?? '0001')), today(), $shownQr);
+        $displayItemCode = $effectivePreview->itemCode;
+        $displayDesc = $effectivePreview->itemDescription;
+        $displayUnitsLine = $effectivePreview->unitsText ?? $this->defaultUnitsLine($effectivePreview->unitsPerBox);
+        $displayExtraText = $effectivePreview->extraText ?? '';
+        $hasCustomOverride = $effectivePreview->itemCode !== $preview->itemCode
+            || $effectivePreview->itemDescription !== $preview->itemDescription
+            || $effectivePreview->extraText !== null
+            || $effectivePreview->unitsText !== null;
     }
 @endphp
 
@@ -678,15 +970,61 @@ new #[Title('Etiquetas de caja')] class extends Component {
             </div>
 
             <div class="flex flex-col gap-3">
-                <div class="flex items-center justify-between">
-                    <flux:heading size="lg" level="2">{{ $this->batch ? 'Etiquetas generadas' : 'Vista previa' }}</flux:heading>
-                    @if ($sampleZpl !== null)
-                        <span class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                            <span class="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>
-                            Simulación Zebra ZT411 · 100 × 80 mm
-                        </span>
-                    @endif
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center gap-2">
+                        <flux:heading size="lg" level="2">{{ $this->batch ? 'Etiquetas generadas' : 'Vista previa' }}</flux:heading>
+                        @if ($hasCustomOverride)
+                            <flux:badge color="amber" size="sm" icon="pencil-square">Texto modificado</flux:badge>
+                        @endif
+                    </div>
+                    <div class="flex items-center gap-2">
+                        @if ($sampleZpl !== null && $canEditCurrentLabel)
+                            <flux:button size="xs" :variant="$editingLabel ? 'primary' : 'filled'" icon="pencil-square" wire:click="toggleLabelEditor">
+                                {{ $editingLabel ? 'Ocultar editor' : 'Modificar etiqueta' }}
+                            </flux:button>
+                        @endif
+                        @if ($sampleZpl !== null)
+                            <span class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                                <span class="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>
+                                Simulación Zebra ZT411 · 100 × 80 mm
+                            </span>
+                        @endif
+                    </div>
                 </div>
+
+                @if ($editingLabel && $canEditCurrentLabel && $sampleZpl !== null)
+                    <div class="rounded-xl border border-amber-300 bg-amber-50/70 p-4 space-y-3 dark:border-amber-800 dark:bg-amber-950/30">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                                Editar texto de la etiqueta (se refleja en tiempo real antes de imprimir)
+                            </div>
+                            <flux:button size="xs" variant="ghost" icon="arrow-uturn-left" wire:click="resetLabelCustomization">
+                                Restaurar original
+                            </flux:button>
+                        </div>
+
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <flux:input wire:model.live.debounce.350ms="customItemCode" label="Código PT (encabezado)" maxlength="40" autocomplete="off" />
+                            <flux:input wire:model.live.debounce.350ms="customUnitsText" label="Línea de caja / unidades" maxlength="60" autocomplete="off" />
+                        </div>
+
+                        <flux:textarea wire:model.live.debounce.350ms="customItemDescription" label="Título / descripción en etiqueta" rows="2" maxlength="200" />
+
+                        <flux:input wire:model.live.debounce.350ms="customExtraText" label="Palabras o texto adicional (opcional, debajo de CAJA)"
+                            placeholder="Ej. EXPORTACIÓN, PROMO, SIN AZÚCAR, MAQUILA..." maxlength="140" autocomplete="off" />
+
+                        <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+                            <span class="text-[11px] text-zinc-600 dark:text-zinc-400">
+                                El código QR y la trazabilidad del lote se mantienen intactos.
+                            </span>
+                            <div class="flex items-center gap-2">
+                                <flux:button size="sm" variant="primary" icon="check" wire:click="applyLabelCustomization" wire:loading.attr="disabled" wire:target="applyLabelCustomization">
+                                    {{ $this->batch ? "Aplicar a las {$this->batch->labels} etiquetas" : 'Aplicar a vista previa' }}
+                                </flux:button>
+                            </div>
+                        </div>
+                    </div>
+                @endif
 
                 @if ($sampleZpl !== null)
                     @php($data = BoxLabelPayload::decode($shownPayload))
@@ -741,17 +1079,20 @@ new #[Title('Etiquetas de caja')] class extends Component {
                             <div x-show="!imgUrl && !loading" class="w-full aspect-[10/8] p-4 text-black flex flex-col justify-between select-none font-sans">
                                 <div class="text-center">
                                     <div class="text-xl font-black tracking-wide leading-none uppercase">
-                                        {{ $data['item'] ?? ($preview?->itemCode ?? '') }}
+                                        {{ $displayItemCode }}
                                     </div>
-                                    <div class="text-sm font-black leading-tight mt-1 uppercase line-clamp-2">
-                                        {{ $data['description'] ?? ($preview?->itemDescription ?? '') }}
+                                    <div class="text-sm font-black leading-tight mt-1 uppercase line-clamp-3">
+                                        {{ $displayDesc }}
                                     </div>
                                 </div>
                                 <div class="flex items-center justify-between gap-2 px-1">
                                     <div class="space-y-1 text-sm font-black tracking-tight">
-                                        <div>LOTE: <span class="font-mono">{{ $data['lot'] ?? ($preview?->lotCode ?? '') }}</span></div>
-                                        <div>VENCE: <span class="font-mono">{{ $preview?->expirationDate->format('m/Y') ?? '' }}</span></div>
-                                        <div>CAJA : {{ $preview?->unitsPerBox ?? ($this->factor ? (new Quantity((string) $this->factor->units_per_box))->display() : '') }} UNIDADES</div>
+                                        <div>LOTE: <span class="font-mono">{{ $data['lot'] ?? ($preview?->lotCode ?? ($this->batch?->lot_code ?? '')) }}</span></div>
+                                        <div>VENCE: <span class="font-mono">{{ $this->batch?->expiration_date->format('m/Y') ?? ($preview?->expirationDate->format('m/Y') ?? '') }}</span></div>
+                                        <div>{{ $displayUnitsLine }}</div>
+                                        @if ($displayExtraText !== '')
+                                            <div class="text-xs font-bold leading-tight pt-0.5">{{ $displayExtraText }}</div>
+                                        @endif
                                     </div>
                                     <div class="shrink-0 flex items-center justify-center">
                                         <div class="h-24 w-24 [&_svg]:h-full [&_svg]:w-full">{!! BoxLabelQr::svg($shownQr) !!}</div>
@@ -876,6 +1217,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                             @elseif ($printerLock)
                                                 <flux:button size="sm" variant="ghost" disabled icon="lock-closed" title="Impresora ocupada por {{ $printerLock['user_name'] }}">En uso</flux:button>
                                             @else
+                                                <flux:button size="sm" variant="ghost" icon="pencil-square" wire:click="selectBatchForPreview({{ $b->id }})" title="Previsualizar y modificar texto antes de imprimir">Editar</flux:button>
                                                 <flux:button size="sm" variant="ghost" icon="printer" wire:click="printBatchDirect({{ $b->id }})" title="Imprimir directo en Zebra">Imprimir</flux:button>
                                             @endif
                                         </div>

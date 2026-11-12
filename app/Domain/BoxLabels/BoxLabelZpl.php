@@ -81,6 +81,17 @@ final class BoxLabelZpl
         $speed = (int) ($cfg['print_speed'] ?? LabelFormatConfig::printSpeed());
         $speed = max(2, min(14, $speed));
 
+        $ptText = $f($payload->itemCode);
+        $ptFontH = (int) ($cfg['pt_font_h'] ?? 54);
+        $ptFontW = (int) ($cfg['pt_font_w'] ?? 56);
+        if (mb_strlen($ptText) > 18) {
+            $ptFontH = min($ptFontH, 40);
+            $ptFontW = min($ptFontW, 42);
+        }
+
+        $unitsLine = trim((string) ($payload->unitsText ?? ''));
+        $cajaLine = $unitsLine !== '' ? $f($unitsLine) : 'CAJA : '.$f($payload->unitsPerBox).' UNIDADES';
+
         $lines = [
             '^XA',
             '^CI28',
@@ -89,17 +100,25 @@ final class BoxLabelZpl
             '^LS0',
             '^PR'.$speed.','.$speed.','.$speed,
             // Encabezado Centrado: Código PT y Descripción
-            '^FO'.($cfg['pt_x'] ?? 30).','.($cfg['pt_y'] ?? 18).'^FB'.($cfg['pt_w'] ?? 740).',1,0,C^A0N,'.($cfg['pt_font_h'] ?? 54).','.($cfg['pt_font_w'] ?? 56).'^FD'.$f($payload->itemCode).'^FS',
+            '^FO'.($cfg['pt_x'] ?? 30).','.($cfg['pt_y'] ?? 18).'^FB'.($cfg['pt_w'] ?? 740).',1,0,C^A0N,'.$ptFontH.','.$ptFontW.'^FD'.$ptText.'^FS',
             '^FO'.($cfg['desc_x'] ?? 30).','.($cfg['desc_y'] ?? 76).'^FB'.($cfg['desc_w'] ?? 740).','.$descLines.',2,C^A0N,'.$descFontH.','.$descFontW.'^FD'.$descText.'^FS',
             // Bloque izquierdo: Lote, Vencimiento, Unidades por caja
             '^FO'.($cfg['details_x'] ?? 35).','.($cfg['lot_y'] ?? 190).'^A0N,'.($cfg['details_font_size'] ?? 40).','.($cfg['details_font_size'] ?? 40).'^FDLOTE: '.$f($payload->lotCode).'^FS',
             '^FO'.($cfg['details_x'] ?? 35).','.($cfg['vence_y'] ?? 248).'^A0N,'.($cfg['details_font_size'] ?? 40).','.($cfg['details_font_size'] ?? 40).'^FDVENCE: '.$expirationFormatted.'^FS',
-            '^FO'.($cfg['details_x'] ?? 35).','.($cfg['caja_units_y'] ?? 306).'^A0N,'.($cfg['details_font_size'] ?? 40).','.($cfg['details_font_size'] ?? 40).'^FDCAJA : '.$f($payload->unitsPerBox).' UNIDADES^FS',
+            '^FO'.($cfg['details_x'] ?? 35).','.($cfg['caja_units_y'] ?? 306).'^A0N,'.($cfg['details_font_size'] ?? 40).','.($cfg['details_font_size'] ?? 40).'^FD'.$cajaLine.'^FS',
             // Restablecer estado global ^BY a altura por defecto antes del QR para evitar desplazamiento vertical en hardware Zebra
             '^BY2,3,10',
             // Código QR a la derecha en el bloque medio
             '^FO'.($cfg['qr_x'] ?? 555).','.($cfg['qr_y'] ?? 185).'^BQN,2,'.($cfg['qr_mag'] ?? 5).'^FH_^FDMA,'.self::hexField($qrContent).'^FS',
         ];
+
+        // Texto o palabras adicionales opcionales agregadas en previsualización (en espacio libre bajo CAJA)
+        $extraText = trim((string) ($payload->extraText ?? ''));
+        if ($extraText !== '') {
+            $extraCleaned = $f($extraText);
+            $extraFont = mb_strlen($extraCleaned) > 45 ? 24 : 28;
+            $lines[] = '^FO'.($cfg['extra_text_x'] ?? 35).','.($cfg['extra_text_y'] ?? 356).'^FB'.($cfg['extra_text_w'] ?? 480).',2,2,L^A0N,'.$extraFont.','.$extraFont.'^FD'.$extraCleaned.'^FS';
+        }
 
         // Logo Tecnoal
         if ($cfg['logo_show'] ?? true) {

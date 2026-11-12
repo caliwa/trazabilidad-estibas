@@ -2,6 +2,7 @@
 
 namespace App\Domain\BoxLabels\Actions;
 
+use App\Domain\BoxLabels\BoxLabelZplOverride;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
 use App\Enums\Permission;
@@ -46,7 +47,7 @@ class PrintBoxLabels
                 return ['success' => false, 'message' => 'Estas etiquetas ya se imprimieron y no se vuelven a imprimir: saldrían cajas con el mismo QR, que no se pueden contar. Para las cajas que faltan, usa «Generar etiquetas»: el consecutivo sigue con QR nuevos.'];
             }
 
-            $result = $this->zebra->printToSocket($ip, $port, $batch->zpl);
+            $result = $this->zebra->printToSocket($ip, $port, BoxLabelZplOverride::resolveZpl($batch));
 
             if (($result['success'] ?? false) !== true) {
                 return $result;

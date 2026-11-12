@@ -2,6 +2,7 @@
 
 namespace App\Domain\BoxLabels\Actions;
 
+use App\Domain\BoxLabels\BoxLabelZplOverride;
 use App\Domain\BoxLabels\Services\ZebraSessionLock;
 use App\Domain\Shared\TraceContext;
 use App\Domain\Shared\TraceEventType;
@@ -278,7 +279,7 @@ class ManagePrintJob
         }
 
         // 6. El búfer físico tiene espacio; transmitimos el siguiente micro-sublote (1 a 2 etiquetas)
-        $allLabels = $this->zebra->splitZplIntoLabels($job->batch->zpl ?? '');
+        $allLabels = $this->zebra->splitZplIntoLabels(BoxLabelZplOverride::resolveZpl($job->batch));
         $totalLabelsInZpl = count($allLabels);
 
         if ($totalLabelsInZpl === 0) {

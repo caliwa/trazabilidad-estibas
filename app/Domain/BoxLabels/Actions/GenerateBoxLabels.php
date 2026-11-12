@@ -4,6 +4,7 @@ namespace App\Domain\BoxLabels\Actions;
 
 use App\Domain\BoxLabels\BoxLabelPayload;
 use App\Domain\BoxLabels\BoxLabelZpl;
+use App\Domain\BoxLabels\BoxLabelZplOverride;
 use App\Domain\BoxLabels\BoxLot;
 use App\Domain\BoxLabels\BoxQr;
 use App\Domain\BoxLabels\Exceptions\BoxLabelRuleViolation;
@@ -48,8 +49,20 @@ class GenerateBoxLabels
 
     public const MAX_LABELS = 3000;
 
-    public function handle(User $user, int $productionOrderId, int $labels, CarbonImmutable $productionDate, ?CarbonImmutable $expirationDate, TraceContext $ctx, ?string $lotCode = null, bool $restartSequence = false): BoxLabelBatch
-    {
+    public function handle(
+        User $user,
+        int $productionOrderId,
+        int $labels,
+        CarbonImmutable $productionDate,
+        ?CarbonImmutable $expirationDate,
+        TraceContext $ctx,
+        ?string $lotCode = null,
+        bool $restartSequence = false,
+        ?string $customItemCode = null,
+        ?string $customItemDescription = null,
+        ?string $extraText = null,
+        ?string $customUnitsText = null,
+    ): BoxLabelBatch {
         Gate::forUser($user)->authorize(Permission::BoxLabelsPrint->value);
 
         if ($productionDate->startOfDay()->greaterThan(today())) {
@@ -65,8 +78,12 @@ class GenerateBoxLabels
         }
 
         $lotCode = $lotCode === null ? null : trim($lotCode);
+        $customItemCode = $customItemCode === null ? null : trim($customItemCode);
+        $customItemDescription = $customItemDescription === null ? null : trim($customItemDescription);
+        $extraText = $extraText === null ? null : trim($extraText);
+        $customUnitsText = $customUnitsText === null ? null : trim($customUnitsText);
 
-        return DB::transaction(function () use ($user, $productionOrderId, $labels, $productionDate, $expirationDate, $ctx, $lotCode, $restartSequence): BoxLabelBatch {
+        return DB::transaction(function () use ($user, $productionOrderId, $labels, $productionDate, $expirationDate, $ctx, $lotCode, $restartSequence, $customItemCode, $customItemDescription, $extraText, $customUnitsText): BoxLabelBatch {
             // The lock serialises batches of one order: box codes continue the lot without gaps or repeats.
             $order = ProductionOrder::query()->lockForUpdate()->findOrFail($productionOrderId);
 
@@ -200,6 +217,27 @@ class GenerateBoxLabels
                 }
             }
 
+            $unitsDisplay = (new Quantity((string) $factor->units_per_box))->display();
+            $defaultUnitsLine = 'CAJA : '.$unitsDisplay.' UNIDADES';
+            $effectiveItemCode = ($customItemCode !== null && $customItemCode !== '') ? $customItemCode : $item->code;
+            $effectiveItemDescription = ($customItemDescription !== null && $customItemDescription !== '') ? $customItemDescription : $item->description;
+            $effectiveUnitsText = ($customUnitsText !== null && $customUnitsText !== '' && $customUnitsText !== $defaultUnitsLine) ? $customUnitsText : null;
+            $effectiveExtraText = ($extraText !== null && $extraText !== '') ? $extraText : null;
+
+            $zplPayload = new BoxLabelPayload(
+                orderRef: $order->ref,
+                itemCode: $effectiveItemCode,
+                itemDescription: $effectiveItemDescription,
+                unitsPerBox: $unitsDisplay,
+                uomName: $order->uom_name ?? $item->inventory_uom,
+                lotCode: $lotCode,
+                barcode: $boxCode,
+                expirationDate: $expirationDate,
+                extraText: $effectiveExtraText,
+                unitsText: $effectiveUnitsText,
+            );
+            $renderedZpl = BoxLabelZpl::renderBoxes($zplPayload, $productionDate, $boxes);
+
             $batch = new BoxLabelBatch;
             $batch->forceFill([
                 'production_order_id' => $order->id,
@@ -222,10 +260,21 @@ class GenerateBoxLabels
                 // The printed text every label of the batch shares (each adds its box code). The QR
                 // itself carries only each box's token.
                 'qr_payload' => $payload->encode(),
-                'zpl' => BoxLabelZpl::renderBoxes($payload, $productionDate, $boxes),
+                'zpl' => $renderedZpl,
                 'generated_by' => $user->id,
                 'generated_at' => now(),
             ])->save();
+
+            if ($effectiveItemCode !== $item->code || $effectiveItemDescription !== $item->description || $effectiveExtraText !== null || $effectiveUnitsText !== null) {
+                BoxLabelZplOverride::save(
+                    $batch->id,
+                    $effectiveItemCode,
+                    $effectiveItemDescription,
+                    $effectiveUnitsText ?? $defaultUnitsLine,
+                    $effectiveExtraText ?? '',
+                    $renderedZpl,
+                );
+            }
 
             $now = now();
             $boxRows = [];
