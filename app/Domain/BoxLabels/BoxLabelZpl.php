@@ -107,8 +107,8 @@ final class BoxLabelZpl
             '^FO'.($cfg['details_x'] ?? 35).','.($cfg['caja_units_y'] ?? 306).'^A0N,'.($cfg['details_font_size'] ?? 40).','.($cfg['details_font_size'] ?? 40).'^FD'.$cajaLine.'^FS',
             // Restablecer estado global ^BY a altura por defecto antes del QR para evitar desplazamiento vertical en hardware Zebra
             '^BY2,3,10',
-            // Código QR a la derecha en el bloque medio (ampliación 6 para lectura rápida con Datalogic y cámaras)
-            '^FO'.($cfg['qr_x'] ?? 540).','.($cfg['qr_y'] ?? 175).'^BQN,2,'.($cfg['qr_mag'] ?? 6).'^FH_^FDMA,'.self::hexField($qrContent).'^FS',
+            // Código QR a la derecha en el bloque medio (ampliación máxima 8 respetando márgenes y centrado con logo)
+            '^FO'.($cfg['qr_x'] ?? 520).','.($cfg['qr_y'] ?? 165).'^BQN,2,'.($cfg['qr_mag'] ?? 8).'^FH_^FDMA,'.self::hexField($qrContent).'^FS',
         ];
 
         // Texto o palabras adicionales opcionales agregadas en previsualización (en espacio libre bajo CAJA)
@@ -116,7 +116,7 @@ final class BoxLabelZpl
         if ($extraText !== '') {
             $extraCleaned = $f($extraText);
             $extraFont = mb_strlen($extraCleaned) > 45 ? 24 : 28;
-            $lines[] = '^FO'.($cfg['extra_text_x'] ?? 35).','.($cfg['extra_text_y'] ?? 356).'^FB'.($cfg['extra_text_w'] ?? 480).',2,2,L^A0N,'.$extraFont.','.$extraFont.'^FD'.$extraCleaned.'^FS';
+            $lines[] = '^FO'.($cfg['extra_text_x'] ?? 35).','.($cfg['extra_text_y'] ?? 356).'^FB'.($cfg['extra_text_w'] ?? 460).',2,2,L^A0N,'.$extraFont.','.$extraFont.'^FD'.$extraCleaned.'^FS';
         }
 
         // Logo Tecnoal

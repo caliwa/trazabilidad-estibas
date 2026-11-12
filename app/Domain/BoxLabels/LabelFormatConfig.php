@@ -84,10 +84,10 @@ final class LabelFormatConfig
             'lot_y' => 190,
             'vence_y' => 248,
             'caja_units_y' => 306,
-            // Código QR
-            'qr_mag' => 6,
-            'qr_x' => 540,
-            'qr_y' => 175,
+            // Código QR (ampliación máxima 8 respetando márgenes y centrado vertical con logo)
+            'qr_mag' => 8,
+            'qr_x' => 520,
+            'qr_y' => 165,
             // Logo Tecnoal
             'logo_show' => true,
             'logo_x' => 535,
@@ -179,11 +179,11 @@ final class LabelFormatConfig
         $scaled['barcode_height'] = max(40, min(150, (int) round($base['barcode_height'] * $factor)));
 
         if ($percent <= 80) {
-            $scaled['qr_mag'] = 5;
-        } elseif ($percent >= 120) {
-            $scaled['qr_mag'] = 7;
-        } else {
             $scaled['qr_mag'] = 6;
+        } elseif ($percent >= 120) {
+            $scaled['qr_mag'] = 9;
+        } else {
+            $scaled['qr_mag'] = 8;
         }
 
         return $scaled;
