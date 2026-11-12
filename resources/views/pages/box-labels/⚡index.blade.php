@@ -194,6 +194,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
             lotCode: (string) $this->lot(),
             barcode: (string) Itf14::forBox($this->order->item->barcode, Itf14::indicator()),
             expirationDate: $expiration,
+            unitsLabel: BoxLabelPayload::salesUnits($this->order->item->sales_qty_per_pack_unit, $this->order->item->sales_unit, $this->order->item->sales_packaging_unit, (new Quantity((string) $this->factor->units_per_box))->display()),
         );
     }
 
@@ -464,7 +465,7 @@ new #[Title('Etiquetas de caja')] class extends Component {
                                     <div class="space-y-1 text-sm font-black tracking-tight">
                                         <div>LOTE: <span class="font-mono">{{ $data['lot'] ?? ($preview?->lotCode ?? '') }}</span></div>
                                         <div>VENCE: <span class="font-mono">{{ $preview?->expirationDate->format('m/Y') ?? '' }}</span></div>
-                                        <div>CAJA : {{ $preview?->unitsPerBox ?? ($this->factor ? (new Quantity((string) $this->factor->units_per_box))->display() : '') }} UNIDADES</div>
+                                        <div data-label-units>{{ $preview?->unitsText() ?? ($this->factor ? 'CAJA : '.(new Quantity((string) $this->factor->units_per_box))->display().' UNIDADES' : '') }}</div>
                                     </div>
                                     <div class="shrink-0 flex items-center justify-center">
                                         <div class="h-24 w-24 [&_svg]:h-full [&_svg]:w-full">{!! BoxLabelQr::svg($shownQr) !!}</div>

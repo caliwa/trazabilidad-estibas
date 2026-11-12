@@ -65,7 +65,7 @@ final class BoxLabelZpl
             // Bloque izquierdo: Lote, Vencimiento, Unidades por caja
             '^FO35,190^A0N,42,42^FDLOTE: '.$f($payload->lotCode).'^FS',
             '^FO35,250^A0N,42,42^FDVENCE: '.$expirationFormatted.'^FS',
-            '^FO35,310^A0N,42,42^FDCAJA : '.$f($payload->unitsPerBox).' UNIDADES^FS',
+            '^FO35,310^A0N,42,42^FD'.$f($payload->unitsText()).'^FS',
             // Código QR a la derecha en el bloque medio (más grande, ampliación 6)
             '^FO545,150^BQN,2,6^FH_^FDMA,'.self::hexField($qrContent).'^FS',
         ];
