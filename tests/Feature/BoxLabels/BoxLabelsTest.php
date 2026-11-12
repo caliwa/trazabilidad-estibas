@@ -248,6 +248,26 @@ class BoxLabelsTest extends TestCase
         $this->assertStringContainsString('^FDMA,'.BoxQr::payload((string) $tokens[24]).'^FS', $batch->zpl);
     }
 
+    public function test_the_label_shows_the_sales_units_of_the_item(): void
+    {
+        $order = $this->ready();
+        Item::query()->whereKey($order->item_id)->update(['sales_qty_per_pack_unit' => '24.000000', 'sales_unit' => 'UND', 'sales_packaging_unit' => 'CAJA']);
+
+        $batch = $this->generate($order->refresh(), 1);
+        $this->assertStringContainsString('^FD24 UND (CAJA)^FS', $batch->zpl);
+        $this->assertStringNotContainsString('UNIDADES', $batch->zpl);
+
+        Livewire::actingAs($this->operator)->test('pages::box-labels.index')
+            ->set('docNum', '33128')->call('consult')
+            ->assertSee('24 UND (CAJA)');
+
+        // Parts SAP does not have are left out; without any, the units per box as before.
+        $this->assertSame('24 UND', BoxLabelPayload::salesUnits('24.000000', 'UND', null));
+        $this->assertSame('12 (CAJA)', BoxLabelPayload::salesUnits(null, null, 'CAJA', '12'));
+        $this->assertNull(BoxLabelPayload::salesUnits(null, null, null));
+        $this->assertNull(BoxLabelPayload::salesUnits('24.000000', null, null));
+    }
+
     public function test_every_box_label_has_its_own_code_continuing_the_lot(): void
     {
         $order = $this->ready();

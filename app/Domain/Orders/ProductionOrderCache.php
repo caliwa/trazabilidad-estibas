@@ -46,6 +46,7 @@ final class ProductionOrderCache
             'barcode' => $sapOrder->itemBarcode,
             'sales_qty_per_pack_unit' => $sapOrder->itemSalesQtyPerPackUnit,
             'sales_packaging_unit' => $sapOrder->itemSalesPackagingUnit === null ? null : mb_substr($sapOrder->itemSalesPackagingUnit, 0, 30),
+            'sales_unit' => $sapOrder->itemSalesUnit === null ? null : mb_substr($sapOrder->itemSalesUnit, 0, 30),
             'boxes_per_pallet' => $sapOrder->itemBoxesPerPallet,
             'active' => true,
             'synced_at' => now(),

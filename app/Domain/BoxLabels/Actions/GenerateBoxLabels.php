@@ -137,6 +137,7 @@ class GenerateBoxLabels
                 lotCode: $lotCode,
                 barcode: $boxCode,
                 expirationDate: $expirationDate,
+                unitsLabel: BoxLabelPayload::salesUnits($item->sales_qty_per_pack_unit, $item->sales_unit, $item->sales_packaging_unit, (new Quantity((string) $factor->units_per_box))->display()),
             );
 
             // Box codes continue the lot's sequence across batches (the order row is locked).
