@@ -107,8 +107,8 @@ final class BoxLabelZpl
             '^FO'.($cfg['details_x'] ?? 35).','.($cfg['caja_units_y'] ?? 306).'^A0N,'.($cfg['details_font_size'] ?? 40).','.($cfg['details_font_size'] ?? 40).'^FD'.$cajaLine.'^FS',
             // Restablecer estado global ^BY a altura por defecto antes del QR para evitar desplazamiento vertical en hardware Zebra
             '^BY2,3,10',
-            // Código QR a la derecha en el bloque medio
-            '^FO'.($cfg['qr_x'] ?? 555).','.($cfg['qr_y'] ?? 185).'^BQN,2,'.($cfg['qr_mag'] ?? 5).'^FH_^FDMA,'.self::hexField($qrContent).'^FS',
+            // Código QR a la derecha en el bloque medio (ampliación 6 para lectura rápida con Datalogic y cámaras)
+            '^FO'.($cfg['qr_x'] ?? 540).','.($cfg['qr_y'] ?? 175).'^BQN,2,'.($cfg['qr_mag'] ?? 6).'^FH_^FDMA,'.self::hexField($qrContent).'^FS',
         ];
 
         // Texto o palabras adicionales opcionales agregadas en previsualización (en espacio libre bajo CAJA)

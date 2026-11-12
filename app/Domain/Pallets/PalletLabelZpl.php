@@ -56,7 +56,7 @@ final class PalletLabelZpl
         $height = (int) ($cfg['height_dots'] ?? self::HEIGHT_DOTS);
         $speed = (int) ($cfg['print_speed'] ?? LabelFormatConfig::printSpeed());
         $speed = max(2, min(14, $speed));
-        $detailsFont = (int) ($cfg['details_font'] ?? 36);
+        $detailsFont = (int) ($cfg['details_font'] ?? 34);
         $textY = (int) ($cfg['text_y'] ?? 40);
 
         $lines = [
@@ -68,48 +68,57 @@ final class PalletLabelZpl
             '^PR'.$speed.','.$speed.','.$speed,
             '^FWR', // Rotación a 90° para orientación vertical
             // 1. Cabecera vertical: Código de la estiba centrado
-            '^FO'.($cfg['pallet_code_x'] ?? 730).','.($cfg['pallet_code_y'] ?? 30).'^FB'.($cfg['pallet_code_w'] ?? 580).',1,0,C^A0R,'.($cfg['pallet_code_font_h'] ?? 54).','.($cfg['pallet_code_font_w'] ?? 52).'^FD'.$palletCode.'^FS',
-            // 2. Restablecer estado global ^BY y generar Código QR centrado horizontalmente
+            '^FO'.($cfg['pallet_code_x'] ?? 740).','.($cfg['pallet_code_y'] ?? 30).'^FB'.($cfg['pallet_code_w'] ?? 580).',1,0,C^A0R,'.($cfg['pallet_code_font_h'] ?? 54).','.($cfg['pallet_code_font_w'] ?? 52).'^FD'.$palletCode.'^FS',
+            // 2. Restablecer estado global ^BY y generar Código QR centrado horizontalmente (mag 8 para máxima legibilidad)
             '^BY2,3,10',
-            '^FO'.($cfg['qr_x'] ?? 475).','.($cfg['qr_y'] ?? 200).'^BQR,2,'.($cfg['qr_mag'] ?? 7).'^FH_^FDMA,'.self::hexField($qrPayload).'^FS',
+            '^FO'.($cfg['qr_x'] ?? 475).','.($cfg['qr_y'] ?? 204).'^BQR,2,'.($cfg['qr_mag'] ?? 8).'^FH_^FDMA,'.self::hexField($qrPayload).'^FS',
             // 3. Línea divisoria superior
-            '^FO'.($cfg['div1_x'] ?? 450).',35^GB2,570,2^FS',
+            '^FO'.($cfg['div1_x'] ?? 445).',35^GB2,570,2^FS',
             // 4. Datos de la orden y producto
-            '^FO'.($cfg['order_x'] ?? 400).','.$textY.'^A0R,'.$detailsFont.','.$detailsFont.'^FDORDEN: '.$orderRef.'^FS',
-            '^FO'.($cfg['item_x'] ?? 350).','.$textY.'^A0R,'.$detailsFont.','.$detailsFont.'^FDPRODUCTO: '.$itemCode.'^FS',
+            '^FO'.($cfg['order_x'] ?? 405).','.$textY.'^A0R,'.$detailsFont.','.$detailsFont.'^FDORDEN: '.$orderRef.'^FS',
+            '^FO'.($cfg['item_x'] ?? 365).','.$textY.'^A0R,'.$detailsFont.','.$detailsFont.'^FDPRODUCTO: '.$itemCode.'^FS',
         ];
 
-        // Descripción dinámica (1 o 2 líneas según longitud)
+        // Descripción dinámica adaptativa para evitar sobreposiciones en títulos largos:
+        // En ZPL con ^FWR el comando ^FB ubica el cursor en la última línea y crece hacia mayor X.
+        // Calculamos foDescX para que la Línea 1 comience exactamente en topDescX (325) sin tocar PRODUCTO (365) ni LOTE.
         $descLen = mb_strlen($itemDesc);
-        if ($descLen > 50) {
-            $descFont = (int) ($cfg['desc_font_long'] ?? 26);
-            $lines[] = '^FO'.($cfg['desc_x'] ?? 300).','.$textY.'^FB560,2,2,L^A0R,'.$descFont.','.$descFont.'^FD'.$itemDesc.'^FS';
-            $currentX = (int) ($cfg['lot_x'] ?? 235);
-        } elseif ($descLen > 30) {
-            $descFont = (int) ($cfg['desc_font'] ?? 28);
-            $lines[] = '^FO'.($cfg['desc_x'] ?? 300).','.$textY.'^FB560,2,2,L^A0R,'.$descFont.','.$descFont.'^FD'.$itemDesc.'^FS';
-            $currentX = (int) ($cfg['lot_x'] ?? 235);
+        if ($descLen > 75) {
+            $descFont = (int) ($cfg['desc_font_extra_long'] ?? 22);
+            $descLines = 3;
+        } elseif ($descLen > 45) {
+            $descFont = (int) ($cfg['desc_font_long'] ?? 24);
+            $descLines = 2;
+        } elseif ($descLen > 25) {
+            $descFont = (int) ($cfg['desc_font'] ?? 26);
+            $descLines = 2;
         } else {
-            $descFont = (int) ($cfg['desc_font'] ?? 30);
-            $lines[] = '^FO'.($cfg['desc_x'] ?? 300).','.$textY.'^FB560,1,0,L^A0R,'.$descFont.','.$descFont.'^FD'.$itemDesc.'^FS';
-            $currentX = (int) ($cfg['lot_x'] ?? 245);
+            $descFont = (int) ($cfg['desc_font'] ?? 28);
+            $descLines = 1;
         }
 
-        $lines[] = '^FO'.$currentX.','.$textY.'^A0R,'.$detailsFont.','.$detailsFont.'^FDLOTE: '.$lotCode.'^FS';
-        $venceX = (int) ($cfg['vence_x'] ?? ($currentX - 55));
+        $topDescX = (int) ($cfg['desc_x'] ?? 325);
+        $lineSpacing = 2;
+        $foDescX = $topDescX - (($descLines - 1) * ($descFont + $lineSpacing));
+        $lines[] = '^FO'.$foDescX.','.$textY.'^FB560,'.$descLines.','.$lineSpacing.',L^A0R,'.$descFont.','.$descFont.'^FD'.$itemDesc.'^FS';
+
+        // Lote y Vencimiento ubicados dinámicamente debajo de la descripción para evitar colisiones
+        $lotX = (int) ($cfg['lot_x'] ?? ($foDescX - 42));
+        $venceX = (int) ($cfg['vence_x'] ?? ($lotX - 42));
+        $lines[] = '^FO'.$lotX.','.$textY.'^A0R,'.$detailsFont.','.$detailsFont.'^FDLOTE: '.$lotCode.'^FS';
         $lines[] = '^FO'.$venceX.','.$textY.'^A0R,'.$detailsFont.','.$detailsFont.'^FDVENCE: '.$expirationFormatted.'^FS';
 
         // 5. Línea divisoria inferior
-        $div2X = (int) ($cfg['div2_x'] ?? 140);
+        $div2X = (int) ($cfg['div2_x'] ?? 150);
         $lines[] = '^FO'.$div2X.',35^GB2,570,2^FS';
 
         // 6. Pie de página: Metadatos de impresión y motivo de reimpresión si aplica
-        $footerX = (int) ($cfg['footer_x'] ?? 105);
-        $footerFont = (int) ($cfg['footer_font'] ?? 24);
+        $footerX = (int) ($cfg['footer_x'] ?? 115);
+        $footerFont = (int) ($cfg['footer_font'] ?? 22);
         $metaText = 'Impresion #'.$printNumber.' - '.$printDate;
         if ($isReprint) {
             $lines[] = '^FO'.$footerX.',40^A0R,'.$footerFont.','.$footerFont.'^FD'.$metaText.'^FS';
-            $reasonX = $footerX - 30;
+            $reasonX = $footerX - 28;
             $reasonText = $reason ? 'REIMPRESION: '.mb_substr($reason, 0, 45) : '*** REIMPRESION ***';
             $lines[] = '^FO'.$reasonX.',40^A0R,'.($footerFont + 2).','.($footerFont + 2).'^FD'.$reasonText.'^FS';
         } else {

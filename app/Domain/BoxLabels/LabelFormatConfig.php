@@ -85,9 +85,9 @@ final class LabelFormatConfig
             'vence_y' => 248,
             'caja_units_y' => 306,
             // Código QR
-            'qr_mag' => 5,
-            'qr_x' => 555,
-            'qr_y' => 185,
+            'qr_mag' => 6,
+            'qr_x' => 540,
+            'qr_y' => 175,
             // Logo Tecnoal
             'logo_show' => true,
             'logo_x' => 535,
@@ -126,27 +126,26 @@ final class LabelFormatConfig
             // Código de estiba (EST-XXXXXXXX)
             'pallet_code_font_h' => 54,
             'pallet_code_font_w' => 52,
-            'pallet_code_x' => 730,
+            'pallet_code_x' => 740,
             'pallet_code_y' => 30,
             'pallet_code_w' => 580,
-            // Código QR
-            'qr_mag' => 7,
+            // Código QR (ampliación 8 para lectura de largo alcance y escaneo rápido)
+            'qr_mag' => 8,
             'qr_x' => 475,
-            'qr_y' => 200,
+            'qr_y' => 204,
             // Divisores y bloques verticales
-            'div1_x' => 450,
-            'div2_x' => 140,
-            'order_x' => 400,
-            'item_x' => 350,
-            'desc_x' => 300,
-            'lot_x' => 235,
-            'vence_x' => 180,
+            'div1_x' => 445,
+            'div2_x' => 150,
+            'order_x' => 405,
+            'item_x' => 365,
+            'desc_x' => 325,
             'text_y' => 40,
-            'details_font' => 36,
-            'desc_font' => 28,
-            'desc_font_long' => 26,
-            'footer_font' => 24,
-            'footer_x' => 105,
+            'details_font' => 34,
+            'desc_font' => 26,
+            'desc_font_long' => 24,
+            'desc_font_extra_long' => 22,
+            'footer_font' => 22,
+            'footer_x' => 115,
         ];
     }
 
@@ -180,11 +179,11 @@ final class LabelFormatConfig
         $scaled['barcode_height'] = max(40, min(150, (int) round($base['barcode_height'] * $factor)));
 
         if ($percent <= 80) {
-            $scaled['qr_mag'] = 4;
-        } elseif ($percent >= 120) {
-            $scaled['qr_mag'] = 6;
-        } else {
             $scaled['qr_mag'] = 5;
+        } elseif ($percent >= 120) {
+            $scaled['qr_mag'] = 7;
+        } else {
+            $scaled['qr_mag'] = 6;
         }
 
         return $scaled;
@@ -214,11 +213,11 @@ final class LabelFormatConfig
         $scaled['footer_font'] = max(16, (int) round($base['footer_font'] * $factor));
 
         if ($percent <= 80) {
-            $scaled['qr_mag'] = 5;
+            $scaled['qr_mag'] = 6;
         } elseif ($percent >= 120) {
-            $scaled['qr_mag'] = 8;
+            $scaled['qr_mag'] = 9;
         } else {
-            $scaled['qr_mag'] = 7;
+            $scaled['qr_mag'] = 8;
         }
 
         return $scaled;
